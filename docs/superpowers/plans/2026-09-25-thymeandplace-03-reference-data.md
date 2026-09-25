@@ -3271,3 +3271,38 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - [ ] `go vet ./... && go test ./... -count=1` passes (Docker running). `python -m pytest pipeline/tests` passes.
 - [ ] Manual smoke against the dev DB (`deploy/compose.dev.yaml`), with `BLOB_DIR=./.blob INGEST_WORKDIR=./.work` (add both to `.gitignore`): run `go run ./cmd/ingest places fetch`, then `approve-license --version N --yes`, then `all --version N`. `SELECT count(*) FROM place` returns more than 100,000 rows. **Before approving, read the GeoNames license text printed by `fetch`.**
 - [ ] For ocean, before approving: the Esri Oceans item (`https://oceans-esrioceans.hub.arcgis.com/datasets/EsriOceans::meow`) states no licence. Confirm the terms with the original MEOW publishers (TNC/WWF) and record them. If the service URL changes, set `OCEAN_SOURCE_URL`.
+
+---
+
+### Task 7 (added during execution): Clip MEOW ecoregions to water with Natural Earth land
+
+**Why:** Real-data smoke run (2026-09-25): the Esri Oceans MEOW polygons for coastal ecoregions extend far over land (ecoregion 27 "South European Atlantic Shelf" has a vertex at (-4.41, 40.43), ~36 km from Madrid). With spec §6.2's "within 100 km of an ecoregion", most of inland Iberia would get seafood, contradicting "Inland points return none", and `ingest ocean validate` fails the Madrid inland spot check. Controller ruling: subtract land (Natural Earth 1:50m land polygons, public domain) from every ecoregion during the ocean load, so "nearby" means within 100 km of the ecoregion's WATER.
+
+**Files:**
+- Modify: `internal/ingest/ocean.go`, `internal/ingest/ocean_test.go`
+
+**Interfaces:**
+- Consumes: Task 5's `Ocean` dataset, `copyStage`, `Pipeline`.
+- Produces:
+  - `const ingest.DefaultLandURL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson"` (verified 200 OK, 1,636,166 bytes, 2026-09-25)
+  - `Ocean` gains field `Land Source` (File `ne_50m_land.geojson`); `NewOcean(url string)` keeps its signature and sets `Land` to the default; a second constructor argument is NOT added (override via a new env var `OCEAN_LAND_URL` read in cmd/ingest: `ingest.NewOcean(getenv("OCEAN_SOURCE_URL"))` then `if u := getenv("OCEAN_LAND_URL"); u != "" { o.Land.URL = u }` — or add `func NewOceanWithLand(meowURL, landURL string) *Ocean` and have NewOcean call it; choose one and keep cmd/ingest consistent).
+  - `(*Ocean).Sources()` returns both sources (MEOW first, then land).
+  - `License()` also names Natural Earth: append "; land mask: Natural Earth 1:50m land (public domain, naturalearthdata.com)".
+
+**Behaviour:**
+1. Transform reads both raw files. It writes ONE CSV with header `kind,ecoregion_id,name,geojson` where `kind` is `eco` (MEOW rows, exactly as Task 5's checks: ArcGIS error payload, exceededTransferLimit, zero features, non-polygon geometry all fail) or `land` (every Natural Earth feature with Polygon/MultiPolygon geometry; ecoregion_id 0, empty name). Land file must be a FeatureCollection with ≥1 polygon feature, else fail.
+2. Load stages both kinds (temp table with a `kind` column), builds a subdivided land table (`ST_Subdivide(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(geojson),4326)), 256)` into a temp table with a GiST index), then for each ecoregion inserts
+   `ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Difference(eco, coalesce((SELECT ST_Union(l.g) FROM land l WHERE ST_Intersects(l.g, eco)), 'GEOMETRYCOLLECTION EMPTY'::geometry))), 3))::geography`
+   where `eco` is Task 5's per-ecoregion union of valid parts (keep the per-part ST_MakeValid before ST_Union from the fix wave). Work in geometry (SRID 4326) and cast to geography only at the end. An ecoregion whose water part is empty after clipping is skipped (not inserted) and does not fail the load.
+3. Check stays as Task 5 (count bounds 225–240, coastal/inland spot checks, catalog referential check). Madrid, Denver, Ulaanbaatar, Bamako must now be inland against real data; coastal cities must still be within 100 km.
+
+**Tests (TDD):**
+- Update the synthetic test data so each test serves both files: add a land GeoJSON helper (`landGeoJSON(t, polys...)`).
+- New test: an ecoregion rectangle that overlaps a land rectangle; after load, a point inside the land part and >100 km from the remaining water returns no ecoregion; a point in the water part returns it; a point on land within 100 km of the water part returns it.
+- New test: an ecoregion entirely covered by land is skipped (count reflects it) and the load succeeds.
+- New test: land file that is not a FeatureCollection / has zero polygons → transform error.
+- Existing Task 5 tests must still pass (serve an empty-overlap land file where land is irrelevant).
+
+**Real-data verification (required):** against the local dev DB (`docker compose -f deploy/compose.dev.yaml up -d`, DATABASE_URL='postgres://tp:tp@localhost:55432/thymeandplace?sslmode=disable', BLOB_DIR=./.blob, INGEST_WORKDIR=./.work — both gitignored): `go run ./cmd/ingest ocean fetch`, `approve-license --version N --yes` (LOCAL smoke only; production licence review is the owner's job), `transform`, `load`, `validate`. Validation must pass (Madrid inland; 10 coastal points within 100 km; 225–240 ecoregions). Record commands, timings of load, and output. Then `swap --version N` on the dev DB and record `SELECT count(*) FROM ocean_ecoregion`.
+
+**Commit:** "feat(ingest): clip MEOW ecoregions to water with Natural Earth land"

@@ -26,10 +26,11 @@ func main() {
 }
 
 func defaultDatasets(getenv func(string) string) map[string]func() ingest.Dataset {
-	// NewOcean and NewClimate don't exist until Tasks 5 and 6; those lines
-	// are added when those tasks land.
+	// NewClimate doesn't exist until Task 6; that line is added when that
+	// task lands.
 	return map[string]func() ingest.Dataset{
 		"places": func() ingest.Dataset { return ingest.NewPlaces() },
+		"ocean":  func() ingest.Dataset { return ingest.NewOcean(getenv("OCEAN_SOURCE_URL")) },
 	}
 }
 

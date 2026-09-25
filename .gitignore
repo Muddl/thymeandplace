@@ -13,6 +13,9 @@ __pycache__/
 .pytest_cache/
 .venv/
 pipeline/.venv/
+# ingest scratch (blob store + workdir for local/manual runs)
+.blob/
+.work/
 # editor
 .idea/
 .vscode/

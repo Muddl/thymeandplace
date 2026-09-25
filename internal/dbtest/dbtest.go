@@ -11,9 +11,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/moby/moby/client"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"thymeandplace/internal/db"
@@ -29,17 +31,46 @@ var (
 	createMu sync.Mutex
 )
 
+// containerStartBackoff is the delay before each retry of postgres.Run, one
+// entry per retry attempt (so len(containerStartBackoff)+1 attempts total).
+// Docker-provider detection has been observed to race transiently when
+// multiple test binaries start containers at once; a short retry absorbs it.
+var containerStartBackoff = []time.Duration{time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second}
+
 func start() {
 	ctx := context.Background()
-	c, err := postgres.Run(ctx, Image,
-		postgres.WithDatabase("tp_admin"),
-		postgres.WithUsername("tp"),
-		postgres.WithPassword("tp"),
-		postgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		startErr = fmt.Errorf("start container: %w", err)
-		return
+	// testcontainers-go resolves the Docker host once per process
+	// (internal/core.ExtractDockerHost, guarded by a sync.Once) and, absent
+	// DOCKER_HOST, does so on Windows by os.Stat-ing the named pipe; that
+	// stat has been observed to fail transiently when two test binaries
+	// start containers at the same time, and because the result is cached
+	// for the process's lifetime, no amount of retrying postgres.Run below
+	// can recover from it once it happens. Setting DOCKER_HOST up front to
+	// the same value the Docker client already defaults to (this is a no-op
+	// on a normal setup) avoids that stat, and the race, entirely.
+	if os.Getenv("DOCKER_HOST") == "" {
+		os.Setenv("DOCKER_HOST", client.DefaultDockerHost)
+	}
+	var c *postgres.PostgresContainer
+	var err error
+	for attempt := 0; ; attempt++ {
+		c, err = postgres.Run(ctx, Image,
+			postgres.WithDatabase("tp_admin"),
+			postgres.WithUsername("tp"),
+			postgres.WithPassword("tp"),
+			postgres.BasicWaitStrategies(),
+		)
+		if err == nil {
+			break
+		}
+		if c != nil {
+			_ = c.Terminate(ctx)
+		}
+		if attempt >= len(containerStartBackoff) {
+			startErr = fmt.Errorf("start container: %w", err)
+			return
+		}
+		time.Sleep(containerStartBackoff[attempt])
 	}
 	// The container is reaped by testcontainers when the test binary exits.
 	adminURL, err = c.ConnectionString(ctx, "sslmode=disable")

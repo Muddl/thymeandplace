@@ -12,6 +12,7 @@
 __pycache__/
 .pytest_cache/
 .venv/
+pipeline/.venv/
 # editor
 .idea/
 .vscode/

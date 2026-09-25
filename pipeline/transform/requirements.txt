@@ -1,0 +1,5 @@
+numpy>=2.0
+pandas>=2.2
+xarray>=2024.10
+dask[array]>=2024.10
+netCDF4>=1.7

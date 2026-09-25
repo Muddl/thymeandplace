@@ -26,11 +26,10 @@ func main() {
 }
 
 func defaultDatasets(getenv func(string) string) map[string]func() ingest.Dataset {
-	// NewClimate doesn't exist until Task 6; that line is added when that
-	// task lands.
 	return map[string]func() ingest.Dataset{
-		"places": func() ingest.Dataset { return ingest.NewPlaces() },
-		"ocean":  func() ingest.Dataset { return ingest.NewOcean(getenv("OCEAN_SOURCE_URL")) },
+		"places":  func() ingest.Dataset { return ingest.NewPlaces() },
+		"ocean":   func() ingest.Dataset { return ingest.NewOcean(getenv("OCEAN_SOURCE_URL")) },
+		"climate": func() ingest.Dataset { return ingest.NewClimate(getenv("CLIMATE_SOURCE_BASE")) },
 	}
 }
 

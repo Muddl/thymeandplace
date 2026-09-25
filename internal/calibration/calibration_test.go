@@ -6,11 +6,11 @@ import (
 	"testing"
 	"testing/fstest"
 
+	calibfixtures "thymeandplace/calibration"
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/catalog/catalogtest"
 	"thymeandplace/internal/climate/climatetest"
 	"thymeandplace/internal/season"
-	calibfixtures "thymeandplace/calibration"
 )
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-3 }

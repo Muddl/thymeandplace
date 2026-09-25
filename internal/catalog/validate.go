@@ -73,12 +73,18 @@ func (ing Ingredient) Validate() []Problem {
 		add("kind", "wild_mushroom must be in the mushroom category")
 	}
 
-	for field, v := range map[string]*int{
-		"months_to_harvest": ing.MonthsToHarvest, "chill_months_min": ing.ChillMonthsMin,
-		"months_bloom_to_harvest": ing.MonthsBloomToHarvest, "harvest_span_months": ing.HarvestSpanMonths,
-	} {
-		if v != nil && (*v < math.MinInt16 || *v > math.MaxInt16) {
-			add(field, "is out of range")
+	smallintFields := []struct {
+		field string
+		v     *int
+	}{
+		{"months_to_harvest", ing.MonthsToHarvest},
+		{"chill_months_min", ing.ChillMonthsMin},
+		{"months_bloom_to_harvest", ing.MonthsBloomToHarvest},
+		{"harvest_span_months", ing.HarvestSpanMonths},
+	}
+	for _, f := range smallintFields {
+		if f.v != nil && (*f.v < math.MinInt16 || *f.v > math.MaxInt16) {
+			add(f.field, "is out of range")
 		}
 	}
 

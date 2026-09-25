@@ -56,7 +56,7 @@ func WildMushroom() catalog.Ingredient {
 func Seafood() catalog.Ingredient {
 	return catalog.Ingredient{
 		Slug: "atlantic-cod", Name: "Atlantic cod", Category: catalog.CategorySeafood, Kind: catalog.KindSeafood,
-		Regions: []catalog.SeafoodRegion{{EcoregionID: 25, Months: []int{1, 2, 3, 4}, PeakMonths: []int{2, 3}}},
+		Regions:   []catalog.SeafoodRegion{{EcoregionID: 25, Months: []int{1, 2, 3, 4}, PeakMonths: []int{2, 3}}},
 		TipChoose: "Firm, translucent flesh; clean sea smell.", TipStore: "Coldest part of the fridge.",
 	}
 }

@@ -48,9 +48,17 @@ func TestAppOnlyRules(t *testing.T) {
 			i.Regions = catalogtest.Seafood().Regions
 			return i
 		}(), "regions"},
-		{"smallint overflow", func() catalog.Ingredient { i := catalogtest.YearRound(); i.MonthsToHarvest = catalogtest.P(40000); return i }(), "months_to_harvest"},
+		{"smallint overflow", func() catalog.Ingredient {
+			i := catalogtest.YearRound()
+			i.MonthsToHarvest = catalogtest.P(40000)
+			return i
+		}(), "months_to_harvest"},
 		// The DB write path uses ON CONFLICT for links, so duplicates are app-only rules.
-		{"duplicate pairing", func() catalog.Ingredient { i := catalogtest.Annual(); i.Pairings = []string{"basil", "basil"}; return i }(), "pairings"},
+		{"duplicate pairing", func() catalog.Ingredient {
+			i := catalogtest.Annual()
+			i.Pairings = []string{"basil", "basil"}
+			return i
+		}(), "pairings"},
 		{"duplicate ecoregion", func() catalog.Ingredient {
 			i := catalogtest.Seafood()
 			i.Regions = append(i.Regions, catalog.SeafoodRegion{EcoregionID: 25, Months: []int{5}})
@@ -66,6 +74,26 @@ func TestAppOnlyRules(t *testing.T) {
 			}
 			t.Fatalf("want problem on %q, got %v", c.field, c.ing.Validate())
 		})
+	}
+}
+
+func TestSmallintOverflowOrder(t *testing.T) {
+	// months_to_harvest and chill_months_min both overflow; the smallint
+	// check must report them in field order (months_to_harvest, then
+	// chill_months_min, then months_bloom_to_harvest, then
+	// harvest_span_months), not map iteration order.
+	i := catalogtest.Annual()
+	i.MonthsToHarvest = catalogtest.P(40000)
+	i.ChillMonthsMin = catalogtest.P(40000)
+	var order []string
+	for _, p := range i.Validate() {
+		if p.Message == "is out of range" {
+			order = append(order, p.Field)
+		}
+	}
+	want := []string{"months_to_harvest", "chill_months_min"}
+	if len(order) != len(want) || order[0] != want[0] || order[1] != want[1] {
+		t.Fatalf("got order %v, want %v", order, want)
 	}
 }
 

@@ -198,6 +198,53 @@ func TestWildMushroom(t *testing.T) {
 	}
 }
 
+func TestWildMushroomMinPrecipInclusive(t *testing.T) {
+	// Jan mean = 10 (within 8-16), precip exactly 50 = min_precip_mm; it
+	// must count as fruiting. Every other month is outside the fruiting
+	// temperature band, so Jan is the only candidate.
+	means := [12]float64{10, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30}
+	precip := [12]float64{50, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60}
+	n := climatetest.FromMeans(means, 4, precip)
+	got := year(t, land(n), catalogtest.WildMushroom())
+	want := statuses(map[int]Status{1: InSeason})
+	if got != want {
+		t.Fatalf("precip == min_precip_mm not inclusive: got %v, want %v", got, want)
+	}
+}
+
+func TestWildMushroomStorageDoesNotDowngradeLaterRun(t *testing.T) {
+	// Two separate fruiting runs: Jan-Feb (8-16 range) and May-Jun, split
+	// by Mar-Apr and Jul-Dec outside the band. storage_months=3.
+	//
+	// Hand derivation:
+	//   fruit  = [T,T,F,F,T,T,F,F,F,F,F,F] (Jan,Feb,May,Jun)
+	//   runs(fruit,0) = {Start:Jan(0),Len:2}, {Start:May(4),Len:2}
+	//   harvestStatuses is not used by wildMushroom; InSeason is set
+	//   directly for every fruiting month: Jan,Feb,May,Jun = InSeason.
+	//   applyStorage, run {0,2} (Jan-Feb): end=Feb(1). k=1..3 covers
+	//     Mar(2), Apr(3), May(4). Mar and Apr are Out -> FromStorage.
+	//     May is already InSeason (2) which is NOT < FromStorage (1), so
+	//     the no-downgrade guard must leave it InSeason, not overwrite it.
+	//   applyStorage, run {4,2} (May-Jun): end=Jun(5). k=1..3 covers
+	//     Jul(6), Aug(7), Sep(8), all Out -> FromStorage.
+	//   Final: Jan=InSeason, Feb=InSeason, Mar=FromStorage, Apr=FromStorage,
+	//     May=InSeason, Jun=InSeason, Jul=FromStorage, Aug=FromStorage,
+	//     Sep=FromStorage, Oct=Out, Nov=Out, Dec=Out.
+	means := [12]float64{10, 10, 30, 30, 10, 10, 30, 30, 30, 30, 30, 30}
+	precip := [12]float64{60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60}
+	n := climatetest.FromMeans(means, 4, precip)
+	ing := catalogtest.WildMushroom()
+	ing.StorageMonths = 3
+	got := year(t, land(n), ing)
+	want := statuses(map[int]Status{
+		1: InSeason, 2: InSeason, 3: FromStorage, 4: FromStorage,
+		5: InSeason, 6: InSeason, 7: FromStorage, 8: FromStorage, 9: FromStorage,
+	})
+	if got != want {
+		t.Fatalf("storage downgraded the later run: got %v, want %v", got, want)
+	}
+}
+
 func TestSeafood(t *testing.T) {
 	cod := catalogtest.Seafood()
 	got, basis, ok := Year(Input{Ecoregions: []ocean.EcoregionID{25}}, cod)

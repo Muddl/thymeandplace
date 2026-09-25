@@ -39,9 +39,9 @@ func TestWriteLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	// catalog_meta seeds version 0 and nothing in this task bumps it
-	// (no such query exists); 0 is Load's correct, honest answer here.
-	if snap.Len() != 11 || snap.Version() != 0 {
+	// Writing the catalog fires the version triggers from migration 00004,
+	// so a fresh catalog must show a bumped (non-zero) version.
+	if snap.Len() != 11 || snap.Version() == 0 {
 		t.Fatalf("len=%d version=%d", snap.Len(), snap.Version())
 	}
 	for _, want := range catalogtest.SmallCatalog() {

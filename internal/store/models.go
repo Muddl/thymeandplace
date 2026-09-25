@@ -143,6 +143,18 @@ func (ns NullIngredientKind) Value() (driver.Value, error) {
 	return string(ns.IngredientKind), nil
 }
 
+type CatalogHistory struct {
+	ID        int64
+	ChangedAt pgtype.Timestamptz
+	Actor     string
+	ChangeID  pgtype.Int8
+	Action    string
+	TableName string
+	RowKey    []byte
+	Before    []byte
+	After     []byte
+}
+
 type CatalogMetum struct {
 	ID      bool
 	Version int64

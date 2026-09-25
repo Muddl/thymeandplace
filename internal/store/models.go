@@ -143,6 +143,14 @@ func (ns NullIngredientKind) Value() (driver.Value, error) {
 	return string(ns.IngredientKind), nil
 }
 
+type CalibrationRun struct {
+	ID          int64
+	RanAt       pgtype.Timestamptz
+	DataVersion string
+	Score       float64
+	Compared    int32
+}
+
 type CatalogHistory struct {
 	ID        int64
 	ChangedAt pgtype.Timestamptz
@@ -225,6 +233,16 @@ type OceanEcoregionV0 struct {
 	EcoregionID int32
 	Name        string
 	Geom        interface{}
+}
+
+type PendingChangeset struct {
+	ID          int64
+	Payload     []byte
+	BaseVersion int64
+	ScoreBefore float64
+	ScoreAfter  float64
+	CreatedAt   pgtype.Timestamptz
+	ExpiresAt   pgtype.Timestamptz
 }
 
 type Place struct {

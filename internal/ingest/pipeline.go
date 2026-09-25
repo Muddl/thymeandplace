@@ -128,25 +128,39 @@ func (p *Pipeline) Fetch(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// From here on, any failure must not leave a half-fetched dataset_versions
+	// row behind: Latest/PreviousPromotedVersion must never pick it up.
+	if err := p.finishFetch(ctx, id, name, incoming); err != nil {
+		if derr := p.q().DeleteDatasetVersion(ctx, id); derr != nil {
+			p.Log.Error("cleanup after failed fetch: could not delete dataset_versions row", "dataset", name, "version", id, "error", derr)
+		}
+		return 0, err
+	}
+	p.Log.Info("fetched", "dataset", name, "version", id, "license", p.DS.License(), "license_reviewed", reviewed)
+	return id, nil
+}
+
+// finishFetch sets the table name and uploads the raw files for a
+// newly-created dataset_versions row.
+func (p *Pipeline) finishFetch(ctx context.Context, id int64, name, incoming string) error {
 	table := p.DS.Prefix() + strconv.FormatInt(id, 10)
 	if err := p.q().SetDatasetTable(ctx, store.SetDatasetTableParams{ID: id, TableName: table}); err != nil {
-		return 0, err
+		return err
 	}
 	raw := filepath.Join(p.versionDir(id), "raw")
 	if err := os.MkdirAll(raw, 0o755); err != nil {
-		return 0, err
+		return err
 	}
 	for _, src := range p.DS.Sources() {
 		local := filepath.Join(raw, src.File)
 		if err := os.Rename(filepath.Join(incoming, src.File), local); err != nil {
-			return 0, err
+			return err
 		}
 		if err := p.Blob.PutFile(ctx, rawKey(name, id, src.File), local); err != nil {
-			return 0, fmt.Errorf("upload %s: %w", src.File, err)
+			return fmt.Errorf("upload %s: %w", src.File, err)
 		}
 	}
-	p.Log.Info("fetched", "dataset", name, "version", id, "license", p.DS.License(), "license_reviewed", reviewed)
-	return id, nil
+	return nil
 }
 
 // Transform produces the load-ready CSV once per version.
@@ -313,7 +327,7 @@ func (p *Pipeline) Swap(ctx context.Context, v int64) error {
 	if err != nil {
 		return err
 	}
-	return p.point(ctx, dv)
+	return p.point(ctx, dv, 0)
 }
 
 // Rollback repoints the view at the most recent earlier promoted version.
@@ -342,10 +356,15 @@ func (p *Pipeline) Rollback(ctx context.Context) error {
 	if !exists {
 		return fmt.Errorf("version %d table %s was dropped", prev.ID, prev.TableName)
 	}
-	return p.point(ctx, prev)
+	// live is rolled back away from: clear its promoted_at so a later
+	// PreviousPromotedVersion query skips it instead of landing back on it.
+	return p.point(ctx, prev, live.ID)
 }
 
-func (p *Pipeline) point(ctx context.Context, dv store.DatasetVersion) error {
+// point repoints the live view at dv in one transaction. When clearPromoted
+// is non-zero (a rollback), that version's promoted_at is cleared first so
+// PreviousPromotedVersion will not return to it again.
+func (p *Pipeline) point(ctx context.Context, dv store.DatasetVersion, clearPromoted int64) error {
 	if !store.ValidIdent(dv.TableName) || !store.ValidIdent(p.DS.View()) {
 		return fmt.Errorf("bad identifier")
 	}
@@ -358,6 +377,11 @@ func (p *Pipeline) point(ctx context.Context, dv store.DatasetVersion) error {
 		return fmt.Errorf("repoint view: %w", err)
 	}
 	q := store.New(tx)
+	if clearPromoted != 0 {
+		if err := q.ClearPromoted(ctx, clearPromoted); err != nil {
+			return err
+		}
+	}
 	if err := q.ClearLive(ctx, p.DS.Name()); err != nil {
 		return err
 	}

@@ -56,10 +56,12 @@ func NewClimate(base string) *Climate {
 	}
 }
 
-func (*Climate) Name() string        { return "climate" }
-func (*Climate) View() string        { return "climate_cell" }
-func (*Climate) Prefix() string      { return "climate_cell_v" }
-func (*Climate) License() string     { return "CC0 1.0 — TerraClimate (Abatzoglou et al., 2018); citation requested" }
+func (*Climate) Name() string   { return "climate" }
+func (*Climate) View() string   { return "climate_cell" }
+func (*Climate) Prefix() string { return "climate_cell_v" }
+func (*Climate) License() string {
+	return "CC0 1.0 — TerraClimate (Abatzoglou et al., 2018); citation requested"
+}
 func (c *Climate) Sources() []Source { return c.SourceList }
 
 // Transform copies the output of the Python transform container.

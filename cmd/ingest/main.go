@@ -38,6 +38,13 @@ const usage = `usage:
   ingest <climate|ocean|places> rollback
   ingest <climate|ocean|places> approve-license --version N --yes`
 
+// validSteps are the recognized step names, checked before any DB or blob
+// store connection is made so a typo exits 2 without touching either.
+var validSteps = map[string]bool{
+	"fetch": true, "transform": true, "load": true, "validate": true,
+	"swap": true, "all": true, "rollback": true, "approve-license": true,
+}
+
 func run(args []string, getenv func(string) string, stdout, stderr io.Writer, datasets map[string]func() ingest.Dataset) int {
 	if len(args) < 2 {
 		fmt.Fprintln(stderr, usage)
@@ -49,11 +56,20 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, da
 		fmt.Fprintf(stderr, "unknown dataset %q\n%s\n", name, usage)
 		return 2
 	}
+	if !validSteps[step] {
+		fmt.Fprintf(stderr, "unknown step %q\n%s\n", step, usage)
+		return 2
+	}
 	fs := flag.NewFlagSet("ingest", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	version := fs.Int64("version", 0, "dataset version (default: latest)")
 	yes := fs.Bool("yes", false, "confirm license approval")
 	if err := fs.Parse(args[2:]); err != nil {
+		return 2
+	}
+	v := *version
+	if step == "approve-license" && (v == 0 || !*yes) {
+		fmt.Fprintln(stderr, "approve-license needs --version N and --yes after you have read the license")
 		return 2
 	}
 
@@ -87,7 +103,6 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, da
 		Log:  slog.New(slog.NewJSONHandler(stdout, nil)),
 	}
 
-	v := *version
 	needsVersion := map[string]bool{"transform": true, "load": true, "validate": true, "swap": true}
 	if v == 0 && needsVersion[step] {
 		if v, err = p.Latest(ctx); err != nil {
@@ -100,6 +115,11 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, da
 		v, err = p.Fetch(ctx)
 		if err == nil {
 			fmt.Fprintf(stdout, "fetched %s version %d\n", name, v)
+			fmt.Fprintf(stdout, "license:\n  %s\n", p.DS.License())
+			for _, src := range p.DS.Sources() {
+				fmt.Fprintf(stdout, "source: %s\n", src.URL)
+			}
+			fmt.Fprintf(stdout, "read the license above before running: ingest %s approve-license --version %d --yes\n", name, v)
 		}
 	case "transform":
 		err = p.Transform(ctx, v)
@@ -114,18 +134,11 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, da
 	case "rollback":
 		err = p.Rollback(ctx)
 	case "approve-license":
-		if v == 0 || !*yes {
-			fmt.Fprintln(stderr, "approve-license needs --version N and --yes after you have read the license")
-			return 2
-		}
 		dv, aerr := p.ApproveLicense(ctx, v)
 		err = aerr
 		if err == nil {
 			fmt.Fprintf(stdout, "approved license for %s version %d:\n  %s\n  source: %s\n", name, v, dv.License, dv.SourceUrl)
 		}
-	default:
-		fmt.Fprintf(stderr, "unknown step %q\n%s\n", step, usage)
-		return 2
 	}
 	if err != nil {
 		return fail(err)

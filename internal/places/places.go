@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"thymeandplace/internal/store"
@@ -41,6 +42,13 @@ func NewService(db store.DBTX) *Service { return &Service{db: db} }
 // Search returns up to SearchLimit places. Blank queries return nil without
 // touching the database; long queries are truncated to MaxQueryRunes.
 func (s *Service) Search(ctx context.Context, q string) ([]Place, error) {
+	q = strings.ToValidUTF8(q, "")
+	q = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, q)
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return nil, nil

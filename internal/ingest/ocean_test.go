@@ -42,8 +42,8 @@ func testOcean(t *testing.T, body []byte) *Ocean {
 	return &Ocean{
 		Source:   Source{URL: base + "/meow.geojson", File: "meow.geojson"},
 		MinCount: 2, MaxCount: 2,
-		Coastal:  []Point{{"lisbon", 38.7167, -9.1333}},
-		Inland:   []Point{{"madrid", 40.4165, -3.7026}},
+		Coastal: []Point{{"lisbon", 38.7167, -9.1333}},
+		Inland:  []Point{{"madrid", 40.4165, -3.7026}},
 	}
 }
 

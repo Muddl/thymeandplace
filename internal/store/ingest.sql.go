@@ -27,6 +27,15 @@ func (q *Queries) ClearLive(ctx context.Context, dataset string) error {
 	return err
 }
 
+const clearPromoted = `-- name: ClearPromoted :exec
+UPDATE dataset_versions SET promoted_at = NULL WHERE id = $1
+`
+
+func (q *Queries) ClearPromoted(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, clearPromoted, id)
+	return err
+}
+
 const createDatasetVersion = `-- name: CreateDatasetVersion :one
 INSERT INTO dataset_versions (dataset, table_name, source_url, source_checksum, license, license_reviewed)
 VALUES ($1, '', $2, $3, $4, $5)
@@ -52,6 +61,15 @@ func (q *Queries) CreateDatasetVersion(ctx context.Context, arg CreateDatasetVer
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const deleteDatasetVersion = `-- name: DeleteDatasetVersion :exec
+DELETE FROM dataset_versions WHERE id = $1
+`
+
+func (q *Queries) DeleteDatasetVersion(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, deleteDatasetVersion, id)
+	return err
 }
 
 const getDatasetVersion = `-- name: GetDatasetVersion :one

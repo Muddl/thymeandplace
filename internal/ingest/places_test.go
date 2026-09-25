@@ -107,6 +107,33 @@ func TestPlacesFetchTransformLoad(t *testing.T) {
 	}
 }
 
+// Review Focus M8: a download failure must not leave a half-fetched
+// dataset_versions row behind for Latest to pick up.
+func TestFetchDownloadFailureLeavesNoDatasetVersionsRow(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	base := serveFiles(t, map[string][]byte{
+		"cities1000.zip": zipOf(t, map[string][]byte{"cities1000.txt": []byte("x\n")}),
+		// admin1CodesASCII.txt deliberately not served: 404.
+	})
+	ds := &Places{SourceList: []Source{
+		{base + "/cities1000.zip", "cities1000.zip"},
+		{base + "/admin1CodesASCII.txt", "admin1CodesASCII.txt"},
+	}}
+	p := newPipeline(t, pool, ds)
+
+	if _, err := p.Fetch(ctx); err == nil {
+		t.Fatal("want error from 404 download")
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM dataset_versions`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("dataset_versions rows after failed fetch = %d, want 0", n)
+	}
+}
+
 func TestPlacesCheckRejectsInvalidTableName(t *testing.T) {
 	ctx := context.Background()
 	p := NewPlaces()

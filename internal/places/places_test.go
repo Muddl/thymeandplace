@@ -52,7 +52,7 @@ func TestSearchAccentsAndTypos(t *testing.T) {
 func TestSearchHostileInput(t *testing.T) {
 	s := svc(t)
 	ctx := context.Background()
-	for _, q := range []string{"", "   ", strings.Repeat("a", 5000), "%", "_", "'; DROP TABLE place; --", `\`, "%_%"} {
+	for _, q := range []string{"", "   ", strings.Repeat("a", 5000), "%", "_", "'; DROP TABLE place; --", `\`, "%_%", "a\x00b", "\xff", "Lis\xffbon"} {
 		if _, err := s.Search(ctx, q); err != nil {
 			t.Fatalf("%q: %v", q[:min(len(q), 20)], err)
 		}
@@ -62,6 +62,9 @@ func TestSearchHostileInput(t *testing.T) {
 	}
 	if got, _ := s.Search(ctx, "London"); len(got) == 0 {
 		t.Fatal("table damaged by hostile input")
+	}
+	if got, _ := s.Search(ctx, "Lis\xffbon"); len(got) == 0 || got[0].Name != "Lisbon" {
+		t.Fatalf("Lis\\xffbon must still find Lisbon: %+v", got)
 	}
 }
 

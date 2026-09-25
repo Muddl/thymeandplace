@@ -6,6 +6,9 @@ RETURNING id;
 -- name: SetDatasetTable :exec
 UPDATE dataset_versions SET table_name = @table_name WHERE id = @id;
 
+-- name: DeleteDatasetVersion :exec
+DELETE FROM dataset_versions WHERE id = @id;
+
 -- name: GetDatasetVersion :one
 SELECT * FROM dataset_versions WHERE id = @id;
 
@@ -34,6 +37,9 @@ UPDATE dataset_versions SET loaded_at = now() WHERE id = @id;
 
 -- name: ClearLive :exec
 UPDATE dataset_versions SET is_live = false WHERE dataset = @dataset AND is_live;
+
+-- name: ClearPromoted :exec
+UPDATE dataset_versions SET promoted_at = NULL WHERE id = @id;
 
 -- name: MarkLive :exec
 UPDATE dataset_versions SET is_live = true, promoted_at = coalesce(promoted_at, now()) WHERE id = @id;

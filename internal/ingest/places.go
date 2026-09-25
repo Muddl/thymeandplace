@@ -38,10 +38,12 @@ func NewPlaces() *Places {
 	}
 }
 
-func (*Places) Name() string        { return "places" }
-func (*Places) View() string        { return "place" }
-func (*Places) Prefix() string      { return "place_v" }
-func (*Places) License() string     { return "CC BY 4.0 — GeoNames (https://www.geonames.org); attribution required" }
+func (*Places) Name() string   { return "places" }
+func (*Places) View() string   { return "place" }
+func (*Places) Prefix() string { return "place_v" }
+func (*Places) License() string {
+	return "CC BY 4.0 — GeoNames (https://www.geonames.org); attribution required"
+}
 func (p *Places) Sources() []Source { return p.SourceList }
 
 func (*Places) Transform(_ context.Context, dir string, w io.Writer) error {
@@ -133,6 +135,9 @@ CREATE INDEX ON %[1]s USING gist (geom);`, t)
 }
 
 func (*Places) Load(ctx context.Context, tx pgx.Tx, t string, r io.Reader) error {
+	if !store.ValidIdent(t) {
+		return fmt.Errorf("invalid table name %q", t)
+	}
 	if _, err := tx.Exec(ctx, `CREATE TEMP TABLE place_stage (place_id int, name text, ascii_name text,
 		admin1 text, country text, population bigint, lat float8, lng float8) ON COMMIT DROP`); err != nil {
 		return err

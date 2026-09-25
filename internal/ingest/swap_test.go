@@ -115,6 +115,51 @@ func TestSwapRollbackAndNotify(t *testing.T) {
 	}
 }
 
+// Review Focus M3: rollback must not return to a version that was already
+// rolled back away from. v1 -> swap v2 -> rollback (back to v1) -> swap v3 ->
+// rollback must land on v1, not v2 (v2's promotion was already superseded).
+func TestRollbackSkipsPreviouslyRolledBackVersion(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	p := newPipeline(t, pool, placesSource(t, 20))
+
+	v1 := loadVersion(t, p)
+	if _, err := p.ApproveLicense(ctx, v1); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Swap(ctx, v1); err != nil {
+		t.Fatalf("swap v1: %v", err)
+	}
+
+	v2 := loadVersion(t, p)
+	if dv, _ := p.version(ctx, v2); !dv.LicenseReviewed {
+		t.Fatal("identical license/sources should inherit review")
+	}
+	if err := p.Swap(ctx, v2); err != nil {
+		t.Fatalf("swap v2: %v", err)
+	}
+	if err := p.Rollback(ctx); err != nil {
+		t.Fatalf("rollback to v1: %v", err)
+	}
+	if liveID(t, pool) != v1 {
+		t.Fatalf("after first rollback live = %d, want %d", liveID(t, pool), v1)
+	}
+
+	v3 := loadVersion(t, p)
+	if dv, _ := p.version(ctx, v3); !dv.LicenseReviewed {
+		t.Fatal("identical license/sources should inherit review")
+	}
+	if err := p.Swap(ctx, v3); err != nil {
+		t.Fatalf("swap v3: %v", err)
+	}
+	if err := p.Rollback(ctx); err != nil {
+		t.Fatalf("rollback to v1 (skipping superseded v2): %v", err)
+	}
+	if liveID(t, pool) != v1 {
+		t.Fatalf("after second rollback live = %d, want v1 (%d), not v2 (%d)", liveID(t, pool), v1, v2)
+	}
+}
+
 // Review Focus 5: failed validation leaves live data untouched.
 func TestFailedValidationLeavesLiveUnchanged(t *testing.T) {
 	ctx := context.Background()

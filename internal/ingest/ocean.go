@@ -149,7 +149,7 @@ func (*Ocean) Load(ctx context.Context, tx pgx.Tx, t string, r io.Reader) error 
 	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s
 		SELECT ecoregion_id, min(name),
-		       ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Union(ST_SetSRID(ST_GeomFromGeoJSON(geojson), 4326))), 3))::geography
+		       ST_Multi(ST_CollectionExtract(ST_Union(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(geojson), 4326))), 3))::geography
 		FROM ocean_stage GROUP BY ecoregion_id`, t))
 	return err
 }

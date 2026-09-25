@@ -96,6 +96,39 @@ def test_real_terraclimate_climatology_metadata(tmp_path):
     assert parse(first["precip_mm"]) == [50.0] * 12
 
 
+def test_joint_land_mask_shared_across_variables(tmp_path):
+    """A fine cell that is NaN only in tmin must be excluded from tmax's (and
+    ppt's) coarse average too, so all three variables coarsen over exactly
+    the same set of fine cells."""
+    vdir = tmp_path / "v1"
+    raw = vdir / "raw"
+    raw.mkdir(parents=True)
+    lat, lon = fine_grid()
+    times = pd.date_range("2000-01-01", periods=12, freq="MS")
+
+    tmin = np.full((12, 12, 12), 10.0, dtype="float64")
+    tmax = np.full((12, 12, 12), 20.0, dtype="float64")
+    ppt = np.full((12, 12, 12), 50.0, dtype="float64")
+    tmin[:, 0, 0] = np.nan   # only tmin is NaN at this one fine cell
+    tmax[:, 0, 0] = -1000.0  # tmax has a real, extreme value there
+
+    for name, data in (("tmin", tmin), ("tmax", tmax), ("ppt", ppt)):
+        xr.Dataset({name: (("time", "lat", "lon"), data.astype("float32"))},
+                   coords={"time": times, "lat": lat, "lon": lon}).to_netcdf(raw / f"tc_{name}.nc")
+
+    rows = read_rows(transform.run(vdir))
+    row0, col0 = math.floor((90 - 44.875) / 0.25), math.floor((0.125 + 180) / 0.25)
+    row = rows[row0 * 1440 + col0]
+
+    tmin_vals, tmax_vals = parse(row["tmin_c"]), parse(row["tmax_c"])
+    assert all(a <= b for a, b in zip(tmin_vals, tmax_vals))
+    # If tmax's outlier fine cell were not excluded by the shared mask, its
+    # coarse mean would be dragged toward -1000; instead it must match the
+    # uniform background, proving both variables averaged the same 35 cells.
+    assert all(v == pytest.approx(20.0) for v in tmax_vals)
+    assert all(v == pytest.approx(10.0) for v in tmin_vals)
+
+
 def test_rejects_misaligned_grid(tmp_path):
     vdir = tmp_path / "v1"
     raw = vdir / "raw"

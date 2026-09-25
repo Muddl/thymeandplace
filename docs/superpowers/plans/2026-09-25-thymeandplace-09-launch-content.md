@@ -373,7 +373,7 @@ Use this shape (values here are illustrative; take the real months from your gui
 Rules:
 - Use catalog slugs exactly. Map the guide's names to them (courgette → `zucchini`, whichever slug the catalog uses).
 - List only ingredients the guide covers. Aim for 15–30 per location.
-- Months are 1–12. Include months the guide marks as "in season" or "peak"; leave out "imported" or "available but not local".
+- Months are 1–12. Include months the guide marks as "in season" or "peak", **and months it shows as available from local storage** ("from store", "stored"): the engine counts FromStorage months as in season when scoring, so leaving them out would penalise correct `storage_months`. Leave out "imported" or "available but not local".
 
 - [ ] **Step 3: Run the fixture gate**
 

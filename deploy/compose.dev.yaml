@@ -1,0 +1,18 @@
+name: thymeandplace-dev
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_USER: tp
+      POSTGRES_PASSWORD: tp
+      POSTGRES_DB: thymeandplace
+    ports:
+      - "55432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tp -d thymeandplace"]
+      interval: 5s
+      retries: 20
+volumes:
+  dbdata: {}

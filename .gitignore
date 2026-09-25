@@ -1,1 +1,21 @@
 .superpowers/
+
+# build output
+/bin/
+/dist/
+*.exe
+# local env and secrets
+.env
+*.env
+!deploy/env.example
+# python
+__pycache__/
+.pytest_cache/
+.venv/
+# editor
+.idea/
+.vscode/
+# e2e
+/e2e/node_modules/
+/e2e/test-results/
+/e2e/playwright-report/

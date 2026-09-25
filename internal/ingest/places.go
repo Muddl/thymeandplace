@@ -148,6 +148,9 @@ func (*Places) Load(ctx context.Context, tx pgx.Tx, t string, r io.Reader) error
 }
 
 func (p *Places) Check(ctx context.Context, db store.DBTX, t string) []string {
+	if !store.ValidIdent(t) {
+		return []string{fmt.Sprintf("invalid table name %q", t)}
+	}
 	var fails []string
 	var bad int
 	if err := db.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s WHERE population < 0 OR name = '' OR country = ''`, t)).Scan(&bad); err != nil {

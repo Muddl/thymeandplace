@@ -6,8 +6,30 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"thymeandplace/internal/dbtest"
 )
+
+// noQueryDB fails the test if any SQL is executed against it — used to prove
+// Check rejects a bad table name before running a query.
+type noQueryDB struct{ t *testing.T }
+
+func (d noQueryDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	d.t.Fatal("unexpected Exec")
+	return pgconn.CommandTag{}, nil
+}
+
+func (d noQueryDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	d.t.Fatal("unexpected Query")
+	return nil, nil
+}
+
+func (d noQueryDB) QueryRow(context.Context, string, ...any) pgx.Row {
+	d.t.Fatal("unexpected QueryRow")
+	return nil
+}
 
 // geonamesLine builds one 19-column cities1000.txt row.
 func geonamesLine(id int, name, ascii string, lat, lng float64, country, admin1 string, pop int) string {
@@ -82,6 +104,15 @@ func TestPlacesFetchTransformLoad(t *testing.T) {
 	}
 	if fails := p.DS.Check(ctx, pool, dv.TableName); len(fails) != 0 {
 		t.Fatalf("check: %v", fails)
+	}
+}
+
+func TestPlacesCheckRejectsInvalidTableName(t *testing.T) {
+	ctx := context.Background()
+	p := NewPlaces()
+	fails := p.Check(ctx, noQueryDB{t: t}, "place_v1; DROP TABLE x")
+	if len(fails) != 1 || fails[0] != `invalid table name "place_v1; DROP TABLE x"` {
+		t.Fatalf("fails = %v", fails)
 	}
 }
 

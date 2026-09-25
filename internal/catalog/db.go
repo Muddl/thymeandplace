@@ -11,7 +11,7 @@ import (
 	"thymeandplace/internal/store"
 )
 
-// TxBeginner is satisfied by *pgxpool.Pool and pgx.Tx.
+// TxBeginner is satisfied by *pgxpool.Pool and *pgx.Conn.
 type TxBeginner interface {
 	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
 }

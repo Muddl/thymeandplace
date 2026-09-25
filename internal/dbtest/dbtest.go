@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -47,8 +48,12 @@ func start() {
 	// for the process's lifetime, no amount of retrying postgres.Run below
 	// can recover from it once it happens. Setting DOCKER_HOST up front to
 	// the same value the Docker client already defaults to (this is a no-op
-	// on a normal setup) avoids that stat, and the race, entirely.
-	if os.Getenv("DOCKER_HOST") == "" {
+	// on a normal Windows setup) avoids that stat, and the race, entirely.
+	// This is Windows-only: on other OSes Docker-context detection (Docker
+	// Desktop for Linux, Colima, rootless Docker, Podman, ...) can resolve a
+	// different host than the plain default, and presetting DOCKER_HOST here
+	// would incorrectly override that detection.
+	if runtime.GOOS == "windows" && os.Getenv("DOCKER_HOST") == "" {
 		os.Setenv("DOCKER_HOST", client.DefaultDockerHost)
 	}
 	var c *postgres.PostgresContainer

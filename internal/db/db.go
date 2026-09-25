@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver for goose
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 
 	"thymeandplace/migrations"
 )
@@ -33,7 +34,13 @@ func Migrate(ctx context.Context, url string) error {
 		return err
 	}
 	defer sqldb.Close()
-	p, err := goose.NewProvider(goose.DialectPostgres, sqldb, migrations.FS)
+	// A session-scoped Postgres advisory lock so two replicas migrating at
+	// once serialise instead of one failing on a concurrent schema change.
+	locker, err := lock.NewPostgresSessionLocker()
+	if err != nil {
+		return fmt.Errorf("session locker: %w", err)
+	}
+	p, err := goose.NewProvider(goose.DialectPostgres, sqldb, migrations.FS, goose.WithSessionLocker(locker))
 	if err != nil {
 		return fmt.Errorf("goose provider: %w", err)
 	}

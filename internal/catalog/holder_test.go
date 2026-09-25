@@ -5,7 +5,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/catalog/catalogtest"
@@ -45,5 +48,45 @@ func TestHolderKeepsPreviousOnFailure(t *testing.T) {
 	}
 	if h.Current() != first {
 		t.Fatal("failed reload replaced the live snapshot")
+	}
+}
+
+// Review finding 1 (Plan 2 whole-plan review): Reload must serialise
+// concurrent calls and never let a slower, older load overwrite a newer
+// snapshot. A fake loader blocks its first call on a channel (returning
+// version 1) while its second call returns version 2 immediately.
+func TestHolderSerialisesConcurrentReloads(t *testing.T) {
+	ctx := context.Background()
+	release := make(chan struct{})
+	var calls atomic.Int32
+
+	h := catalog.NewHolder(func(context.Context) (*catalog.Snapshot, error) {
+		if calls.Add(1) == 1 {
+			<-release // first call blocks until released
+			return catalog.NewSnapshot(1, nil)
+		}
+		return catalog.NewSnapshot(2, nil) // second call returns immediately
+	}, quiet())
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); _ = h.Reload(ctx) }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for calls.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("first Reload never entered the loader")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	go func() { defer wg.Done(); _ = h.Reload(ctx) }()
+	time.Sleep(20 * time.Millisecond) // let the second Reload queue up behind the mutex
+
+	close(release)
+	wg.Wait()
+
+	if h.Current() == nil || h.Current().Version() != 2 {
+		t.Fatalf("Current().Version() = %v, want 2", h.Current())
 	}
 }

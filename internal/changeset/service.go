@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -54,6 +56,8 @@ func (s *Service) Preview(ctx context.Context, cs Changeset) (Pending, Preview, 
 		return Pending{}, Preview{}, err
 	}
 	q := store.New(s.pool)
+	// Best-effort: every read of pending_changeset filters expires_at > now(),
+	// so a failed cleanup only leaves dead rows behind, never a correctness bug.
 	_ = q.DeleteExpiredChangesets(ctx)
 	row, err := q.InsertPendingChangeset(ctx, store.InsertPendingChangesetParams{
 		Payload: payload, BaseVersion: cur.Version(), ScoreBefore: pv.Before.Score, ScoreAfter: pv.After.Score,
@@ -115,4 +119,93 @@ func pendingFromRow(row store.PendingChangeset) (Pending, error) {
 		ID: row.ID, Changeset: cs, BaseVersion: row.BaseVersion,
 		ScoreBefore: row.ScoreBefore, ScoreAfter: row.ScoreAfter, ExpiresAt: row.ExpiresAt.Time,
 	}, nil
+}
+
+type ApplyOptions struct {
+	Override    bool   // "Apply despite lower calibration score"
+	ConfirmSlug string // typed slug, required for delete changesets
+}
+
+// Apply writes a previewed changeset in one transaction. On any error nothing
+// is written and the pending row is kept (except when it no longer exists).
+func (s *Service) Apply(ctx context.Context, id int64, actor string, opts ApplyOptions) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	q := store.New(tx)
+
+	row, err := q.GetPendingChangesetForUpdate(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	version, err := q.LockCatalogVersion(ctx)
+	if err != nil {
+		return err
+	}
+	if version != row.BaseVersion {
+		return ErrStale
+	}
+	p, err := pendingFromRow(row)
+	if err != nil {
+		return err
+	}
+	cs := p.Changeset
+	if cs.Source == SourceDelete && (len(cs.Deletes) != 1 || opts.ConfirmSlug != cs.Deletes[0]) {
+		return ErrConfirmMismatch
+	}
+
+	// catalog_meta is locked, so no other writer can commit until we finish;
+	// a fresh read sees exactly the previewed base version.
+	cur, err := catalog.Load(ctx, s.pool)
+	if err != nil {
+		return err
+	}
+	if cur.Version() != version {
+		return ErrStale
+	}
+	if _, problems, err := Validate(ctx, cs, cur, s.eco); err != nil {
+		return err
+	} else if len(problems) > 0 {
+		return &InvalidError{Problems: problems}
+	}
+
+	override := NeedsOverride(p.ScoreBefore, p.ScoreAfter)
+	if override && !opts.Override {
+		return ErrOverrideRequired
+	}
+	meta := ""
+	if override {
+		b, _ := json.Marshal(map[string]any{"override": true, "score_before": p.ScoreBefore, "score_after": p.ScoreAfter})
+		meta = string(b)
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.actor', $1, true), set_config('app.change_id', $2, true), set_config('app.meta', $3, true)`,
+		actor, strconv.FormatInt(id, 10), meta); err != nil {
+		return err
+	}
+	if err := s.write(ctx, q, changedUpserts(cur, cs.Upserts), cs.Deletes); err != nil {
+		return fmt.Errorf("apply changeset %d: %w", id, err)
+	}
+	if err := q.DeletePendingChangeset(ctx, id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// changedUpserts drops upserts identical to what is stored, so unchanged
+// import rows produce no history.
+func changedUpserts(cur *catalog.Snapshot, ups []catalog.Ingredient) []catalog.Ingredient {
+	var out []catalog.Ingredient
+	for _, u := range ups {
+		n := catalog.Normalize(u)
+		if old, ok := cur.Get(n.Slug); ok && reflect.DeepEqual(old, n) {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
 }

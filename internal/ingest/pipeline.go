@@ -246,6 +246,151 @@ func (p *Pipeline) ApproveLicense(ctx context.Context, v int64) (store.DatasetVe
 	return dv, p.q().ApproveDatasetLicense(ctx, v)
 }
 
+// Validate runs the common and dataset-specific checks on version v.
+func (p *Pipeline) Validate(ctx context.Context, v int64) error {
+	dv, err := p.version(ctx, v)
+	if err != nil {
+		return err
+	}
+	if !store.ValidIdent(dv.TableName) {
+		return fmt.Errorf("bad table name %q", dv.TableName)
+	}
+	var fails []string
+	if strings.TrimSpace(dv.License) == "" {
+		fails = append(fails, "no license recorded")
+	} else if !dv.LicenseReviewed {
+		fails = append(fails, fmt.Sprintf("license not reviewed (run: ingest %s approve-license --version %d --yes)", p.DS.Name(), v))
+	}
+	var exists bool
+	if err := p.Pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, dv.TableName).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		fails = append(fails, "table not loaded (run load)")
+		return &ValidationError{Dataset: p.DS.Name(), Failures: fails}
+	}
+	var n int64
+	if err := p.Pool.QueryRow(ctx, "SELECT count(*) FROM "+dv.TableName).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		fails = append(fails, "table is empty")
+	}
+	live, err := p.q().LiveDatasetVersion(ctx, p.DS.Name())
+	switch {
+	case errors.Is(err, pgx.ErrNoRows): // first load: no row-count comparison
+	case err != nil:
+		return err
+	case live.ID != v:
+		if !store.ValidIdent(live.TableName) {
+			return fmt.Errorf("bad table name %q", live.TableName)
+		}
+		var liveN int64
+		if err := p.Pool.QueryRow(ctx, "SELECT count(*) FROM "+live.TableName).Scan(&liveN); err != nil {
+			return err
+		}
+		if liveN > 0 {
+			diff := float64(n-liveN) / float64(liveN)
+			if diff < -0.05 || diff > 0.05 {
+				fails = append(fails, fmt.Sprintf("row count %d differs from live %d by %.1f%% (limit ±5%%)", n, liveN, diff*100))
+			}
+		}
+	}
+	fails = append(fails, p.DS.Check(ctx, p.Pool, dv.TableName)...)
+	if len(fails) > 0 {
+		return &ValidationError{Dataset: p.DS.Name(), Failures: fails}
+	}
+	p.Log.Info("validated", "dataset", p.DS.Name(), "version", v, "rows", n)
+	return nil
+}
+
+// Swap validates v and makes it live in one transaction.
+func (p *Pipeline) Swap(ctx context.Context, v int64) error {
+	if err := p.Validate(ctx, v); err != nil {
+		return err
+	}
+	dv, err := p.version(ctx, v)
+	if err != nil {
+		return err
+	}
+	return p.point(ctx, dv)
+}
+
+// Rollback repoints the view at the most recent earlier promoted version.
+func (p *Pipeline) Rollback(ctx context.Context) error {
+	live, err := p.q().LiveDatasetVersion(ctx, p.DS.Name())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("no live version to roll back from")
+	}
+	if err != nil {
+		return err
+	}
+	prev, err := p.q().PreviousPromotedVersion(ctx, store.PreviousPromotedVersionParams{Dataset: p.DS.Name(), Before: live.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("no earlier promoted version before %d", live.ID)
+	}
+	if err != nil {
+		return err
+	}
+	if !store.ValidIdent(prev.TableName) {
+		return fmt.Errorf("bad table name %q", prev.TableName)
+	}
+	var exists bool
+	if err := p.Pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, prev.TableName).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("version %d table %s was dropped", prev.ID, prev.TableName)
+	}
+	return p.point(ctx, prev)
+}
+
+func (p *Pipeline) point(ctx context.Context, dv store.DatasetVersion) error {
+	if !store.ValidIdent(dv.TableName) || !store.ValidIdent(p.DS.View()) {
+		return fmt.Errorf("bad identifier")
+	}
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, fmt.Sprintf("CREATE OR REPLACE VIEW %s AS SELECT * FROM %s", p.DS.View(), dv.TableName)); err != nil {
+		return fmt.Errorf("repoint view: %w", err)
+	}
+	q := store.New(tx)
+	if err := q.ClearLive(ctx, p.DS.Name()); err != nil {
+		return err
+	}
+	if err := q.MarkLive(ctx, dv.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_notify('data_version_changed', 'dataset')`); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	p.Log.Info("live", "dataset", p.DS.Name(), "version", dv.ID, "table", dv.TableName)
+	return nil
+}
+
+// All runs every step for v, fetching a new version first when v == 0.
+func (p *Pipeline) All(ctx context.Context, v int64) error {
+	if v == 0 {
+		var err error
+		if v, err = p.Fetch(ctx); err != nil {
+			return err
+		}
+	}
+	if err := p.Transform(ctx, v); err != nil {
+		return err
+	}
+	if err := p.Load(ctx, v); err != nil {
+		return err
+	}
+	return p.Swap(ctx, v)
+}
+
 // copyStage streams CSV into a staging table with COPY.
 func copyStage(ctx context.Context, tx pgx.Tx, stage string, r io.Reader) error {
 	_, err := tx.Conn().PgConn().CopyFrom(ctx, r, "COPY "+stage+" FROM STDIN WITH (FORMAT csv, HEADER true)")

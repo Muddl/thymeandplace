@@ -24,9 +24,11 @@ type Point struct {
 }
 
 // Ocean is Marine Ecoregions of the World (Spalding et al., 2007), served as
-// GeoJSON by the Esri Oceans MEOW feature service.
+// GeoJSON by the Esri Oceans MEOW feature service, clipped to water using
+// Natural Earth's 1:50m land polygons (coastal MEOW polygons run well inland).
 type Ocean struct {
 	Source             Source
+	Land               Source
 	MinCount, MaxCount int
 	Coastal, Inland    []Point
 }
@@ -36,12 +38,17 @@ type Ocean struct {
 const DefaultOceanURL = "https://services.arcgis.com/bDAhvQYMG4WL8O5o/arcgis/rest/services/MEOW/FeatureServer/0/query" +
 	"?where=1%3D1&outFields=ECO_CODE_X,ECOREGION&outSR=4326&f=geojson"
 
+// DefaultLandURL is Natural Earth's 1:50m land polygon layer (public domain),
+// used to subtract land from every ecoregion. Override with OCEAN_LAND_URL.
+const DefaultLandURL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson"
+
 func NewOcean(url string) *Ocean {
 	if url == "" {
 		url = DefaultOceanURL
 	}
 	return &Ocean{
 		Source:   Source{URL: url, File: "meow.geojson"},
+		Land:     Source{URL: DefaultLandURL, File: "ne_50m_land.geojson"},
 		MinCount: 225, MaxCount: 240, // MEOW has 232 ecoregions
 		Coastal: []Point{
 			{"Lisbon", 38.72, -9.14}, {"Boston", 42.36, -71.06}, {"Tokyo", 35.68, 139.77},
@@ -61,9 +68,10 @@ func (*Ocean) Prefix() string { return "ocean_ecoregion_v" }
 func (*Ocean) License() string {
 	return "Marine Ecoregions of the World (Spalding et al., 2007, BioScience), via Esri Oceans ArcGIS Online item " +
 		"74b6ac5c8fc24dcb8abaad6428a5dfa4. The item states no licence: confirm terms with the original publishers " +
-		"(The Nature Conservancy / WWF) before approving"
+		"(The Nature Conservancy / WWF) before approving" +
+		"; land mask: Natural Earth 1:50m land (public domain, naturalearthdata.com)"
 }
-func (o *Ocean) Sources() []Source { return []Source{o.Source} }
+func (o *Ocean) Sources() []Source { return []Source{o.Source, o.Land} }
 
 type geoFeatureCollection struct {
 	Type     string `json:"type"`
@@ -81,8 +89,28 @@ type geoFeatureCollection struct {
 	} `json:"error"`
 }
 
-// Transform turns the GeoJSON FeatureCollection into CSV rows of
-// (ecoregion_id, name, geojson geometry).
+// geomType reports the GeoJSON geometry's "type" field.
+func geomType(raw json.RawMessage) (string, error) {
+	var g struct {
+		Type string `json:"type"`
+	}
+	err := json.Unmarshal(raw, &g)
+	return g.Type, err
+}
+
+func compactGeoJSON(raw json.RawMessage) (string, error) {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// Transform reads both raw files and writes ONE CSV with header
+// kind,ecoregion_id,name,geojson: kind "eco" for each MEOW ecoregion polygon
+// (Task 5's checks unchanged) and kind "land" (ecoregion_id 0, empty name)
+// for every Natural Earth Polygon/MultiPolygon feature, used at Load time to
+// clip the ecoregions down to water.
 func (o *Ocean) Transform(_ context.Context, dir string, w io.Writer) error {
 	b, err := os.ReadFile(filepath.Join(dir, "raw", o.Source.File))
 	if err != nil {
@@ -102,28 +130,59 @@ func (o *Ocean) Transform(_ context.Context, dir string, w io.Writer) error {
 	case len(fc.Features) == 0:
 		return errors.New("no features in the response")
 	}
+
+	lb, err := os.ReadFile(filepath.Join(dir, "raw", o.Land.File))
+	if err != nil {
+		return err
+	}
+	var land geoFeatureCollection
+	if err := json.Unmarshal(lb, &land); err != nil {
+		return fmt.Errorf("land file not GeoJSON: %w", err)
+	}
+	if land.Type != "FeatureCollection" {
+		return fmt.Errorf("land file: expected a FeatureCollection, got %q", land.Type)
+	}
+
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"ecoregion_id", "name", "geojson"})
+	_ = cw.Write([]string{"kind", "ecoregion_id", "name", "geojson"})
 	for i, f := range fc.Features {
 		code, ok := f.Properties["ECO_CODE_X"].(float64)
 		if !ok || code <= 0 {
 			continue // no usable ecoregion code
 		}
-		var g struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(f.Geometry, &g); err != nil || (g.Type != "Polygon" && g.Type != "MultiPolygon") {
-			return fmt.Errorf("feature %d (ECO_CODE_X %v): geometry must be Polygon or MultiPolygon, got %q", i, code, g.Type)
+		gt, err := geomType(f.Geometry)
+		if err != nil || (gt != "Polygon" && gt != "MultiPolygon") {
+			return fmt.Errorf("feature %d (ECO_CODE_X %v): geometry must be Polygon or MultiPolygon, got %q", i, code, gt)
 		}
 		name, _ := f.Properties["ECOREGION"].(string)
-		var compact bytes.Buffer
-		if err := json.Compact(&compact, f.Geometry); err != nil {
+		compact, err := compactGeoJSON(f.Geometry)
+		if err != nil {
 			return err
 		}
-		if err := cw.Write([]string{strconv.Itoa(int(code)), strings.TrimSpace(name), compact.String()}); err != nil {
+		if err := cw.Write([]string{"eco", strconv.Itoa(int(code)), strings.TrimSpace(name), compact}); err != nil {
 			return err
 		}
 	}
+
+	var landPolys int
+	for _, f := range land.Features {
+		gt, err := geomType(f.Geometry)
+		if err != nil || (gt != "Polygon" && gt != "MultiPolygon") {
+			continue // skip non-polygon land features (e.g. points, lines)
+		}
+		compact, err := compactGeoJSON(f.Geometry)
+		if err != nil {
+			return err
+		}
+		if err := cw.Write([]string{"land", "0", "", compact}); err != nil {
+			return err
+		}
+		landPolys++
+	}
+	if landPolys == 0 {
+		return errors.New("land file: no Polygon/MultiPolygon features")
+	}
+
 	cw.Flush()
 	return cw.Error()
 }
@@ -141,16 +200,47 @@ func (*Ocean) Load(ctx context.Context, tx pgx.Tx, t string, r io.Reader) error 
 	if !store.ValidIdent(t) {
 		return fmt.Errorf("invalid table name %q", t)
 	}
-	if _, err := tx.Exec(ctx, `CREATE TEMP TABLE ocean_stage (ecoregion_id int, name text, geojson text) ON COMMIT DROP`); err != nil {
+	if _, err := tx.Exec(ctx, `CREATE TEMP TABLE ocean_stage (kind text, ecoregion_id int, name text, geojson text) ON COMMIT DROP`); err != nil {
 		return err
 	}
 	if err := copyStage(ctx, tx, "ocean_stage", r); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s
-		SELECT ecoregion_id, min(name),
-		       ST_Multi(ST_CollectionExtract(ST_Union(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(geojson), 4326))), 3))::geography
-		FROM ocean_stage GROUP BY ecoregion_id`, t))
+	return clipToWater(ctx, tx, t)
+}
+
+// clipToWater builds a subdivided, GiST-indexed land table from the staged
+// Natural Earth polygons, then inserts each ecoregion's water-only geometry
+// (its per-part-valid union minus any intersecting land) into t. An
+// ecoregion left with no water after clipping is skipped, not inserted.
+func clipToWater(ctx context.Context, tx pgx.Tx, t string) error {
+	if _, err := tx.Exec(ctx, `
+		CREATE TEMP TABLE ocean_land ON COMMIT DROP AS
+		SELECT ST_Subdivide(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(geojson), 4326)), 256) AS g
+		FROM ocean_stage WHERE kind = 'land'`); err != nil {
+		return fmt.Errorf("build land table: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `CREATE INDEX ON ocean_land USING gist (g)`); err != nil {
+		return fmt.Errorf("index land table: %w", err)
+	}
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s
+		SELECT ecoregion_id, name, ST_Multi(clipped)::geography
+		FROM (
+			SELECT e.ecoregion_id, e.name,
+			       ST_CollectionExtract(ST_MakeValid(ST_Difference(e.eco,
+			         coalesce((SELECT ST_Union(l.g) FROM ocean_land l WHERE ST_Intersects(l.g, e.eco)),
+			                  ST_SetSRID('GEOMETRYCOLLECTION EMPTY'::geometry, 4326))
+			       )), 3) AS clipped
+			FROM (
+				SELECT ecoregion_id, min(name) AS name,
+				       ST_Union(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(geojson), 4326))) AS eco
+				FROM ocean_stage
+				WHERE kind = 'eco'
+				GROUP BY ecoregion_id
+			) e
+		) c
+		WHERE clipped IS NOT NULL AND NOT ST_IsEmpty(clipped)`, t))
 	return err
 }
 

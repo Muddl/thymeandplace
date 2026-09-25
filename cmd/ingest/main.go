@@ -27,8 +27,14 @@ func main() {
 
 func defaultDatasets(getenv func(string) string) map[string]func() ingest.Dataset {
 	return map[string]func() ingest.Dataset{
-		"places":  func() ingest.Dataset { return ingest.NewPlaces() },
-		"ocean":   func() ingest.Dataset { return ingest.NewOcean(getenv("OCEAN_SOURCE_URL")) },
+		"places": func() ingest.Dataset { return ingest.NewPlaces() },
+		"ocean": func() ingest.Dataset {
+			o := ingest.NewOcean(getenv("OCEAN_SOURCE_URL"))
+			if u := getenv("OCEAN_LAND_URL"); u != "" {
+				o.Land.URL = u
+			}
+			return o
+		},
 		"climate": func() ingest.Dataset { return ingest.NewClimate(getenv("CLIMATE_SOURCE_BASE")) },
 	}
 }

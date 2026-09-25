@@ -111,6 +111,47 @@ func TestImportPairingToLaterItem(t *testing.T) {
 	}
 }
 
+// Review finding M1: an import with a real field that rounds to +Inf as
+// float32 must be rejected here, before it can ever reach Export (which
+// would otherwise fail the whole catalog with "json: unsupported value").
+func TestImportNonFiniteRealFieldRejected(t *testing.T) {
+	file := `{"format":"thymeandplace-catalog/v1","ingredients":[
+	  {"slug":"tomato","name":"Tomato","category":"vegetable","kind":"annual","frost":"tender",
+	   "grow_temp_c":[16,1e39],"months_to_harvest":3,"storage_months":0,
+	   "tips":{"choose":"c","store":"s"},"pairings":[]}]}`
+	cs, err := ImportChangeset(strings.NewReader(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, problems, err := Validate(context.Background(), cs, snap(t), fakeEco{})
+	if err != nil || !hasProblem(problems, "tomato", "grow_temp_max_c") {
+		t.Fatalf("problems=%v err=%v", problems, err)
+	}
+}
+
+// Review finding M4: Validate used to return on field problems before
+// checking ecoregions, hiding a missing-ecoregion problem on a different
+// item in the same change.
+func TestValidateReportsFieldAndMissingEcoregionTogether(t *testing.T) {
+	badName := catalogtest.Annual()
+	badName.Name = "" // field problem on item A (tomato)
+	missingEco := catalogtest.Seafood()
+	missingEco.Regions[0].EcoregionID = 999 // missing ecoregion on item B (atlantic-cod)
+
+	cs := Changeset{Source: SourceImport, Upserts: []catalog.Ingredient{badName, missingEco}}
+	eco := fakeEco{missing: map[ocean.EcoregionID]bool{999: true}}
+	p, problems, err := Validate(context.Background(), cs, snap(t), eco)
+	if err != nil || p != nil {
+		t.Fatalf("p=%v err=%v", p, err)
+	}
+	if !hasProblem(problems, "tomato", "name") {
+		t.Fatalf("missing field problem: %v", problems)
+	}
+	if !hasProblem(problems, "atlantic-cod", "regions[0].ecoregion_id") {
+		t.Fatalf("missing ecoregion problem: %v", problems)
+	}
+}
+
 func TestUserMessage(t *testing.T) {
 	if !strings.Contains(UserMessage(ErrStale), "Preview again") || UserMessage(nil) != "" {
 		t.Fatal("UserMessage")

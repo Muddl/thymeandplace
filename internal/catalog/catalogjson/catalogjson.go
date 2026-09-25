@@ -80,9 +80,18 @@ func Decode(r io.Reader) ([]catalog.Ingredient, error) {
 	if head.Format != Format {
 		return nil, fmt.Errorf("%w %q; expected %q", ErrUnknownFormat, head.Format, Format)
 	}
+	// Decode the document with ingredients left as raw JSON: decoding the
+	// whole tree in one shot (as the old []Ingredient field did) reports a
+	// type error, such as a non-integer months_to_harvest, with no item
+	// index or slug. Each item below gets its own decoder instead, so the
+	// error can be prefixed with which ingredient it came from.
+	var doc struct {
+		Format      string            `json:"format"`
+		ExportedAt  time.Time         `json:"exported_at"`
+		Ingredients []json.RawMessage `json:"ingredients"`
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	var doc Document
 	if err := dec.Decode(&doc); err != nil {
 		return nil, fmt.Errorf("invalid catalog file: %w", err)
 	}
@@ -90,7 +99,14 @@ func Decode(r io.Reader) ([]catalog.Ingredient, error) {
 		return nil, errors.New("invalid catalog file: unexpected data after the document")
 	}
 	out := make([]catalog.Ingredient, len(doc.Ingredients))
-	for i, j := range doc.Ingredients {
+	for i, raw := range doc.Ingredients {
+		slug := rawSlug(raw)
+		var j Ingredient
+		idec := json.NewDecoder(bytes.NewReader(raw))
+		idec.DisallowUnknownFields()
+		if err := idec.Decode(&j); err != nil {
+			return nil, fmt.Errorf("ingredient %d (%q): %w", i+1, slug, err)
+		}
 		ing, err := j.toDomain()
 		if err != nil {
 			return nil, fmt.Errorf("ingredient %d (%q): %w", i+1, j.Slug, err)
@@ -98,6 +114,16 @@ func Decode(r io.Reader) ([]catalog.Ingredient, error) {
 		out[i] = ing
 	}
 	return out, nil
+}
+
+// rawSlug best-effort extracts the slug field from a raw ingredient item, for
+// use in error messages when the item otherwise fails to decode.
+func rawSlug(raw json.RawMessage) string {
+	var s struct {
+		Slug string `json:"slug"`
+	}
+	_ = json.Unmarshal(raw, &s)
+	return s.Slug
 }
 
 // Encode writes items as a catalog document.

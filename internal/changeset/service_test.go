@@ -57,6 +57,39 @@ func TestServicePreviewStoresPending(t *testing.T) {
 	}
 }
 
+// Review finding M3: Reopen recomputes scores from fresh calibration cases,
+// but Apply enforces the override decision using the scores stored at
+// preview time. Force those stored scores into an override-needing state and
+// check Reopen's preview reports NeedsOverride true regardless of what a
+// fresh recompute would show, so the checkbox the owner sees agrees with
+// what Apply will require.
+func TestReopenUsesStoredScoresForOverride(t *testing.T) {
+	ctx := context.Background()
+	svc, pool := newTestService(t, true)
+	k := catalogtest.Hardy()
+	k.Name = "Curly kale"
+	pending, pv, err := svc.Preview(ctx, FormChangeset(k))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pv.NeedsOverride {
+		t.Fatalf("fixture setup: expected no override needed initially, got %+v", pv)
+	}
+	if _, err := pool.Exec(ctx,
+		`update pending_changeset set score_before = $1, score_after = $2 where id = $3`,
+		1.0, 1.0-OverrideThreshold-0.1, pending.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	_, pv2, err := svc.Reopen(ctx, pending.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pv2.NeedsOverride {
+		t.Fatalf("want NeedsOverride true from stored scores, got %+v", pv2)
+	}
+}
+
 func TestServicePreviewInvalid(t *testing.T) {
 	svc, _ := newTestService(t, true)
 	bad := catalogtest.Seafood()

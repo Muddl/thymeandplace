@@ -1,6 +1,7 @@
 package catalog_test
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -111,6 +112,33 @@ func TestProblemsCarrySlug(t *testing.T) {
 	p := i.Validate()
 	if len(p) == 0 || p[0].Slug != "tomato" {
 		t.Fatalf("problem should carry slug, got %v", p)
+	}
+}
+
+// App-only rule: the DB column is float8 and accepts Infinity, but export
+// re-encodes reals as JSON numbers, which cannot represent Inf/NaN. Not in
+// catalogtest.InvalidExamples because the DB would accept this value.
+func TestNonFiniteRealFieldRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		set   func(*catalog.Ingredient)
+		field string
+	}{
+		{"already infinite", func(i *catalog.Ingredient) { i.GrowTempMaxC = catalogtest.P(math.Inf(1)) }, "grow_temp_max_c"},
+		{"NaN", func(i *catalog.Ingredient) { i.GrowTempMaxC = catalogtest.P(math.NaN()) }, "grow_temp_max_c"},
+		{"finite float64 but +Inf after float32 rounding", func(i *catalog.Ingredient) { i.GrowTempMaxC = catalogtest.P(1e39) }, "grow_temp_max_c"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			i := catalogtest.Annual()
+			c.set(&i)
+			for _, p := range i.Validate() {
+				if p.Field == c.field {
+					return
+				}
+			}
+			t.Fatalf("want a problem on %q, got %v", c.field, i.Validate())
+		})
 	}
 }
 

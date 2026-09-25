@@ -95,6 +95,23 @@ func TestDecodeRejects(t *testing.T) {
 	}
 }
 
+// Review finding M5: a type error inside one ingredient must name that
+// ingredient's index and slug, not surface a bare encoding/json message.
+func TestDecodeTypeErrorNamesIngredient(t *testing.T) {
+	body := `{"format":"thymeandplace-catalog/v1","ingredients":[
+	  {"slug":"a","name":"A","category":"vegetable","kind":"cultivated_year_round","storage_months":0,
+	   "tips":{"choose":"c","store":"s"},"pairings":[]},
+	  {"slug":"b","name":"B","category":"vegetable","kind":"annual","frost":"tender",
+	   "months_to_harvest":3.5,"storage_months":0,"tips":{"choose":"c","store":"s"},"pairings":[]}]}`
+	_, err := Decode(strings.NewReader(body))
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if !strings.Contains(err.Error(), `ingredient 2 ("b")`) {
+		t.Fatalf("err = %v, want it to name ingredient 2 (%q)", err, "b")
+	}
+}
+
 func TestDecodeSizeLimit(t *testing.T) {
 	big := `{"format":"thymeandplace-catalog/v1","ingredients":[],"pad":"` + strings.Repeat("x", MaxBytes) + `"}`
 	if _, err := Decode(strings.NewReader(big)); !errors.Is(err, ErrTooLarge) {

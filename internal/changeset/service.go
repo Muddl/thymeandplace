@@ -92,7 +92,15 @@ func (s *Service) Reopen(ctx context.Context, id int64) (Pending, Preview, error
 		return p, Preview{}, ErrStale
 	}
 	pv, err := s.build(ctx, p.Changeset, cur)
-	return p, pv, err
+	if err != nil {
+		return p, Preview{}, err
+	}
+	// Apply enforces the override decision from the scores stored at preview
+	// time (row.ScoreBefore/ScoreAfter), not a fresh recompute against
+	// possibly-changed calibration cases; keep the flag shown here consistent
+	// with what Apply will actually check.
+	pv.NeedsOverride = NeedsOverride(p.ScoreBefore, p.ScoreAfter)
+	return p, pv, nil
 }
 
 func (s *Service) build(ctx context.Context, cs Changeset, cur *catalog.Snapshot) (Preview, error) {
@@ -160,7 +168,11 @@ func (s *Service) Apply(ctx context.Context, id int64, actor string, opts ApplyO
 	}
 
 	// catalog_meta is locked, so no other writer can commit until we finish;
-	// a fresh read sees exactly the previewed base version.
+	// a fresh read sees exactly the previewed base version. catalog.Load takes
+	// a second connection from s.pool (the transaction above already holds
+	// one), so the pool must allow more connections than there are concurrent
+	// Apply calls; fine while there is a single admin today, but worth
+	// revisiting if that changes.
 	cur, err := catalog.Load(ctx, s.pool)
 	if err != nil {
 		return err

@@ -59,7 +59,6 @@ var (
 	ErrNotFound         = errors.New("changeset: preview expired or already applied")
 	ErrOverrideRequired = errors.New("changeset: calibration override required")
 	ErrConfirmMismatch  = errors.New("changeset: delete confirmation does not match")
-	ErrNotReady         = errors.New("changeset: catalog not loaded")
 )
 
 // InvalidError carries per-item, per-field problems. Nothing was stored.
@@ -106,19 +105,12 @@ func Validate(ctx context.Context, cs Changeset, cur *catalog.Snapshot, eco Ecor
 			problems = append(problems, catalog.Problem{Slug: d, Field: "slug", Message: "cannot be both saved and deleted in one change"})
 		}
 	}
-	if len(problems) > 0 {
-		return nil, problems, nil
-	}
 
-	proposed, err := cur.With(ups, cs.Deletes)
-	var ve *catalog.ValidationError
-	if errors.As(err, &ve) {
-		return nil, ve.Problems, nil
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-
+	// The ecoregion check runs over the normalized upserts regardless of any
+	// field/duplicate problems found above, so a bad field on one item never
+	// hides a missing ecoregion on another. Only the snapshot With() step
+	// below (which assumes its input already passed Validate) is skipped
+	// when there are already problems.
 	type loc struct {
 		slug string
 		i    int
@@ -145,8 +137,18 @@ func Validate(ctx context.Context, cs Changeset, cur *catalog.Snapshot, eco Ecor
 			}
 		}
 	}
+
 	if len(problems) > 0 {
 		return nil, problems, nil
+	}
+
+	proposed, err := cur.With(ups, cs.Deletes)
+	var ve *catalog.ValidationError
+	if errors.As(err, &ve) {
+		return nil, ve.Problems, nil
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 	return proposed, nil, nil
 }

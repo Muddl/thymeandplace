@@ -88,6 +88,31 @@ func (ing Ingredient) Validate() []Problem {
 		}
 	}
 
+	// App-only: the DB stores reals as float8 (which accepts Infinity), but
+	// export re-encodes them as JSON numbers, which cannot represent Inf/NaN.
+	// A value must survive both as-is and after rounding to float32 (the
+	// column's effective precision, see Normalize/Real32).
+	realFields := []struct {
+		field string
+		v     *float64
+	}{
+		{"grow_temp_min_c", ing.GrowTempMinC},
+		{"grow_temp_max_c", ing.GrowTempMaxC},
+		{"warmup_temp_c", ing.WarmupTempC},
+		{"fruiting_temp_min_c", ing.FruitingTempMinC},
+		{"fruiting_temp_max_c", ing.FruitingTempMaxC},
+		{"min_precip_mm", ing.MinPrecipMM},
+	}
+	for _, f := range realFields {
+		if f.v == nil {
+			continue
+		}
+		rounded := float64(float32(*f.v))
+		if math.IsInf(*f.v, 0) || math.IsNaN(*f.v) || math.IsInf(rounded, 0) || math.IsNaN(rounded) {
+			add(f.field, "must be a finite number within ±3.4e38")
+		}
+	}
+
 	switch ing.Kind {
 	case KindAnnual:
 		if ing.Frost == "" {
@@ -152,24 +177,28 @@ func (ing Ingredient) Validate() []Problem {
 	if ing.Kind != KindSeafood && len(ing.Regions) > 0 {
 		add("regions", "only seafood can have regions")
 	}
+	// Normalize sorts regions by ecoregion id, so the regions[i] index in a
+	// problem's Field can point at a different line than the owner saw in
+	// their input. Name the ecoregion in the message so the problem is
+	// unambiguous even when the index has shifted.
 	seenEco := map[int32]bool{}
 	for i, r := range ing.Regions {
 		if seenEco[int32(r.EcoregionID)] {
-			add(fmt.Sprintf("regions[%d].ecoregion_id", i), "is listed twice")
+			add(fmt.Sprintf("regions[%d].ecoregion_id", i), "ecoregion %d: is listed twice", r.EcoregionID)
 		}
 		seenEco[int32(r.EcoregionID)] = true
 		if len(r.Months) < 1 || len(r.Months) > 12 {
-			add(fmt.Sprintf("regions[%d].months", i), "must list 1 to 12 months")
+			add(fmt.Sprintf("regions[%d].months", i), "ecoregion %d: must list 1 to 12 months", r.EcoregionID)
 		}
 		for _, m := range r.Months {
 			if m < 1 || m > 12 {
-				add(fmt.Sprintf("regions[%d].months", i), "must be between 1 and 12")
+				add(fmt.Sprintf("regions[%d].months", i), "ecoregion %d: must be between 1 and 12", r.EcoregionID)
 				break
 			}
 		}
 		for _, m := range r.PeakMonths {
 			if !slices.Contains(r.Months, m) {
-				add(fmt.Sprintf("regions[%d].peak_months", i), "must be a subset of months")
+				add(fmt.Sprintf("regions[%d].peak_months", i), "ecoregion %d: must be a subset of months", r.EcoregionID)
 				break
 			}
 		}

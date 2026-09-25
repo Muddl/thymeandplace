@@ -5,8 +5,148 @@
 package store
 
 import (
+	"database/sql/driver"
+	"fmt"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type FrostTolerance string
+
+const (
+	FrostToleranceTender FrostTolerance = "tender"
+	FrostToleranceHardy  FrostTolerance = "hardy"
+)
+
+func (e *FrostTolerance) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = FrostTolerance(s)
+	case string:
+		*e = FrostTolerance(s)
+	default:
+		return fmt.Errorf("unsupported scan type for FrostTolerance: %T", src)
+	}
+	return nil
+}
+
+type NullFrostTolerance struct {
+	FrostTolerance FrostTolerance
+	Valid          bool // Valid is true if FrostTolerance is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullFrostTolerance) Scan(value interface{}) error {
+	if value == nil {
+		ns.FrostTolerance, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.FrostTolerance.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullFrostTolerance) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.FrostTolerance), nil
+}
+
+type IngredientCategory string
+
+const (
+	IngredientCategoryFruit     IngredientCategory = "fruit"
+	IngredientCategoryVegetable IngredientCategory = "vegetable"
+	IngredientCategoryHerb      IngredientCategory = "herb"
+	IngredientCategoryMushroom  IngredientCategory = "mushroom"
+	IngredientCategorySeafood   IngredientCategory = "seafood"
+)
+
+func (e *IngredientCategory) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IngredientCategory(s)
+	case string:
+		*e = IngredientCategory(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IngredientCategory: %T", src)
+	}
+	return nil
+}
+
+type NullIngredientCategory struct {
+	IngredientCategory IngredientCategory
+	Valid              bool // Valid is true if IngredientCategory is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIngredientCategory) Scan(value interface{}) error {
+	if value == nil {
+		ns.IngredientCategory, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IngredientCategory.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIngredientCategory) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IngredientCategory), nil
+}
+
+type IngredientKind string
+
+const (
+	IngredientKindAnnual              IngredientKind = "annual"
+	IngredientKindPerennialFruit      IngredientKind = "perennial_fruit"
+	IngredientKindCultivatedYearRound IngredientKind = "cultivated_year_round"
+	IngredientKindWildMushroom        IngredientKind = "wild_mushroom"
+	IngredientKindSeafood             IngredientKind = "seafood"
+)
+
+func (e *IngredientKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IngredientKind(s)
+	case string:
+		*e = IngredientKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IngredientKind: %T", src)
+	}
+	return nil
+}
+
+type NullIngredientKind struct {
+	IngredientKind IngredientKind
+	Valid          bool // Valid is true if IngredientKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIngredientKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.IngredientKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IngredientKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIngredientKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IngredientKind), nil
+}
+
+type CatalogMetum struct {
+	ID      bool
+	Version int64
+}
 
 type ClimateCell struct {
 	CellID   int32
@@ -33,6 +173,34 @@ type DatasetVersion struct {
 	LoadedAt        pgtype.Timestamptz
 	IsLive          bool
 	PromotedAt      pgtype.Timestamptz
+}
+
+type Ingredient struct {
+	Slug                 string
+	Name                 string
+	Category             IngredientCategory
+	Kind                 IngredientKind
+	Frost                NullFrostTolerance
+	GrowTempMinC         pgtype.Float4
+	GrowTempMaxC         pgtype.Float4
+	MonthsToHarvest      pgtype.Int2
+	StorageMonths        int16
+	ChillMonthsMin       pgtype.Int2
+	WarmupTempC          pgtype.Float4
+	MonthsBloomToHarvest pgtype.Int2
+	HarvestSpanMonths    pgtype.Int2
+	FruitingTempMinC     pgtype.Float4
+	FruitingTempMaxC     pgtype.Float4
+	MinPrecipMm          pgtype.Float4
+	TipChoose            string
+	TipStore             string
+	Note                 string
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type IngredientPairing struct {
+	Slug      string
+	PairsWith string
 }
 
 type OceanEcoregion struct {
@@ -65,4 +233,11 @@ type PlaceV0 struct {
 	Country    string
 	Population int32
 	Geom       interface{}
+}
+
+type SeafoodRegion struct {
+	Slug        string
+	EcoregionID int32
+	Months      []int16
+	PeakMonths  []int16
 }

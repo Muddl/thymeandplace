@@ -103,6 +103,7 @@ func InvalidExamples() []InvalidExample {
 		{"perennial missing span", with(Perennial(), func(i *catalog.Ingredient) { i.HarvestSpanMonths = nil }), "harvest_span_months"},
 		{"mushroom fruiting max below min", with(WildMushroom(), func(i *catalog.Ingredient) { i.FruitingTempMaxC = P(5.0) }), "fruiting_temp_max_c"},
 		{"mushroom missing fruiting min", with(WildMushroom(), func(i *catalog.Ingredient) { i.FruitingTempMinC = nil }), "fruiting_temp_min_c"},
+		{"mushroom missing fruiting max", with(WildMushroom(), func(i *catalog.Ingredient) { i.FruitingTempMaxC = nil }), "fruiting_temp_max_c"},
 		{"mushroom negative precip", with(WildMushroom(), func(i *catalog.Ingredient) { i.MinPrecipMM = P(-1.0) }), "min_precip_mm"},
 		{"mushroom missing precip", with(WildMushroom(), func(i *catalog.Ingredient) { i.MinPrecipMM = nil }), "min_precip_mm"},
 		{"self pairing", with(Annual(), func(i *catalog.Ingredient) { i.Pairings = []string{"tomato"} }), "pairings"},
@@ -126,5 +127,38 @@ func Mackerel() catalog.Ingredient {
 			{EcoregionID: 30, Months: []int{10, 11}},
 		},
 		TipChoose: "Bright eyes, stiff body.", TipStore: "Eat the day you buy it.",
+	}
+}
+
+// SmallCatalog is the fixed test catalog used by engine, calibration and
+// changeset tests. Every kind and category is represented.
+func SmallCatalog() []catalog.Ingredient {
+	tomato := Annual()
+	tomato.Pairings = []string{"basil"}
+
+	squash := catalog.Ingredient{
+		Slug: "winter-squash", Name: "Winter squash", Category: catalog.CategoryVegetable, Kind: catalog.KindAnnual,
+		Frost: catalog.FrostTender, GrowTempMinC: P(15.0), GrowTempMaxC: P(32.0), MonthsToHarvest: P(4), StorageMonths: 3,
+		TipChoose: "Hard rind, heavy.", TipStore: "Cool and dry for months.",
+	}
+	basil := catalog.Ingredient{
+		Slug: "basil", Name: "Basil", Category: catalog.CategoryHerb, Kind: catalog.KindAnnual,
+		Frost: catalog.FrostTender, GrowTempMinC: P(18.0), GrowTempMaxC: P(32.0), MonthsToHarvest: P(2),
+		Pairings:  []string{"tomato"},
+		TipChoose: "Perky leaves, no black spots.", TipStore: "Stems in water on the counter.",
+	}
+	orange := catalog.Ingredient{
+		Slug: "orange", Name: "Orange", Category: catalog.CategoryFruit, Kind: catalog.KindPerennialFruit,
+		Frost: catalog.FrostTender, ChillMonthsMin: P(0), WarmupTempC: P(20.0),
+		MonthsBloomToHarvest: P(7), HarvestSpanMonths: P(4),
+		TipChoose: "Heavy, fine-pored skin.", TipStore: "Cool room or fridge.",
+	}
+	button := catalog.Ingredient{
+		Slug: "button-mushroom", Name: "Button mushroom", Category: catalog.CategoryMushroom, Kind: catalog.KindYearRound,
+		TipChoose: "Closed caps, dry surface.", TipStore: "Paper bag in the fridge.",
+	}
+	return []catalog.Ingredient{
+		tomato, Hardy(), squash, basil, Perennial(), orange, YearRound(), button,
+		WildMushroom(), Seafood(), Mackerel(),
 	}
 }

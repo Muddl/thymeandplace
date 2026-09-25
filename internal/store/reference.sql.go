@@ -9,6 +9,30 @@ import (
 	"context"
 )
 
+const existingEcoregions = `-- name: ExistingEcoregions :many
+SELECT ecoregion_id FROM ocean_ecoregion WHERE ecoregion_id = ANY($1::int[]) ORDER BY ecoregion_id
+`
+
+func (q *Queries) ExistingEcoregions(ctx context.Context, ids []int32) ([]int32, error) {
+	rows, err := q.db.Query(ctx, existingEcoregions, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int32
+	for rows.Next() {
+		var ecoregion_id int32
+		if err := rows.Scan(&ecoregion_id); err != nil {
+			return nil, err
+		}
+		items = append(items, ecoregion_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLiveDatasetIDs = `-- name: ListLiveDatasetIDs :many
 SELECT id FROM dataset_versions WHERE is_live ORDER BY id
 `

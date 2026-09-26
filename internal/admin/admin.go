@@ -211,8 +211,5 @@ func jsonError(w http.ResponseWriter, status int, msg string) {
 
 func (a *Admin) ip(r *http.Request) string { return web.ClientIP(r, a.d.TrustProxy) }
 
-// registerSecurity is implemented in Task 7.
-func (a *Admin) registerSecurity() {}
-
 // registerCatalog is replaced in Plan 7.
 func (a *Admin) registerCatalog() {}

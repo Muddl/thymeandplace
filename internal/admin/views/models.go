@@ -33,3 +33,15 @@ type EnrollVM struct {
 	Token  string
 	Valid  bool
 }
+
+type PasskeyRow struct {
+	ID, Name, Created, LastUsed string
+}
+
+type SecurityVM struct {
+	Layout        LayoutVM
+	Passkeys      []PasskeyRow
+	RecentAuth    bool
+	BackupEnabled bool
+	Message       string
+}

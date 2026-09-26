@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	calibfixtures "thymeandplace/calibration"
+	"thymeandplace/internal/admin"
+	"thymeandplace/internal/auth"
 	"thymeandplace/internal/calibration"
 	"thymeandplace/internal/calibrun"
 	"thymeandplace/internal/catalog"
@@ -29,6 +31,11 @@ type config struct {
 	Addr        string
 	TrustProxy  bool
 
+	AdminSecretKey []byte
+	AdminRPID      string
+	AdminOrigin    string
+	AdminBackup    bool
+
 	now func() time.Time // server clock for the public site; nil → time.Now (tests pin it)
 }
 
@@ -40,6 +47,21 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if c.DatabaseURL == "" {
 		return c, errors.New("DATABASE_URL is required")
 	}
+	if k := getenv("ADMIN_SECRET_KEY"); k != "" {
+		key, err := auth.ParseSecretKey(k)
+		if err != nil {
+			return c, err
+		}
+		c.AdminSecretKey = key
+	}
+	c.AdminRPID, c.AdminOrigin = getenv("ADMIN_RP_ID"), getenv("ADMIN_ORIGIN")
+	if c.AdminRPID == "" {
+		c.AdminRPID = "thymeand.place"
+	}
+	if c.AdminOrigin == "" {
+		c.AdminOrigin = "https://" + c.AdminRPID
+	}
+	c.AdminBackup = getenv("ADMIN_BACKUP_LOGIN") != "off"
 	return c, nil
 }
 
@@ -53,6 +75,7 @@ type app struct {
 	cases   changeset.CasesFunc
 	climate *climate.Service
 	ocean   *ocean.Service
+	auth    *auth.Service
 	log     *slog.Logger
 	cancel  context.CancelFunc // stops start()'s background work; set by start
 }
@@ -95,6 +118,24 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	})
 	a.mux = http.NewServeMux()
 	a.mux.Handle("/", public)
+
+	if len(cfg.AdminSecretKey) == 32 {
+		authSvc, err := auth.NewService(pool, auth.Config{
+			RPID: cfg.AdminRPID, RPOrigins: []string{cfg.AdminOrigin}, SecretKey: cfg.AdminSecretKey,
+			BackupEnabled: cfg.AdminBackup, Log: log,
+		})
+		if err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("admin auth: %w", err)
+		}
+		a.auth = authSvc
+		adminH := admin.New(admin.Deps{Auth: authSvc, Log: log, TrustProxy: cfg.TrustProxy})
+		a.mux.Handle("/admin", adminH)
+		a.mux.Handle("/admin/", adminH)
+	} else {
+		log.Warn("ADMIN_SECRET_KEY not set; /admin is disabled")
+	}
+
 	a.handler = web.Common(log)(a.mux)
 	return a, nil
 }

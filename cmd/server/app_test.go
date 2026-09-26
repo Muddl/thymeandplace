@@ -90,4 +90,9 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil || c.Addr != ":8080" || !c.TrustProxy {
 		t.Fatalf("%+v %v", c, err)
 	}
+	if _, err := loadConfig(func(k string) string {
+		return map[string]string{"DATABASE_URL": "postgres://x", "ADMIN_SECRET_KEY": "c2hvcnQ="}[k]
+	}); err == nil {
+		t.Fatal("a short ADMIN_SECRET_KEY must be rejected")
+	}
 }

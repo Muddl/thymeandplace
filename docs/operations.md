@@ -135,14 +135,14 @@ The scripts were exercised end to end against a local S3-compatible container st
 
 ```bash
 cd deploy && export TP_ENV_FILE=./e2e.env MSYS_NO_PATHCONV=1
-C="docker compose -f compose.yaml -f compose.e2e.yaml"   # project thymeandplace-e2e
+C="docker compose -p thymeandplace-e2e -f compose.yaml -f compose.e2e.yaml"   # never the production project
 $C up -d --build --wait db app
 $C --profile tools run --rm --entrypoint /app/devseed ingest
 
 docker run -d --name tp-minio -e ENDPOINT=tp-minio -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver:latest
 docker network connect thymeandplace-e2e_default tp-minio
 $C --profile tools build backup
-$C --profile tools run --rm --entrypoint sh backup -c   "mc alias set m http://tp-minio:8000 accessKey1 verySecretKey1 && mc mb m/tp-backups"
+$C --profile tools run --rm --entrypoint sh backup -c "mc alias set m http://tp-minio:8000 accessKey1 verySecretKey1 && mc mb m/tp-backups"
 
 BK="-e BUCKET_ENDPOINT=tp-minio:8000 -e BUCKET_NAME=tp-backups -e BUCKET_ACCESS_KEY=accessKey1 -e BUCKET_SECRET_KEY=verySecretKey1 -e BUCKET_USE_SSL=false"
 $C --profile tools run --rm $BK backup
@@ -153,7 +153,7 @@ $C stop app
 $C --profile tools run --rm $BK -e RESTORE_CONFIRM=thymeandplace --entrypoint restore.sh backup backups/daily/<date>.dump
 $C start app
 
-$C --profile tools down -v; docker rm -f tp-minio
+docker rm -f tp-minio; $C --profile tools down -v
 ```
 
 `compose.e2e.yaml` sets the project name `thymeandplace-e2e`, so this stack's containers and volumes (`thymeandplace-e2e_*`) are separate from production's (`thymeandplace_*`) and the final `down -v` (like the ones in `deploy/smoke.sh` and `e2e/run.sh`) cannot touch production data, even on the VPS. Always pass both `-f compose.yaml -f compose.e2e.yaml` for test stacks.

@@ -5,7 +5,7 @@ import { APIRequestContext, Page, expect } from "@playwright/test";
 const deploy = path.resolve(__dirname, "..", "deploy");
 
 export function compose(args: string): string {
-  return execSync(`docker compose -f compose.yaml -f compose.e2e.yaml ${args}`, {
+  return execSync(`docker compose -p thymeandplace-e2e -f compose.yaml -f compose.e2e.yaml ${args}`, {
     cwd: deploy,
     env: {
       ...process.env,

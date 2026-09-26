@@ -51,6 +51,21 @@ trap 'rm -f "$tmp"' EXIT
 mc cp --quiet "store/$BUCKET_NAME/$key" "$tmp"
 [ -s "$tmp" ] || { echo "restore: downloaded dump $key is empty; database untouched" >&2; exit 1; }
 pg_restore --list "$tmp" >/dev/null || { echo "restore: $key is not a readable pg_dump archive; database untouched" >&2; exit 1; }
+# --list reads only the table of contents; reading every data block to
+# /dev/null catches a truncated or corrupt dump before anything is dropped.
+pg_restore --file=/dev/null "$tmp" || { echo "restore: $key has unreadable data; database untouched" >&2; exit 1; }
+
+# Refuse while anything is still connected (normally the app): WITH (FORCE)
+# would kill it silently, and an app restarting mid-restore could run its
+# migrations into the fresh database before pg_restore does.
+active=$(psql "$admin_url" -X -Atq -v ON_ERROR_STOP=1 -v db="$dbname" <<'SQL'
+SELECT count(*) FROM pg_stat_activity WHERE datname = :'db';
+SQL
+)
+if [ "$active" != "0" ]; then
+  echo "restore: $active connection(s) to $dbname are open; stop the app first (docker compose stop app); database untouched" >&2
+  exit 1
+fi
 
 # :"db" makes psql quote the name as an identifier. DROP/CREATE DATABASE
 # cannot run inside a transaction, so they run as two autocommit statements.

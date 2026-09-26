@@ -184,7 +184,8 @@ func TestEmptyDatabaseServes(t *testing.T) {
 // dbtest like the other app-level tests; the loader injected into the holder
 // is what actually simulates the failures.
 func TestWaitForSnapshotRetries(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logBuf, nil))
 	pool := dbtest.New(t)
 
 	calls := 0
@@ -202,6 +203,10 @@ func TestWaitForSnapshotRetries(t *testing.T) {
 	defer cancel()
 	if err := a.waitForSnapshot(ctx, 5*time.Millisecond); err != nil || calls != 3 {
 		t.Fatalf("err=%v calls=%d", err, calls)
+	}
+	// Each failed retry is logged once, with its reason.
+	if n := strings.Count(logBuf.String(), "catalog snapshot not loaded yet"); n != 2 || !strings.Contains(logBuf.String(), "db not ready") {
+		t.Fatalf("want 2 retry log lines carrying the load error, got %d:\n%s", n, logBuf.String())
 	}
 
 	never := &app{log: log, holder: catalog.NewHolder(func(context.Context) (*catalog.Snapshot, error) {
@@ -267,7 +272,7 @@ func TestLoadConfigPublicToday(t *testing.T) {
 	}
 
 	c, err = loadConfig(func(k string) string {
-		return map[string]string{"DATABASE_URL": "postgres://x", "TP_PUBLIC_TODAY": "2026-05-15"}[k]
+		return map[string]string{"DATABASE_URL": "postgres://x", "ADMIN_RP_ID": "localhost", "TP_PUBLIC_TODAY": "2026-05-15"}[k]
 	}, discard)
 	if err != nil {
 		t.Fatalf("valid TP_PUBLIC_TODAY: %v", err)
@@ -292,8 +297,25 @@ func TestLoadConfigPublicToday(t *testing.T) {
 	}
 
 	if _, err := loadConfig(func(k string) string {
-		return map[string]string{"DATABASE_URL": "postgres://x", "TP_PUBLIC_TODAY": "not-a-date"}[k]
+		return map[string]string{"DATABASE_URL": "postgres://x", "ADMIN_RP_ID": "localhost", "TP_PUBLIC_TODAY": "not-a-date"}[k]
 	}, discard); err == nil {
 		t.Fatal("an invalid TP_PUBLIC_TODAY must be a startup error")
+	}
+}
+
+// TestLoadConfigPublicTodayRefusedOutsideLocalhost: TP_PUBLIC_TODAY is a
+// test-only setting, so the server refuses to start with it unless the admin
+// relying party is "localhost" (the e2e stack's value). A production env file
+// (ADMIN_RP_ID=thymeand.place, or unset, which defaults to it) that leaked the
+// setting must fail loudly rather than serve a pinned month.
+func TestLoadConfigPublicTodayRefusedOutsideLocalhost(t *testing.T) {
+	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, rp := range []string{"", "thymeand.place", "example.org", "localhost.example.org"} {
+		_, err := loadConfig(func(k string) string {
+			return map[string]string{"DATABASE_URL": "postgres://x", "ADMIN_RP_ID": rp, "TP_PUBLIC_TODAY": "2026-05-15"}[k]
+		}, discard)
+		if err == nil || !strings.Contains(err.Error(), "TP_PUBLIC_TODAY") {
+			t.Fatalf("ADMIN_RP_ID=%q with TP_PUBLIC_TODAY: want a startup error naming TP_PUBLIC_TODAY, got %v", rp, err)
+		}
 	}
 }

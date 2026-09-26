@@ -55,7 +55,8 @@ func loadConfig(getenv func(string) string, log *slog.Logger) (config, error) {
 		}
 		c.AdminSecretKey = key
 	}
-	c.AdminRPID, c.AdminOrigin = getenv("ADMIN_RP_ID"), getenv("ADMIN_ORIGIN")
+	rawRPID := getenv("ADMIN_RP_ID")
+	c.AdminRPID, c.AdminOrigin = rawRPID, getenv("ADMIN_ORIGIN")
 	if c.AdminRPID == "" {
 		c.AdminRPID = "thymeand.place"
 	}
@@ -69,8 +70,13 @@ func loadConfig(getenv func(string) string, log *slog.Logger) (config, error) {
 	// TP_PUBLIC_TODAY pins the public site's "today" to a fixed calendar
 	// date, keeping the current time of day. Test use only (e2e needs a
 	// specific month, e.g. one where an edit crosses a season boundary),
-	// never set in production.
+	// never set in production. It is refused unless ADMIN_RP_ID is
+	// "localhost" (the e2e stack's value), so a production env file that
+	// leaks it fails to start instead of serving a pinned month.
 	if v := getenv("TP_PUBLIC_TODAY"); v != "" {
+		if rawRPID != "localhost" {
+			return c, errors.New("TP_PUBLIC_TODAY is test-only and requires ADMIN_RP_ID=localhost; remove it from this env file")
+		}
 		d, err := time.Parse("2006-01-02", v)
 		if err != nil {
 			return c, fmt.Errorf("TP_PUBLIC_TODAY: %w", err)
@@ -115,7 +121,8 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	// The first Refresh runs onChange (the initial catalog load) before it
 	// publishes the starting version, so the snapshot is never older than the
 	// published version. A failure is logged, not fatal: nothing is published,
-	// and start()'s retry loop and the watcher's own poll/LISTEN retry it.
+	// and waitForSnapshot's retry loop (plus the watcher's own poll/LISTEN,
+	// once start() runs it) retries it.
 	if err := a.watcher.Refresh(ctx); err != nil {
 		log.Error("initial catalog load failed; will retry", "err", err)
 	}
@@ -181,10 +188,17 @@ func (a *app) start(ctx context.Context) {
 // before any version publish, including the first, so a successful Refresh
 // always leaves a snapshot live). The server does not listen before this
 // returns (spec §11.6: the site is not served without a snapshot).
+//
+// Each failed attempt is logged once (so at most one line per `every`),
+// giving operators the reason the site is still not listening.
 func (a *app) waitForSnapshot(ctx context.Context, every time.Duration) error {
-	for a.holder.Current() == nil {
-		if err := a.watcher.Refresh(ctx); err == nil {
+	for attempt := 1; a.holder.Current() == nil; attempt++ {
+		err := a.watcher.Refresh(ctx)
+		if err == nil {
 			return nil
+		}
+		if ctx.Err() == nil {
+			a.log.Warn("catalog snapshot not loaded yet; retrying", "attempt", attempt, "retry_in", every.String(), "err", err)
 		}
 		select {
 		case <-ctx.Done():

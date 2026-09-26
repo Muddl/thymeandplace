@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"thymeandplace/internal/auth"
 )
 
 func TestSecurityPageListsPasskeys(t *testing.T) {
@@ -73,5 +75,62 @@ func TestRenamePasskey(t *testing.T) {
 	}
 	if rec := c.get("/admin/security"); !strings.Contains(rec.Body.String(), "Work phone") {
 		t.Fatal("rename not shown")
+	}
+}
+
+// Fix round 1, item 1: reauth/finish must be rate limited and audited the
+// same way as every other passkey login finish.
+func TestReauthFinishIsRateLimitedAndAudited(t *testing.T) {
+	e := newEnv(t, true)
+	c, _ := e.enrolled(t)
+	c.ip = "192.0.2.88"
+	c.get("/admin/security")
+
+	rec := c.postJSON("/admin/security/reauth/finish", "not json")
+	if rec.Code < 400 || rec.Code >= 500 || !strings.Contains(rec.Body.String(), `"error"`) {
+		t.Fatalf("garbage body: %d %s", rec.Code, rec.Body.String())
+	}
+	var n int
+	_ = e.pool.QueryRow(t.Context(), `SELECT count(*) FROM admin_login_log WHERE ip = '192.0.2.88' AND method = 'passkey' AND outcome = 'failure'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("failed reauth not audited: n=%d", n)
+	}
+
+	for i := 0; i < auth.AttemptLimit-1; i++ {
+		c.postJSON("/admin/security/reauth/finish", "not json")
+	}
+	if rec := c.postJSON("/admin/security/reauth/finish", "not json"); rec.Code != 429 {
+		t.Fatalf("6th reauth attempt must be rate limited: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Fix round 1, item 2: a malformed passkey ID never reaches the store (400,
+// no raw decode error); a well-formed but unknown one is a 404. Both show
+// the same fixed message.
+func TestRenameRemoveUnknownPasskeyID(t *testing.T) {
+	e := newEnv(t, true)
+	c, _ := e.enrolled(t)
+	unknown := base64.RawURLEncoding.EncodeToString([]byte("does-not-exist-cred"))
+
+	if rec := c.postForm("/admin/security/passkeys/A/rename", url.Values{"name": {"x"}}); rec.Code != 400 || !strings.Contains(rec.Body.String(), "Unknown passkey.") {
+		t.Fatalf("malformed id rename: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := c.postForm("/admin/security/passkeys/"+unknown+"/rename", url.Values{"name": {"x"}}); rec.Code != 404 || !strings.Contains(rec.Body.String(), "Unknown passkey.") {
+		t.Fatalf("unknown id rename: %d %s", rec.Code, rec.Body.String())
+	}
+
+	if rec := c.postForm("/admin/security/passkeys/A/remove", url.Values{}); rec.Code != 400 || !strings.Contains(rec.Body.String(), "Unknown passkey.") {
+		t.Fatalf("malformed id remove: %d %s", rec.Code, rec.Body.String())
+	}
+	// A removal of an unknown ID while only one passkey exists hits the
+	// last-passkey guard before the ID is even looked up (RemovePasskey
+	// counts first); register a second passkey so that guard doesn't mask
+	// the not-found case being tested here.
+	key := newDevice()
+	if _, err := key.register(c, "/admin/security/passkeys/begin", "/admin/security/passkeys/finish?name=Key"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := c.postForm("/admin/security/passkeys/"+unknown+"/remove", url.Values{}); rec.Code != 404 || !strings.Contains(rec.Body.String(), "Unknown passkey.") {
+		t.Fatalf("unknown id remove: %d %s", rec.Code, rec.Body.String())
 	}
 }

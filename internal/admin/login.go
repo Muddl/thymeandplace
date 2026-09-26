@@ -79,7 +79,17 @@ func limitCeremonyBody(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *Admin) passkeyFinish(w http.ResponseWriter, r *http.Request) {
+// finishPasskeyLogin runs the WebAuthn login-finish ceremony shared by every
+// route that ends a passkey login: /admin/login/passkey/finish (fresh sign-in
+// or a re-auth from an already-signed-in session) and
+// /admin/security/reauth/finish (re-auth only). It applies the fail-closed
+// per-IP rate limit, caps the ceremony body, clears the WebAuthn state cookie
+// on every response (success or failure), and writes the outcome to
+// admin_login_log — so every login attempt, from either route, is rate
+// limited and audited exactly once. It reports whether the ceremony
+// succeeded; on failure it has already written the error response and the
+// caller must return without writing anything else.
+func (a *Admin) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) bool {
 	ctx, ip := r.Context(), a.ip(r)
 	state := ""
 	if c, err := r.Cookie(auth.StateCookie); err == nil {
@@ -95,7 +105,7 @@ func (a *Admin) passkeyFinish(w http.ResponseWriter, r *http.Request) {
 		}
 		a.d.Auth.LogAttempt(ctx, ip, "passkey", "rate_limited")
 		jsonError(w, http.StatusTooManyRequests, "Too many sign-in attempts. Wait 15 minutes and try again.")
-		return
+		return false
 	}
 	err := limitCeremonyBody(w, r)
 	if err == nil {
@@ -107,9 +117,17 @@ func (a *Admin) passkeyFinish(w http.ResponseWriter, r *http.Request) {
 			a.d.Log.Warn("passkey finish failed", "err", err)
 		}
 		jsonError(w, http.StatusUnauthorized, "That passkey didn't work. Try again, or use backup login.")
-		return
+		return false
 	}
 	a.d.Auth.LogAttempt(ctx, ip, "passkey", "success")
+	return true
+}
+
+func (a *Admin) passkeyFinish(w http.ResponseWriter, r *http.Request) {
+	if !a.finishPasskeyLogin(w, r) {
+		return
+	}
+	ctx := r.Context()
 	if s, ok := SessionFrom(ctx); ok { // re-auth from an existing session
 		if err := a.d.Auth.MarkReauthed(ctx, s); err != nil {
 			a.d.Log.Error("mark reauthed failed", "err", err, "request_id", web.RequestIDFrom(ctx))

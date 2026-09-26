@@ -275,7 +275,7 @@ func (s *Service) RenamePasskey(ctx context.Context, id []byte, name string) err
 	}
 	n, err := s.q().RenamePasskey(ctx, store.RenamePasskeyParams{CredentialID: id, Name: name})
 	if err == nil && n == 0 {
-		return errors.New("passkey not found")
+		return ErrPasskeyNotFound
 	}
 	return err
 }
@@ -310,7 +310,7 @@ func (s *Service) RemovePasskey(ctx context.Context, id []byte) error {
 		return err
 	}
 	if removed == 0 {
-		return errors.New("passkey not found")
+		return ErrPasskeyNotFound
 	}
 	return tx.Commit(ctx)
 }

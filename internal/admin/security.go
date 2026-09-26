@@ -7,6 +7,7 @@ import (
 
 	"thymeandplace/internal/admin/views"
 	"thymeandplace/internal/auth"
+	"thymeandplace/internal/web"
 )
 
 func (a *Admin) registerSecurity() {
@@ -65,25 +66,22 @@ func (a *Admin) securityWithMessage(w http.ResponseWriter, r *http.Request, stat
 	a.render(w, r, status, views.SecurityPage(vm))
 }
 
+// reauthFinish confirms a fresh passkey sign-in for an already-signed-in
+// session, going through the same rate limiting, ceremony body cap, state
+// cookie handling, and admin_login_log audit trail as any other passkey
+// login finish (see finishPasskeyLogin). requireAuth guarantees a session is
+// present here.
 func (a *Admin) reauthFinish(w http.ResponseWriter, r *http.Request) {
-	state := ""
-	if c, err := r.Cookie(auth.StateCookie); err == nil {
-		state = c.Value
-	}
-	err := limitCeremonyBody(w, r)
-	if err == nil {
-		err = a.d.Auth.FinishLogin(r.Context(), state, r)
-	}
-	if err != nil {
-		jsonError(w, http.StatusUnauthorized, "That passkey didn't work. Try again.")
+	if !a.finishPasskeyLogin(w, r) {
 		return
 	}
-	s, _ := SessionFrom(r.Context())
-	if err := a.d.Auth.MarkReauthed(r.Context(), s); err != nil {
+	ctx := r.Context()
+	s, _ := SessionFrom(ctx)
+	if err := a.d.Auth.MarkReauthed(ctx, s); err != nil {
+		a.d.Log.Error("mark reauthed failed", "err", err, "request_id", web.RequestIDFrom(ctx))
 		jsonError(w, http.StatusInternalServerError, "Couldn't record the confirmation.")
 		return
 	}
-	auth.ClearStateCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"redirect": "/admin/security"})
 }
 
@@ -119,16 +117,25 @@ func passkeyID(r *http.Request) ([]byte, error) {
 	return base64.RawURLEncoding.DecodeString(r.PathValue("id"))
 }
 
+// unknownPasskeyMessage is the only text ever shown for a bad passkey ID,
+// whether the ID failed to decode or decoded fine but matches nothing: never
+// echo the raw decode or database error into the page.
+const unknownPasskeyMessage = "Unknown passkey."
+
 func (a *Admin) renamePasskey(w http.ResponseWriter, r *http.Request) {
 	id, err := passkeyID(r)
-	if err == nil {
-		err = a.d.Auth.RenamePasskey(r.Context(), id, r.PostFormValue("name"))
-	}
 	if err != nil {
-		a.securityWithMessage(w, r, http.StatusBadRequest, "Couldn't rename: "+err.Error())
+		a.securityWithMessage(w, r, http.StatusBadRequest, unknownPasskeyMessage)
 		return
 	}
-	http.Redirect(w, r, "/admin/security", http.StatusSeeOther)
+	switch err = a.d.Auth.RenamePasskey(r.Context(), id, r.PostFormValue("name")); {
+	case errors.Is(err, auth.ErrPasskeyNotFound):
+		a.securityWithMessage(w, r, http.StatusNotFound, unknownPasskeyMessage)
+	case err != nil:
+		a.securityWithMessage(w, r, http.StatusBadRequest, "Couldn't rename the passkey.")
+	default:
+		http.Redirect(w, r, "/admin/security", http.StatusSeeOther)
+	}
 }
 
 func (a *Admin) removePasskey(w http.ResponseWriter, r *http.Request) {
@@ -137,14 +144,17 @@ func (a *Admin) removePasskey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, err := passkeyID(r)
-	if err == nil {
-		err = a.d.Auth.RemovePasskey(r.Context(), id)
+	if err != nil {
+		a.securityWithMessage(w, r, http.StatusBadRequest, unknownPasskeyMessage)
+		return
 	}
-	switch {
+	switch err = a.d.Auth.RemovePasskey(r.Context(), id); {
 	case errors.Is(err, auth.ErrLastPasskey):
 		a.securityWithMessage(w, r, http.StatusConflict, "Add another passkey before removing this one.")
+	case errors.Is(err, auth.ErrPasskeyNotFound):
+		a.securityWithMessage(w, r, http.StatusNotFound, unknownPasskeyMessage)
 	case err != nil:
-		a.securityWithMessage(w, r, http.StatusBadRequest, "Couldn't remove: "+err.Error())
+		a.securityWithMessage(w, r, http.StatusBadRequest, "Couldn't remove the passkey.")
 	default:
 		http.Redirect(w, r, "/admin/security", http.StatusSeeOther)
 	}

@@ -92,13 +92,14 @@ func (s *Service) LogAttempt(ctx context.Context, ip, method, outcome string) {
 }
 
 var (
-	ErrBackupDisabled = errors.New("backup login is disabled")
-	ErrBackupNotSet   = errors.New("backup login is not set up")
-	ErrBadCredentials = errors.New("password or code is wrong")
-	ErrNoPasskeys     = errors.New("no passkeys registered")
-	ErrLastPasskey    = errors.New("cannot remove the only passkey")
-	ErrBadEnrollment  = errors.New("enrollment link is invalid or has expired")
-	ErrCeremony       = errors.New("passkey check failed")
+	ErrBackupDisabled  = errors.New("backup login is disabled")
+	ErrBackupNotSet    = errors.New("backup login is not set up")
+	ErrBadCredentials  = errors.New("password or code is wrong")
+	ErrNoPasskeys      = errors.New("no passkeys registered")
+	ErrLastPasskey     = errors.New("cannot remove the only passkey")
+	ErrPasskeyNotFound = errors.New("passkey not found")
+	ErrBadEnrollment   = errors.New("enrollment link is invalid or has expired")
+	ErrCeremony        = errors.New("passkey check failed")
 )
 
 type LockedError struct{ Until time.Time }

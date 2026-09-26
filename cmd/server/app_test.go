@@ -95,4 +95,20 @@ func TestLoadConfig(t *testing.T) {
 	}); err == nil {
 		t.Fatal("a short ADMIN_SECRET_KEY must be rejected")
 	}
+
+	// A trailing "/" on ADMIN_ORIGIN (or the https://<rpid> fallback) would
+	// never match the browser's Origin header, which has no path.
+	for _, tc := range []struct{ rpID, origin, want string }{
+		{"", "", "https://thymeand.place"},
+		{"", "https://admin.example.org/", "https://admin.example.org"},
+		{"", "https://admin.example.org//", "https://admin.example.org"},
+		{"example.org/", "", "https://example.org"},
+	} {
+		c, err := loadConfig(func(k string) string {
+			return map[string]string{"DATABASE_URL": "postgres://x", "ADMIN_RP_ID": tc.rpID, "ADMIN_ORIGIN": tc.origin}[k]
+		})
+		if err != nil || c.AdminOrigin != tc.want {
+			t.Fatalf("rp=%q origin=%q: AdminOrigin=%q want %q (%v)", tc.rpID, tc.origin, c.AdminOrigin, tc.want, err)
+		}
+	}
 }

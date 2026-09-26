@@ -65,6 +65,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, _ io.Re
 	if origin == "" {
 		origin = "https://" + rpID
 	}
+	// A browser's Origin never ends in "/"; trimming also keeps the enroll
+	// link below free of "//admin".
+	origin = strings.TrimRight(origin, "/")
 	svc, err := auth.NewService(pool, auth.Config{
 		RPID: rpID, RPOrigins: []string{origin}, SecretKey: key, BackupEnabled: true,
 		Log: slog.New(slog.NewTextHandler(stderr, nil)),

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -61,6 +62,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if c.AdminOrigin == "" {
 		c.AdminOrigin = "https://" + c.AdminRPID
 	}
+	// A browser's Origin never ends in "/", so neither may the WebAuthn
+	// origin (nor the enrollment links built from it).
+	c.AdminOrigin = strings.TrimRight(c.AdminOrigin, "/")
 	c.AdminBackup = getenv("ADMIN_BACKUP_LOGIN") != "off"
 	return c, nil
 }

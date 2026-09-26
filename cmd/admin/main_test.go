@@ -30,6 +30,34 @@ func TestCLI(t *testing.T) {
 		t.Fatalf("enroll output: %s", out.String())
 	}
 
+	// Without PUBLIC_BASE_URL the link is built from ADMIN_ORIGIN (or the
+	// https://<rpid> fallback); a trailing "/" on ADMIN_ORIGIN must not give
+	// "//admin". (An ADMIN_RP_ID with a "/" is rejected by go-webauthn's
+	// RPID validation, so only the plain fallback is checked here.)
+	for _, tc := range []struct{ rpID, origin, want string }{
+		{"", "https://admin.example.org/", "https://admin.example.org/admin/enroll?token="},
+		{"example.org", "", "https://example.org/admin/enroll?token="},
+	} {
+		noBase := func(k string) string {
+			switch k {
+			case "PUBLIC_BASE_URL":
+				return ""
+			case "ADMIN_ORIGIN":
+				return tc.origin
+			case "ADMIN_RP_ID":
+				return tc.rpID
+			}
+			return env[k]
+		}
+		out.Reset()
+		if code := run(ctx, []string{"enroll"}, noBase, nil, &out, &errb, pw); code != 0 {
+			t.Fatalf("enroll: %d %s", code, errb.String())
+		}
+		if !strings.Contains(out.String(), tc.want) || strings.Contains(out.String(), "//admin/enroll") {
+			t.Fatalf("enroll link with rp=%q origin=%q: %s", tc.rpID, tc.origin, out.String())
+		}
+	}
+
 	out.Reset()
 	if code := run(ctx, []string{"set-backup"}, getenv, nil, &out, &errb, pw); code != 0 {
 		t.Fatalf("set-backup: %d %s", code, errb.String())

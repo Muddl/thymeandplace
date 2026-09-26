@@ -72,14 +72,16 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	// call (there is no previous snapshot to protect on cold start, so the
 	// ordering guarantee onChange exists for doesn't apply yet); the first
 	// call just publishes the starting version. So the initial snapshot load
-	// is explicit here, before that first Refresh, and errors from either are
-	// logged, not fatal -- start()'s retry loop and the watcher's own
-	// poll/LISTEN cover retries of both from here on.
-	if err := a.holder.Reload(ctx); err != nil {
-		log.Error("initial catalog load failed; will retry", "err", err)
-	}
+	// is explicit here, AFTER that first Refresh: the snapshot is then never
+	// older than the published version (a write racing startup leaves the
+	// version behind, and the watcher's next Refresh sees the change and
+	// reloads). Errors from either are logged, not fatal -- start()'s retry
+	// loop and the watcher's own poll/LISTEN cover retries from here on.
 	if err := a.watcher.Refresh(ctx); err != nil {
 		log.Error("initial data version failed; will retry", "err", err)
+	}
+	if err := a.holder.Reload(ctx); err != nil {
+		log.Error("initial catalog load failed; will retry", "err", err)
 	}
 
 	fixtures, err := calibration.LoadFixtures(calibfixtures.FS())

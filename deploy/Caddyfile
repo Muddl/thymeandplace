@@ -1,0 +1,35 @@
+www.thymeand.place {
+	redir https://thymeand.place{uri} permanent
+}
+
+thymeand.place {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+	# The enroll token lives in the query string (?token=...); strip it before
+	# it reaches the access log. reverse_proxy below also depends on Caddy's
+	# default of ignoring/overwriting any inbound X-Forwarded-For rather than
+	# trusting it, since no trusted_proxies is configured (Caddy is the first
+	# hop) - the backend always sees the real client IP, not a spoofed one.
+	log {
+		format filter {
+			request>uri query {
+				delete token
+			}
+		}
+	}
+	# Route on liveness. The app itself refuses to listen until its catalog
+	# snapshot loads and shows its own retry panel during DB outages.
+	reverse_proxy app:8080 {
+		health_uri /healthz
+		health_interval 10s
+		health_timeout 2s
+	}
+	handle_errors 502 503 504 {
+		root * /srv
+		rewrite * /maintenance.html
+		file_server
+	}
+}

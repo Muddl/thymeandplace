@@ -1,0 +1,91 @@
+name: thymeandplace
+
+x-env: &env
+  env_file:
+    - ${TP_ENV_FILE:-/etc/thymeandplace/app.env}
+
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    restart: unless-stopped
+    <<: *env
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 20
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.app
+    image: thymeandplace-app:latest
+    restart: unless-stopped
+    <<: *env
+    environment:
+      ADDR: ":8080"
+      TRUST_PROXY_HEADERS: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthcheck", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./maintenance.html:/srv/maintenance.html:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+  ingest:
+    profiles: [tools]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.ingest
+    image: thymeandplace-ingest:latest
+    <<: *env
+    environment:
+      INGEST_WORKDIR: /work
+    volumes:
+      - ingest_work:/work
+    depends_on:
+      db:
+        condition: service_healthy
+
+  transform:
+    profiles: [tools]
+    build:
+      context: ../pipeline/transform
+    image: thymeandplace-transform:latest
+    volumes:
+      - ingest_work:/work
+
+  backup:
+    profiles: [tools]
+    build:
+      context: ./backup
+    image: thymeandplace-backup:latest
+    <<: *env
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  dbdata: {}
+  caddy_data: {}
+  caddy_config: {}
+  ingest_work: {}

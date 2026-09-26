@@ -1,0 +1,23 @@
+localhost {
+	tls internal
+	encode zstd gzip
+	# Same query-string redaction as the production Caddyfile, kept here so
+	# the local/e2e stack exercises identical logging behavior.
+	log {
+		format filter {
+			request>uri query {
+				delete token
+			}
+		}
+	}
+	reverse_proxy app:8080 {
+		health_uri /healthz
+		health_interval 2s
+		health_timeout 1s
+	}
+	handle_errors 502 503 504 {
+		root * /srv
+		rewrite * /maintenance.html
+		file_server
+	}
+}

@@ -8,6 +8,7 @@
 .env
 *.env
 !deploy/env.example
+!deploy/e2e.env
 # python
 __pycache__/
 .pytest_cache/

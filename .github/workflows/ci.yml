@@ -40,6 +40,32 @@ jobs:
       - run: pip install -r pipeline/transform/requirements-dev.txt
       - run: python -m pytest pipeline/tests -q
 
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose files are valid
+        run: |
+          # Dummy values only, so compose can resolve env_file; never real secrets.
+          env_file="$RUNNER_TEMP/ci.env"
+          cat > "$env_file" <<'EOF'
+          POSTGRES_USER=tp
+          POSTGRES_PASSWORD=ci-dummy
+          POSTGRES_DB=thymeandplace
+          DATABASE_URL=postgres://tp:ci-dummy@db:5432/thymeandplace?sslmode=disable
+          ADMIN_RP_ID=thymeand.place
+          EOF
+          export TP_ENV_FILE="$env_file"
+          docker compose -f deploy/compose.yaml --profile tools config -q
+          docker compose -f deploy/compose.yaml -f deploy/compose.e2e.yaml --profile tools config -q
+      - name: Build app image
+        run: docker build -f deploy/Dockerfile.app .
+      - name: Build ingest image
+        run: docker build -f deploy/Dockerfile.ingest .
+      - name: Build backup image
+        run: docker build deploy/backup
+
   e2e:
     if: github.ref == 'refs/heads/main'
     needs: [go, python]

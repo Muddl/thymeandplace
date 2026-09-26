@@ -61,33 +61,55 @@ func (w *Watcher) Refresh(ctx context.Context) error {
 	return nil
 }
 
-// Run listens until ctx ends, reconnecting after errors.
+// Reconnect backoff for the LISTEN session: a down database is retried at
+// minBackoff, doubling up to maxBackoff, and reset once a session gets as far
+// as LISTEN.
+const (
+	minBackoff = 500 * time.Millisecond
+	maxBackoff = 30 * time.Second
+)
+
+func nextBackoff(d time.Duration) time.Duration {
+	if d *= 2; d > maxBackoff {
+		return maxBackoff
+	}
+	return d
+}
+
+// Run listens until ctx ends, reconnecting after errors with backoff.
 func (w *Watcher) Run(ctx context.Context) {
+	delay := minBackoff
 	for ctx.Err() == nil {
-		err := w.session(ctx)
+		listened, err := w.session(ctx)
 		if ctx.Err() != nil {
 			return
 		}
-		w.log.Warn("data version listener stopped; retrying", "err", err)
+		if listened {
+			delay = minBackoff
+		}
+		w.log.Warn("data version listener stopped; retrying", "err", err, "retry_in", delay)
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Second):
+		case <-time.After(delay):
 		}
+		delay = nextBackoff(delay)
 		if err := w.Refresh(ctx); err != nil {
 			w.log.Warn("data version refresh failed", "err", err)
 		}
 	}
 }
 
-func (w *Watcher) session(ctx context.Context) error {
+// session holds one LISTEN connection until an error. listened reports
+// whether it got as far as LISTEN (i.e. the database was reachable).
+func (w *Watcher) session(ctx context.Context) (listened bool, err error) {
 	conn, err := w.pool.Acquire(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer conn.Release()
 	if _, err := conn.Exec(ctx, "LISTEN data_version_changed"); err != nil {
-		return err
+		return false, err
 	}
 	if err := w.Refresh(ctx); err != nil { // catch anything missed while reconnecting
 		w.log.Warn("data version refresh failed", "err", err)
@@ -97,10 +119,10 @@ func (w *Watcher) session(ctx context.Context) error {
 		_, err := conn.Conn().WaitForNotification(wctx)
 		cancel()
 		if err != nil && !errors.Is(err, context.DeadlineExceeded) {
-			return err
+			return true, err
 		}
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return true, ctx.Err()
 		}
 		// A notification arrived or the poll interval elapsed.
 		if err := w.Refresh(ctx); err != nil {

@@ -31,3 +31,31 @@ templ NotFound() {
 templ TooMany() {
 	<div class="panel"><p>{ CopyPaused }</p></div>
 }
+
+templ Season(vm SeasonVM) {
+	<article class="season">
+		<header class="where">
+			<h2>{ vm.Label }</h2>
+			<p class="when">{ vm.MonthName } · <a href="/about/data#estimates">Estimates from local climate: how we estimate</a></p>
+		</header>
+		if vm.Harsh {
+			<p class="notice">{ CopyHarsh }</p>
+		}
+		for _, g := range vm.Groups {
+			<section class="group">
+				<h3>{ g.Title }</h3>
+				<ul class="items">
+					for _, it := range g.Items {
+						<li class={ "item", it.StatusClass }>
+							<a href={ templ.SafeURL(it.URL) } hx-get={ it.URL } hx-target="#results" hx-push-url="true">{ it.Name }</a>
+							<span class="basis">{ it.Basis }</span>
+							if it.Estimate {
+								<span class="badge">Estimate</span>
+							}
+						</li>
+					}
+				</ul>
+			</section>
+		}
+	</article>
+}

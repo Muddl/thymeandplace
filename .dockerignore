@@ -6,5 +6,5 @@ pipeline/.venv
 **/__pycache__
 .blob
 .work
-*.env
+**/*.env
 .superpowers

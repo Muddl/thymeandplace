@@ -1,11 +1,21 @@
 # Operations
 
+**Run as root.** The secrets file `/etc/thymeandplace/app.env` is root-only (mode `600` in a mode-`700` directory), and every `docker compose` command in this document reads it (`env_file` in `deploy/compose.yaml`), so run them from a root shell (`sudo -i`, then `cd /opt/thymeandplace/deploy`) or prefix each with `sudo`. All `docker compose` commands below run from `/opt/thymeandplace/deploy`. The backup cron job and systemd units below already run as root.
+
 ## First deploy (one VPS)
 
 1. Install Docker Engine + Compose v2 (≥ 2.24). Point `thymeand.place` and `www.thymeand.place` A/AAAA records at the VPS.
 2. `git clone` the repo to `/opt/thymeandplace`.
-3. Create the env file: `sudo install -m 600 -o root deploy/env.example /etc/thymeandplace/app.env`, then fill in real values (`openssl rand -base64 32` for `ADMIN_SECRET_KEY`; long random DB password in both `POSTGRES_PASSWORD` and `DATABASE_URL`). Check with `stat -c %a /etc/thymeandplace/app.env` → `600`.
-4. `cd /opt/thymeandplace/deploy && docker compose up -d --build`. Caddy obtains certificates automatically.
+3. Create the env file:
+   ```bash
+   sudo install -d -m 700 -o root -g root /etc/thymeandplace
+   sudo install -m 600 -o root -g root /opt/thymeandplace/deploy/env.example /etc/thymeandplace/app.env
+   openssl rand -base64 32   # → ADMIN_SECRET_KEY
+   openssl rand -hex 24      # → DB password (hex: base64's / and + would break DATABASE_URL)
+   sudoedit /etc/thymeandplace/app.env
+   ```
+   Put the DB password in both `POSTGRES_PASSWORD` and `DATABASE_URL`. Check with `sudo stat -c '%a %U' /etc/thymeandplace /etc/thymeandplace/app.env` → `700 root` and `600 root`.
+4. `cd /opt/thymeandplace/deploy && sudo docker compose up -d --build`. Caddy obtains certificates automatically.
 5. Owner access: `docker compose exec app /app/admin enroll`. Open the link on your phone, register a passkey, repeat for a second device. Then `docker compose exec app /app/admin set-backup` and scan the QR code.
 6. Reference data, per dataset (`places`, `ocean`, `climate`):
    ```bash

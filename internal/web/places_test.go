@@ -1,6 +1,7 @@
 package web
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -72,6 +73,15 @@ func TestPlacesFullPageWithoutHX(t *testing.T) {
 	hs := newHarness(t)
 	_, body, _ := hs.get("/places?q=lis", false)
 	if !strings.Contains(body, "<!doctype html>") || !strings.Contains(body, `value="lis"`) || !strings.Contains(body, "Lisbon, PT") {
+		t.Fatalf("body = %s", body)
+	}
+}
+
+// Final review 11: the echoed no-match query is cut to 100 runes.
+func TestPlacesNoMatchTruncatesQuery(t *testing.T) {
+	hs := newHarness(t)
+	_, body, _ := hs.get("/places?q="+url.QueryEscape(strings.Repeat("é", 150)), true)
+	if !strings.Contains(body, "No places match '"+strings.Repeat("é", 100)+"'") {
 		t.Fatalf("body = %s", body)
 	}
 }

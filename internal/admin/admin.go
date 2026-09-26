@@ -145,6 +145,15 @@ func (a *Admin) csrf(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Logging out with no live session (it expired, or there never was
+		// one) has nothing to protect: a forced logout of nobody is
+		// harmless, and answering "Your form expired" to a Sign out click is
+		// wrong. Let the logout handler redirect to the login page. This is
+		// the only exemption; with a session, logout needs the CSRF token.
+		if _, ok := SessionFrom(r.Context()); !ok && r.Method == http.MethodPost && r.URL.Path == "/admin/logout" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		want := CSRFToken(r.Context())
 		got := r.Header.Get("X-CSRF-Token")
 		if got == "" {

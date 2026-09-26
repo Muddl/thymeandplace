@@ -218,7 +218,7 @@ func TestCSRFExpiredSessionHTMXRedirectsToLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	// c still holds the old cookie and the old (now orphaned) CSRF token.
-	rec := c.do("POST", "/admin/logout", strings.NewReader(""), map[string]string{"HX-Request": "true"})
+	rec := c.do("POST", "/admin/security/passkeys/AAAA/rename", strings.NewReader(""), map[string]string{"HX-Request": "true"})
 	if rec.Code != 401 || rec.Header().Get("HX-Redirect") != "/admin/login" {
 		t.Fatalf("expired session HTMX POST: %d hx-redirect=%q", rec.Code, rec.Header().Get("HX-Redirect"))
 	}
@@ -280,6 +280,15 @@ func TestCSRFOnEveryWriteRoute(t *testing.T) {
 				}
 				rec := c.do(rt.Method, rt.Path, strings.NewReader(""), hdr)
 				c.csrf = saved
+				if c == anon && rt.Path == "/admin/logout" {
+					// Logging out with no session has nothing to protect:
+					// it redirects to the login page instead (see
+					// TestLogoutWithoutSessionRedirects).
+					if rec.Code != 303 || rec.Header().Get("Location") != "/admin/login" {
+						t.Fatalf("anonymous logout with token %q: %d", token, rec.Code)
+					}
+					continue
+				}
 				if rec.Code != 403 {
 					t.Fatalf("%s %s with token %q: %d", rt.Method, rt.Path, token, rec.Code)
 				}
@@ -420,5 +429,46 @@ func TestStartSessionFailureIsLogged(t *testing.T) {
 	}
 	if logs := e.logs.String(); !strings.Contains(logs, "session create failed") || !strings.Contains(logs, "request_id="+testRequestID) {
 		t.Fatalf("session create failure not logged with request_id:\n%s", logs)
+	}
+}
+
+// Final review item 5: POST /admin/logout whose session has expired (or that
+// never had one) redirects to the login page, as a plain form post or HTMX,
+// and never answers with the CSRF 403 "Your form expired".
+func TestLogoutWithoutSessionRedirects(t *testing.T) {
+	e := newEnv(t, true)
+	check := func(name string, c *client, htmx bool) {
+		t.Helper()
+		hdr := map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
+		if htmx {
+			hdr["HX-Request"] = "true"
+		}
+		rec := c.do("POST", "/admin/logout", strings.NewReader(url.Values{"csrf": {c.csrf}}.Encode()), hdr)
+		switch {
+		case rec.Code == 403:
+			t.Fatalf("%s: CSRF 403: %s", name, rec.Body.String())
+		case htmx && rec.Header().Get("HX-Redirect") != "/admin/login":
+			t.Fatalf("%s: HX-Redirect = %q (%d)", name, rec.Header().Get("HX-Redirect"), rec.Code)
+		case !htmx && (rec.Code != 303 || rec.Header().Get("Location") != "/admin/login"):
+			t.Fatalf("%s: %d %q", name, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	for _, htmx := range []bool{false, true} {
+		expired, _ := e.enrolled(t)
+		e.clock.add(31 * time.Minute) // idle timeout: the session is gone
+		check("expired session", expired, htmx)
+
+		anon := e.client(t)
+		check("no cookies at all", anon, htmx)
+	}
+
+	// With a live session, CSRF still applies to logout.
+	signedIn, _ := e.enrolled(t)
+	signedIn.csrf = "wrong-token-wrong-token-wrong-token"
+	if rec := signedIn.postForm("/admin/logout", url.Values{}); rec.Code != 403 {
+		t.Fatalf("signed-in logout with a bad CSRF token: %d", rec.Code)
+	}
+	if rec := signedIn.get("/admin"); rec.Code != 200 {
+		t.Fatalf("session ended by a CSRF-failed logout: %d", rec.Code)
 	}
 }

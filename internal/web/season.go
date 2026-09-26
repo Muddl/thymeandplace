@@ -87,12 +87,16 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 	queryCell := climate.CellID(lat, lng)
 	SetCellID(ctx, queryCell)
 
+	// Read the version before the snapshot: the watcher swaps the snapshot
+	// before publishing a new version, so this order never caches old
+	// snapshot results under a new version key.
+	version := s.d.DataVersion()
 	snap := s.d.Snapshot()
 	if snap == nil {
 		s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), r.URL.RequestURI()))
 		return
 	}
-	key := cache.Key{CellID: queryCell, Month: month, DataVersion: s.d.DataVersion()}
+	key := cache.Key{CellID: queryCell, Month: month, DataVersion: version}
 	core, hit := s.cache.Get(key)
 	if !hit {
 		var err error

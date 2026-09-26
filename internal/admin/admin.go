@@ -178,12 +178,22 @@ func (a *Admin) csrf(next http.Handler) http.Handler {
 		// misleading CSRF 403 (X-CSRF-Token is still absent because the
 		// handler hasn't run) or a different error from deeper in the
 		// handler.
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
+		//
+		// maxBody is passed as the in-memory limit too, not just the read
+		// cap: the body can never exceed maxBody (the guard above, or
+		// http.MaxBytesHandler's cap for a chunked one), so nothing here
+		// ever spills to a temp file. RemoveAll below is still called
+		// defensively, so a future change to these constants can't leak
+		// temp files silently.
+		if err := r.ParseMultipartForm(maxBody); err != nil {
 			var mbe *http.MaxBytesError
 			if errors.As(err, &mbe) {
 				http.Error(w, "The upload is too large. The limit is 5 MB.", http.StatusRequestEntityTooLarge)
 				return
 			}
+		}
+		if r.MultipartForm != nil {
+			defer r.MultipartForm.RemoveAll()
 		}
 		want := CSRFToken(r.Context())
 		got := r.Header.Get("X-CSRF-Token")

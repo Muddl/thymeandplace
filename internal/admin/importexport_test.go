@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"html"
 	"io"
 	"mime/multipart"
@@ -9,6 +10,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -149,5 +152,86 @@ func TestHistoryNewestFirstAndFilter(t *testing.T) {
 	}
 	if strings.Contains(c.get("/admin/history?slug=kale").Body.String(), "second") {
 		t.Fatal("slug filter leaked other rows")
+	}
+}
+
+// TestHistoryMalformedBeforeIs400 covers the "before" cursor coming back
+// from a URL an owner could hand-edit or bookmark stale: a non-integer value
+// must be reported, not silently ignored (which would return page one) and
+// not a 500 (ParseInt failing is an ordinary client input error, not an
+// infrastructure failure).
+func TestHistoryMalformedBeforeIs400(t *testing.T) {
+	_, c := catalogEnv(t)
+	rec := c.get("/admin/history?before=not-a-number")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("history?before=not-a-number = %d, want 400\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+var (
+	olderHrefRE = regexp.MustCompile(`href="([^"]+)">Older`)
+	seqRE       = regexp.MustCompile(`"seq": (\d+)`)
+)
+
+// TestHistoryPaging seeds 105 catalog_history rows directly (bypassing real
+// ingredient writes, which would need 105 slow preview/apply round trips)
+// under a slug no real ingredient uses, so the count is exact and isolated
+// from the rows catalogEnv's own setup writes. It checks the first page is
+// exactly 100 rows, newest first, with an "Older" link, and that following
+// that link returns the remaining 5.
+func TestHistoryPaging(t *testing.T) {
+	e, c := catalogEnv(t)
+	const slug = "paging-test"
+	const total = 105
+	_, err := e.pool.Exec(context.Background(), `
+		INSERT INTO catalog_history (actor, action, table_name, row_key, after)
+		SELECT 'seed', 'update', 'ingredient', jsonb_build_object('slug', $1::text), jsonb_build_object('seq', seq)
+		FROM generate_series(0, $2::int) AS seq`, slug, total-1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seqAt := func(row string) int {
+		m := seqRE.FindStringSubmatch(row)
+		if m == nil {
+			t.Fatalf("no seq in row:\n%s", row)
+		}
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+
+	page1 := c.get("/admin/history?slug=" + slug)
+	body1 := html.UnescapeString(page1.Body.String())
+	rows1 := strings.Split(body1, "<tr>")[2:] // strip the pre-table text and the header row
+	if len(rows1) != 100 {
+		t.Fatalf("page 1 has %d rows, want 100\n%s", len(rows1), body1)
+	}
+	if got := seqAt(rows1[0]); got != total-1 {
+		t.Fatalf("page 1 first row seq = %d, want %d (newest first)", got, total-1)
+	}
+	if got := seqAt(rows1[len(rows1)-1]); got != total-100 {
+		t.Fatalf("page 1 last row seq = %d, want %d", got, total-100)
+	}
+
+	m := olderHrefRE.FindStringSubmatch(body1)
+	if m == nil {
+		t.Fatalf("no Older link on page 1:\n%s", body1)
+	}
+	older := html.UnescapeString(m[1])
+
+	page2 := c.get(older)
+	body2 := html.UnescapeString(page2.Body.String())
+	rows2 := strings.Split(body2, "<tr>")[2:]
+	if len(rows2) != total-100 {
+		t.Fatalf("page 2 has %d rows, want %d\n%s", len(rows2), total-100, body2)
+	}
+	if got := seqAt(rows2[0]); got != total-101 {
+		t.Fatalf("page 2 first row seq = %d, want %d", got, total-101)
+	}
+	if got := seqAt(rows2[len(rows2)-1]); got != 0 {
+		t.Fatalf("page 2 last row seq = %d, want 0", got)
+	}
+	if olderHrefRE.MatchString(body2) {
+		t.Fatal("page 2 (the last page) should have no Older link")
 	}
 }

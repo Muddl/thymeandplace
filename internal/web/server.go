@@ -170,11 +170,10 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("ready"))
 }
 
-// TODO(task 4-6): the stubs below are temporary so this task compiles on its
+// TODO(task 5-6): the stubs below are temporary so this task compiles on its
 // own. Each is replaced (and this block deleted) by the task that implements
-// the real handler: places (task 4), season+ingredient (tasks 5-6).
+// the real handler: season+ingredient (tasks 5-6).
 type seasonCore struct{}
 
-func (s *Server) places(w http.ResponseWriter, r *http.Request)     { http.NotFound(w, r) }
 func (s *Server) season(w http.ResponseWriter, r *http.Request)     { http.NotFound(w, r) }
 func (s *Server) ingredient(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }

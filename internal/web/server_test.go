@@ -52,3 +52,11 @@ func TestStaticAndNotFound(t *testing.T) {
 		t.Fatalf("404: %d", code)
 	}
 }
+
+func TestHistoryRestoreGetsFullPage(t *testing.T) {
+	hs := newHarness(t)
+	_, body, _ := hs.get("/places?q=lis", true, "HX-History-Restore-Request", "true")
+	if !strings.Contains(body, "<!doctype html>") {
+		t.Fatal("history restore must return a full page")
+	}
+}

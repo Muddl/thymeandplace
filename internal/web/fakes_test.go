@@ -140,3 +140,13 @@ func (hs *harness) get(path string, hx bool, headers ...string) (int, string, ht
 	hs.h.ServeHTTP(rec, r)
 	return rec.Code, html.UnescapeString(rec.Body.String()), rec.Header()
 }
+
+func rawBody(t *testing.T, hs *harness, path string) string {
+	t.Helper()
+	r := httptest.NewRequest("GET", path, nil)
+	r.RemoteAddr = "192.0.2.99:1"
+	r.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	hs.h.ServeHTTP(rec, r)
+	return rec.Body.String()
+}

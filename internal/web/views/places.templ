@@ -1,0 +1,23 @@
+package views
+
+templ PlaceList(items []PlaceItem) {
+	<ul class="places">
+		for _, it := range items {
+			<li>
+				<a href={ templ.SafeURL(it.URL) } hx-get={ it.URL } hx-target="#results" hx-push-url="true">{ it.Label }</a>
+			</li>
+		}
+	</ul>
+}
+
+templ PlacesNoMatch(q string) {
+	<p class="hint">No places match '{ q }'. { CopyNoMatchSuffix }</p>
+}
+
+templ PlacesPaused() {
+	<p class="hint">{ CopyPaused }</p>
+}
+
+templ PlacesUnavailable() {
+	<p class="hint">{ CopySearchUnavailable }</p>
+}

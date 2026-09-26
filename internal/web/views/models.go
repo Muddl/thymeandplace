@@ -25,8 +25,22 @@ const (
 	CopyLandEstimate       = "Estimated from local climate normals."
 )
 
-// HTMX config: swap 4xx/5xx so error partials render (§11.5).
-const htmxConfig = `{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false}`
+// HTMX config: swap 4xx/5xx so error partials render (§11.5), and keep no
+// history snapshots in localStorage (they would hold place labels); history
+// restores refetch the full page instead.
+const htmxConfig = `{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false,"historyCacheSize":0}`
+
+// AssetVersion is a short content hash of the static files, appended to asset
+// URLs so a deploy busts browser caches. web.New sets it once at startup.
+var AssetVersion string
+
+// Asset returns the versioned URL of a static file.
+func Asset(name string) string {
+	if AssetVersion == "" {
+		return "/static/" + name
+	}
+	return "/static/" + name + "?v=" + AssetVersion
+}
 
 type PageVM struct {
 	Title   string

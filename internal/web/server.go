@@ -2,9 +2,13 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/a-h/templ"
@@ -69,6 +73,7 @@ func New(d Deps) http.Handler {
 		d.timeout = defaultTimeout
 	}
 	s := &Server{d: d, cache: cache.New[seasonCore](cache.DefaultSize)}
+	assetVersionOnce.Do(func() { views.AssetVersion = hashFS(static.FS) })
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.home)
@@ -78,7 +83,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /about/data", s.about)
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
-	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheFor(24*time.Hour, http.FileServerFS(static.FS))))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", s.staticFiles()))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusNotFound, "Not found", "", nil, views.NotFound())
 	})
@@ -101,6 +106,43 @@ func Common(log *slog.Logger) func(http.Handler) http.Handler {
 		})(next)
 		return RequestID(AccessLog(log)(plain))
 	}
+}
+
+var assetVersionOnce sync.Once
+
+// hashFS returns a short hash of every file's path and content in fsys.
+func hashFS(fsys fs.FS) string {
+	h := sha256.New()
+	err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return err
+		}
+		h.Write([]byte(path))
+		h.Write([]byte{0})
+		h.Write(b)
+		return nil
+	})
+	if err != nil { // embedded files can't fail to read; don't version on the impossible
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))[:10]
+}
+
+// staticFiles serves the embedded assets. Directory paths get the 404 page
+// rather than a listing.
+func (s *Server) staticFiles() http.Handler {
+	files := cacheFor(24*time.Hour, http.FileServerFS(static.FS))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fi, err := fs.Stat(static.FS, r.URL.Path); err != nil || fi.IsDir() {
+			s.render(w, r, http.StatusNotFound, "Not found", "", nil, views.NotFound())
+			return
+		}
+		files.ServeHTTP(w, r)
+	})
 }
 
 func cacheFor(d time.Duration, h http.Handler) http.Handler {

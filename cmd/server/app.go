@@ -148,31 +148,36 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	return a, nil
 }
 
-// start launches background work: the data-version listener, retries of a
-// failed initial catalog load, and the daily drift check. It derives its own
-// cancelable context so close() can stop that work before closing the pool:
-// the watcher holds a dedicated LISTEN connection checked out of the pool for
-// as long as it runs, and pool.Close() blocks until every checked-out
-// connection is released, so shutdown must cancel the background work first.
+// start launches background work: the data-version listener and the daily
+// drift check. It derives its own cancelable context so close() can stop
+// that work before closing the pool: the watcher holds a dedicated LISTEN
+// connection checked out of the pool for as long as it runs, and
+// pool.Close() blocks until every checked-out connection is released, so
+// shutdown must cancel the background work first.
 func (a *app) start(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	a.cancel = cancel
 	go a.watcher.Run(ctx)
-	go func() {
-		for a.holder.Current() == nil {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(5 * time.Second):
-				// A failed load leaves the version unpublished, so Refresh
-				// sees a difference and runs onChange (the reload) again.
-				if err := a.watcher.Refresh(ctx); err != nil {
-					a.log.Warn("catalog load retry failed", "err", err)
-				}
-			}
-		}
-	}()
 	go a.drift.Loop(ctx, 24*time.Hour)
+}
+
+// waitForSnapshot blocks until a catalog snapshot is loaded, retrying every
+// `every` via the data-version watcher (whose onChange reloads the catalog
+// before any version publish, including the first, so a successful Refresh
+// always leaves a snapshot live). The server does not listen before this
+// returns (spec §11.6: the site is not served without a snapshot).
+func (a *app) waitForSnapshot(ctx context.Context, every time.Duration) error {
+	for a.holder.Current() == nil {
+		if err := a.watcher.Refresh(ctx); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(every):
+		}
+	}
+	return nil
 }
 
 func (a *app) close() {

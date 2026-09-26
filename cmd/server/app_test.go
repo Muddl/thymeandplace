@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"html"
 	"io"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"thymeandplace/internal/auth"
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/catalog/catalogtest"
+	"thymeandplace/internal/dataversion"
 	"thymeandplace/internal/dbtest"
 	"thymeandplace/internal/store"
 )
@@ -134,6 +136,84 @@ func TestAdminMountedWithCatalogDeps(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 || !strings.Contains(string(body), "Catalog") {
 		t.Fatalf("GET /admin = %d (want 200 with the catalog page; a nil Changes/Load/Pool dep would 500)\n%s", resp.StatusCode, body)
+	}
+}
+
+// Review Focus 1: an empty database still gives a working site.
+func TestEmptyDatabaseServes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool := dbtest.New(t)
+	a, err := newApp(ctx, config{DatabaseURL: pool.Config().ConnString()}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.close()
+	if err := a.waitForSnapshot(ctx, 10*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a.handler)
+	defer srv.Close()
+	// A plain (non-HTMX) GET / is a full-page load: render() sends the layout,
+	// which is where "Find your town" lives. get() always sets HX-Request,
+	// under which GET / has no fragment of its own (see server.go's render:
+	// "an HTMX request for a page with no fragment"), so it would see an
+	// empty body here.
+	resp, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(string(homeBody), "Find your town") {
+		t.Fatalf("home: %d\n%s", resp.StatusCode, homeBody)
+	}
+	code, body := get(t, srv.URL+"/season?lat=38.7&lng=-9.1")
+	if code != 200 || !strings.Contains(body, "We can't estimate seasons here yet.") {
+		t.Fatalf("season on empty DB: %d\n%s", code, body)
+	}
+}
+
+// Review Focus 4: waitForSnapshot keeps retrying until a load succeeds.
+//
+// waitForSnapshot loops on the data-version watcher's Refresh (not
+// holder.Reload directly): Refresh's onChange reloads the catalog before
+// publishing any version, including the first, so a real *dataversion.Watcher
+// is needed here rather than a bare holder. That in turn needs a real pool
+// (Refresh reads the current data version from the database), so this uses
+// dbtest like the other app-level tests; the loader injected into the holder
+// is what actually simulates the failures.
+func TestWaitForSnapshotRetries(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pool := dbtest.New(t)
+
+	calls := 0
+	a := &app{log: log, holder: catalog.NewHolder(func(context.Context) (*catalog.Snapshot, error) {
+		calls++
+		if calls < 3 {
+			return nil, errors.New("db not ready")
+		}
+		return catalog.NewSnapshot(1, nil)
+	}, log)}
+	a.watcher = dataversion.NewWatcher(pool, time.Hour, log, func(ctx context.Context, _ string) error {
+		return a.holder.Reload(ctx)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := a.waitForSnapshot(ctx, 5*time.Millisecond); err != nil || calls != 3 {
+		t.Fatalf("err=%v calls=%d", err, calls)
+	}
+
+	never := &app{log: log, holder: catalog.NewHolder(func(context.Context) (*catalog.Snapshot, error) {
+		return nil, errors.New("down")
+	}, log)}
+	never.watcher = dataversion.NewWatcher(pool, time.Hour, log, func(ctx context.Context, _ string) error {
+		return never.holder.Reload(ctx)
+	})
+	short, cancel2 := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel2()
+	if err := never.waitForSnapshot(short, 5*time.Millisecond); err == nil {
+		t.Fatal("must give up when the context ends")
 	}
 }
 

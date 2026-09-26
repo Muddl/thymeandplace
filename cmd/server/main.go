@@ -36,6 +36,12 @@ func main() {
 	}
 	a.start(ctx)
 
+	if err := a.waitForSnapshot(ctx, 5*time.Second); err != nil {
+		log.Error("no catalog snapshot; not serving", "err", err)
+		a.close()
+		os.Exit(1)
+	}
+
 	srv := &http.Server{
 		Addr: cfg.Addr, Handler: a.handler,
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,

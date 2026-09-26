@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/time/rate"
 )
 
@@ -85,6 +86,10 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			rec := &statusRecorder{ResponseWriter: w}
 			next.ServeHTTP(rec, r)
+			// Default to 200 if handler never called WriteHeader or Write
+			if rec.status == 0 {
+				rec.status = http.StatusOK
+			}
 			attrs := []any{
 				"method", r.Method, "path", r.URL.Path, "status", rec.status,
 				"duration_ms", time.Since(start).Milliseconds(), "request_id", RequestIDFrom(r.Context()),
@@ -145,44 +150,37 @@ func PublicLimits(path string) (string, Limit, bool) {
 	return "", Limit{}, false
 }
 
-type limiterEntry struct {
-	lim  *rate.Limiter
-	seen time.Time
-}
+const maxLimiterKeys = 100_000
 
 type RateLimiter struct {
-	mu        sync.Mutex
-	m         map[string]*limiterEntry
-	now       func() time.Time
-	lastSweep time.Time
+	mu    sync.Mutex
+	cache *lru.Cache[string, *rate.Limiter]
+	now   func() time.Time
 }
 
-func NewRateLimiter(now func() time.Time) *RateLimiter {
+// newRateLimiterWithCapacity creates a RateLimiter with a specified cache capacity (for testing).
+func newRateLimiterWithCapacity(cap int, now func() time.Time) *RateLimiter {
 	if now == nil {
 		now = time.Now
 	}
-	return &RateLimiter{m: map[string]*limiterEntry{}, now: now}
+	cache, _ := lru.New[string, *rate.Limiter](cap)
+	return &RateLimiter{cache: cache, now: now}
+}
+
+func NewRateLimiter(now func() time.Time) *RateLimiter {
+	return newRateLimiterWithCapacity(maxLimiterKeys, now)
 }
 
 func (rl *RateLimiter) allow(key string, l Limit) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	now := rl.now()
-	if now.Sub(rl.lastSweep) > time.Minute {
-		for k, e := range rl.m {
-			if now.Sub(e.seen) > 10*time.Minute {
-				delete(rl.m, k)
-			}
-		}
-		rl.lastSweep = now
-	}
-	e, ok := rl.m[key]
+	lim, ok := rl.cache.Get(key)
 	if !ok {
-		e = &limiterEntry{lim: rate.NewLimiter(l.Rate, l.Burst)}
-		rl.m[key] = e
+		lim = rate.NewLimiter(l.Rate, l.Burst)
+		rl.cache.Add(key, lim)
 	}
-	e.seen = now
-	return e.lim.AllowN(now, 1)
+	return lim.AllowN(now, 1)
 }
 
 func (rl *RateLimiter) Middleware(trustProxy bool, classify func(string) (string, Limit, bool), onLimit func(http.ResponseWriter, *http.Request)) func(http.Handler) http.Handler {

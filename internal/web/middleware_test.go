@@ -55,6 +55,19 @@ func TestAccessLogOmitsQueryAndRecordsCell(t *testing.T) {
 	}
 }
 
+func TestAccessLogDefaultsEmptyResponseTo200(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	h := RequestID(AccessLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Handler writes nothing, neither WriteHeader nor Write called
+	})))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/test", nil))
+	line := buf.String()
+	if !strings.Contains(line, `"status":200`) {
+		t.Fatalf("empty response should default to status 200, got: %s", line)
+	}
+}
+
 func TestRecover(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, nil))
@@ -118,6 +131,60 @@ func TestRateLimit(t *testing.T) {
 	now = now.Add(time.Second) // 10 tokens refill for /places
 	if hit("/places", "1.1.1.1") != 200 {
 		t.Fatal("tokens should refill")
+	}
+}
+
+func TestRateLimiterLRUEviction(t *testing.T) {
+	now := time.Unix(0, 0)
+	rl := newRateLimiterWithCapacity(2, func() time.Time { return now })
+	limited := 0
+	h := rl.Middleware(false, PublicLimits, func(w http.ResponseWriter, r *http.Request) {
+		limited++
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})(ok())
+
+	hit := func(path, ip string) int {
+		r := httptest.NewRequest("GET", path, nil)
+		r.RemoteAddr = ip + ":1"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+
+	// Fill burst for IP1: /places has burst 20
+	for i := 0; i < 20; i++ {
+		if c := hit("/places", "1.1.1.1"); c != 200 {
+			t.Fatalf("IP1 request %d limited too early", i)
+		}
+	}
+	if hit("/places", "1.1.1.1") != 429 {
+		t.Fatal("IP1 21st request should be limited")
+	}
+
+	// Fill burst for IP2: /season has burst 10
+	for i := 0; i < 10; i++ {
+		if c := hit("/season", "2.2.2.2"); c != 200 {
+			t.Fatalf("IP2 request %d limited too early", i)
+		}
+	}
+	if hit("/season", "2.2.2.2") != 429 {
+		t.Fatal("IP2 11th request should be limited")
+	}
+
+	// Now add IP3 with /places (should evict least-recently-used, which is IP1)
+	if c := hit("/places", "3.3.3.3"); c != 200 {
+		t.Fatal("IP3 first request should succeed")
+	}
+
+	// IP1's limiter should have been evicted; it gets a fresh burst
+	if c := hit("/places", "1.1.1.1"); c != 200 {
+		t.Fatal("evicted IP1 should have a fresh burst and succeed")
+	}
+
+	// Verify cache never exceeds capacity
+	if rl.cache.Len() > 2 {
+		t.Fatalf("cache size %d exceeds capacity 2", rl.cache.Len())
 	}
 }
 

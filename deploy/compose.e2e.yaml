@@ -1,0 +1,11 @@
+services:
+  app:
+    build:
+      args:
+        CALIBRATION_FIXTURES: e2e/fixtures
+  caddy:
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - ./maintenance.html:/srv/maintenance.html:ro
+      - caddy_data:/data
+      - caddy_config:/config

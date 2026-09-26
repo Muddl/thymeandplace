@@ -1,0 +1,8 @@
+{
+  "id": "e2e-lisbon",
+  "name": "Lisbon (e2e)",
+  "lat": 38.7167,
+  "lng": -9.1333,
+  "source": "Synthetic fixture for end-to-end tests only; not from a published guide",
+  "months": { "tomato": [7, 8, 9, 10] }
+}

@@ -4,9 +4,10 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ingest ./cmd/ingest
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ingest ./cmd/ingest \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/devseed ./cmd/devseed
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/ingest /app/
+COPY --from=build /out/ingest /out/devseed /app/
 USER nonroot
 ENTRYPOINT ["/app/ingest"]

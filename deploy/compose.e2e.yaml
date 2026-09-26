@@ -1,3 +1,10 @@
+# End-to-end / smoke-test override. Its own project name keeps every
+# container, network and volume (thymeandplace-e2e_*) apart from the
+# production stack's (thymeandplace_*), so the `down -v` in deploy/smoke.sh,
+# e2e/run.sh and the local backup recipe can never wipe production volumes
+# even when run on the VPS. Compose takes `name` from the last file given.
+name: thymeandplace-e2e
+
 services:
   app:
     build:

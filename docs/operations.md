@@ -149,6 +149,8 @@ docker run --rm --network tp-backup-test --env-file e2e.env $BK \
 $C down -v; docker rm -f tp-minio; docker network rm tp-backup-test
 ```
 
+`compose.e2e.yaml` sets the project name `thymeandplace-e2e`, so this stack's containers and volumes (`thymeandplace-e2e_*`) are separate from production's (`thymeandplace_*`) and the final `down -v` (like the ones in `deploy/smoke.sh` and `e2e/run.sh`) cannot touch production data, even on the VPS. Always pass both `-f compose.yaml -f compose.e2e.yaml` for test stacks.
+
 Expected output: `backup ok: backups/daily/<date>.dump`, then a table of equal `live=`/`restored=` counts per table, then `restore-test ok (<date>.dump)`. `accessKey1`/`verySecretKey1` are `zenko/cloudserver`'s built-in defaults, used only for this throwaway local container — never real credentials.
 
 **Windows / Git Bash note:** Git Bash rewrites a leading `/` in arguments as a Windows path, which breaks `--entrypoint /app/devseed` and similar. Prefix those commands with `MSYS_NO_PATHCONV=1`, e.g. `MSYS_NO_PATHCONV=1 $C --profile tools run --rm --entrypoint /app/devseed ingest`.

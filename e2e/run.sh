@@ -7,6 +7,8 @@ export TP_ENV_FILE=./e2e.env
 # path before docker ever sees it. This opts out; it's a no-op on Linux CI.
 export MSYS_NO_PATHCONV=1
 C="docker compose -f ../deploy/compose.yaml -f ../deploy/compose.e2e.yaml"
+# compose.e2e.yaml names the project thymeandplace-e2e, so this down -v only
+# ever removes thymeandplace-e2e_* volumes, never production's thymeandplace_*.
 trap '$C down -v >/dev/null 2>&1 || true' EXIT
 $C build
 $C up -d --wait db app caddy

@@ -4,6 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 export TP_ENV_FILE=./e2e.env
 C="docker compose -f compose.yaml -f compose.e2e.yaml"
+# compose.e2e.yaml names the project thymeandplace-e2e, so this down -v only
+# ever removes thymeandplace-e2e_* volumes, never production's thymeandplace_*.
 trap '$C down -v >/dev/null 2>&1 || true' EXIT
 
 $C up -d --build --wait db app caddy

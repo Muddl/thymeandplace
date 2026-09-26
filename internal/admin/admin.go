@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -151,6 +152,15 @@ func (a *Admin) csrf(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// A known Content-Length above the limit is rejected before any form
+		// parsing touches the body. This is the common case (every regular
+		// upload sends Content-Length) and it must come first: parsing a
+		// huge multipart body just to discover it is too large would waste
+		// the read.
+		if r.ContentLength > maxBody {
+			http.Error(w, "The upload is too large. The limit is 5 MB.", http.StatusRequestEntityTooLarge)
+			return
+		}
 		// Logging out with no live session (it expired, or there never was
 		// one) has nothing to protect: a forced logout of nobody is
 		// harmless, and answering "Your form expired" to a Sign out click is
@@ -159,6 +169,21 @@ func (a *Admin) csrf(next http.Handler) http.Handler {
 		if _, ok := SessionFrom(r.Context()); !ok && r.Method == http.MethodPost && r.URL.Path == "/admin/logout" {
 			next.ServeHTTP(w, r)
 			return
+		}
+		// A chunked request has no Content-Length (it reads as -1 above), so
+		// the guard above cannot see it coming; the outer
+		// http.MaxBytesHandler still caps the actual read at maxBody. Parse
+		// the form here, rather than leaving it to PostFormValue below, so a
+		// body that trips that cap surfaces as the same 413 instead of a
+		// misleading CSRF 403 (X-CSRF-Token is still absent because the
+		// handler hasn't run) or a different error from deeper in the
+		// handler.
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			var mbe *http.MaxBytesError
+			if errors.As(err, &mbe) {
+				http.Error(w, "The upload is too large. The limit is 5 MB.", http.StatusRequestEntityTooLarge)
+				return
+			}
 		}
 		want := CSRFToken(r.Context())
 		got := r.Header.Get("X-CSRF-Token")

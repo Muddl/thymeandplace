@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"html"
 	"io"
 	"log/slog"
@@ -11,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"thymeandplace/internal/auth"
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/catalog/catalogtest"
 	"thymeandplace/internal/dbtest"
@@ -77,6 +80,60 @@ func TestAppServesAndReloadsWithoutRestart(t *testing.T) {
 			t.Fatal("catalog change not reflected without restart")
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestAdminMountedWithCatalogDeps builds a real app with ADMIN_SECRET_KEY
+// set, the condition under which newApp wires admin.Deps.Changes, .Load and
+// .Pool (previously left zero, GET /admin 500s on any request that reaches
+// a.loadSnap). It mints a session directly through auth.Service.CreateSession
+// rather than running a full WebAuthn ceremony, then confirms GET /admin
+// renders the catalog instead of the 500 the missing deps would cause.
+func TestAdminMountedWithCatalogDeps(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool := dbtest.New(t)
+	dbtest.LoadReference(t, pool)
+	tx, _ := pool.Begin(ctx)
+	if err := catalog.Write(ctx, store.New(tx), catalogtest.SmallCatalog(), nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = tx.Commit(ctx)
+
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	cfg, err := loadConfig(func(k string) string {
+		return map[string]string{"DATABASE_URL": pool.Config().ConnString(), "ADMIN_SECRET_KEY": key}[k]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := newApp(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.close()
+	if a.auth == nil {
+		t.Fatal("admin auth service was not wired even though ADMIN_SECRET_KEY was set")
+	}
+
+	raw, _, err := a.auth.CreateSession(ctx, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a.handler)
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/admin", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: raw})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || !strings.Contains(string(body), "Catalog") {
+		t.Fatalf("GET /admin = %d (want 200 with the catalog page; a nil Changes/Load/Pool dep would 500)\n%s", resp.StatusCode, body)
 	}
 }
 

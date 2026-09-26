@@ -192,11 +192,3 @@ func (a *Admin) formPreview(w http.ResponseWriter, r *http.Request) {
 		a.render(w, r, http.StatusUnprocessableEntity, views.FormPage(a.formVM(r, isNew, formValuesFromRequest(r), errs)))
 	})
 }
-
-// importPage, importSubmit, export and history are the remaining write-side
-// handlers; formPreview, deletePreview and apply (preview.go) are done. The
-// rest are stubbed until Task 5.
-func (a *Admin) importPage(w http.ResponseWriter, r *http.Request)   { http.NotFound(w, r) }
-func (a *Admin) importSubmit(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }
-func (a *Admin) export(w http.ResponseWriter, r *http.Request)       { http.NotFound(w, r) }
-func (a *Admin) history(w http.ResponseWriter, r *http.Request)      { http.NotFound(w, r) }

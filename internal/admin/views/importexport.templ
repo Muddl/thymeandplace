@@ -1,0 +1,51 @@
+package views
+
+templ ImportPage(vm ImportVM) {
+	@Layout(vm.Layout) {
+		<h1>Import</h1>
+		<p>Upload a <code>thymeandplace-catalog/v1</code> JSON file (5 MB max). Import only adds or updates ingredients by slug; it never deletes. For each ingredient in the file, its pairings and regions replace the stored ones.</p>
+		if vm.Message != "" {
+			<p class="error">{ vm.Message }</p>
+		}
+		if len(vm.Problems) > 0 {
+			<ul class="error">
+				for _, p := range vm.Problems {
+					<li>{ p }</li>
+				}
+			</ul>
+		}
+		<form method="post" action="/admin/import" enctype="multipart/form-data">
+			<input type="hidden" name="csrf" value={ vm.Layout.CSRF }/>
+			<input type="file" name="file" accept="application/json,.json" required/>
+			<button type="submit">Preview import</button>
+		</form>
+	}
+}
+
+templ HistoryPage(vm HistoryVM) {
+	@Layout(vm.Layout) {
+		<h1>History</h1>
+		<form method="get" action="/admin/history">
+			<input type="search" name="slug" value={ vm.Slug } placeholder="Filter by slug"/>
+			<button type="submit">Filter</button>
+		</form>
+		<table>
+			<thead><tr><th>When (UTC)</th><th>Who</th><th>Change</th><th>What</th><th>Before</th><th>After</th></tr></thead>
+			<tbody>
+				for _, h := range vm.Rows {
+					<tr>
+						<td>{ h.At }</td>
+						<td>{ h.Actor }</td>
+						<td>{ h.ChangeID }</td>
+						<td>{ h.Action } { h.Table } { h.Key }</td>
+						<td><code>{ h.Before }</code></td>
+						<td><code>{ h.After }</code></td>
+					</tr>
+				}
+			</tbody>
+		</table>
+		if vm.OlderURL != "" {
+			<p><a href={ templ.SafeURL(vm.OlderURL) }>Older</a></p>
+		}
+	}
+}

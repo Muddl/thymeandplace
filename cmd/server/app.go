@@ -133,7 +133,11 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 			return nil, fmt.Errorf("admin auth: %w", err)
 		}
 		a.auth = authSvc
-		adminH := admin.New(admin.Deps{Auth: authSvc, Log: log, TrustProxy: cfg.TrustProxy})
+		changes := changeset.NewService(pool, a.ocean, a.cases)
+		adminH := admin.New(admin.Deps{
+			Auth: authSvc, Log: log, TrustProxy: cfg.TrustProxy, Changes: changes, Pool: pool,
+			Load: func(ctx context.Context) (*catalog.Snapshot, error) { return catalog.Load(ctx, pool) },
+		})
 		a.mux.Handle("/admin", adminH)
 		a.mux.Handle("/admin/", adminH)
 	} else {

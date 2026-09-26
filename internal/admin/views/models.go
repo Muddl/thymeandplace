@@ -134,3 +134,23 @@ type PreviewVM struct {
 	Message                 string
 	ExpiresAt               string
 }
+
+type ImportVM struct {
+	Layout   LayoutVM
+	Message  string
+	Problems []string
+}
+
+type HistoryRow struct {
+	ID                            int64
+	At, Actor, Action, Table, Key string
+	Before, After                 string
+	ChangeID                      string
+}
+
+type HistoryVM struct {
+	Layout   LayoutVM
+	Slug     string
+	Rows     []HistoryRow
+	OlderURL string
+}

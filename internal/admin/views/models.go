@@ -94,3 +94,43 @@ func plural(n int, word string) string {
 	}
 	return strconv.Itoa(n) + " " + word + "s"
 }
+
+func itoa(i int64) string { return strconv.FormatInt(i, 10) }
+
+type FieldChange struct{ Field, Before, After string }
+
+type ChangedRow struct {
+	Slug, Name string
+	Fields     []FieldChange
+}
+
+type ItemRow struct{ Slug, Name string }
+
+type BarCell struct{ Class, Title string }
+
+type BarRow struct {
+	Fixture             string
+	Before, After       []BarCell
+	HadBefore, HasAfter bool
+}
+
+type ScoreRow struct {
+	Slug, Name, Before, After string
+	Bars                      []BarRow
+}
+
+type PreviewVM struct {
+	Layout                  LayoutVM
+	ID                      int64
+	Source, DeleteSlug      string
+	Added, Deleted          []ItemRow
+	Changed                 []ChangedRow
+	Unchanged               int
+	ScoreBefore, ScoreAfter string
+	Delta                   string
+	Compared                int
+	NeedsOverride           bool
+	Items                   []ScoreRow
+	Message                 string
+	ExpiresAt               string
+}

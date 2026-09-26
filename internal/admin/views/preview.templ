@@ -1,0 +1,88 @@
+package views
+
+templ bars(cells []BarCell) {
+	for _, c := range cells {
+		<span class={ c.Class } title={ c.Title }>{ c.Title[:1] }</span>
+	}
+}
+
+templ PreviewPage(vm PreviewVM) {
+	@Layout(vm.Layout) {
+		<h1>Preview</h1>
+		if vm.Message != "" {
+			<p class="error warn">{ vm.Message }</p>
+		}
+		<p>This preview expires at { vm.ExpiresAt } UTC.</p>
+		<h2>Changes</h2>
+		<p>{ plural(len(vm.Added), "added item") }, { plural(len(vm.Changed), "changed item") }, { plural(len(vm.Deleted), "deleted item") }, { vm.Unchanged } unchanged.</p>
+		if len(vm.Added) > 0 {
+			<h3>Added</h3>
+			<ul>
+				for _, it := range vm.Added {
+					<li>{ it.Name } (<code>{ it.Slug }</code>)</li>
+				}
+			</ul>
+		}
+		if len(vm.Changed) > 0 {
+			<h3>Changed</h3>
+			for _, ch := range vm.Changed {
+				<h4>{ ch.Name } (<code>{ ch.Slug }</code>)</h4>
+				<table class="diff">
+					<thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
+					<tbody>
+						for _, f := range ch.Fields {
+							<tr><td>{ f.Field }</td><td class="before">{ f.Before }</td><td class="after">{ f.After }</td></tr>
+						}
+					</tbody>
+				</table>
+			}
+		}
+		if len(vm.Deleted) > 0 {
+			<h3>Deleted</h3>
+			<ul>
+				for _, it := range vm.Deleted {
+					<li>{ it.Name } (<code>{ it.Slug }</code>)</li>
+				}
+			</ul>
+		}
+		<h2>Calibration score</h2>
+		if vm.Compared == 0 {
+			<p>No calibration fixture lists these ingredients yet, so there is nothing to compare.</p>
+		} else {
+			<p>Before { vm.ScoreBefore } → after { vm.ScoreAfter } ({ vm.Delta }).</p>
+		}
+		for _, it := range vm.Items {
+			<h3>{ it.Name }: { it.Before } → { it.After }</h3>
+			for _, b := range it.Bars {
+				<div class="bars">
+					<strong>{ b.Fixture } before</strong>
+					if b.HadBefore {
+						@bars(b.Before)
+					} else {
+						<span>(new)</span>
+					}
+				</div>
+				<div class="bars">
+					<strong>{ b.Fixture } after</strong>
+					if b.HasAfter {
+						@bars(b.After)
+					} else {
+						<span>(deleted)</span>
+					}
+				</div>
+			}
+		}
+		<h2>Apply</h2>
+		<form method="post" action={ templ.SafeURL("/admin/changesets/" + itoa(vm.ID) + "/apply") }>
+			<input type="hidden" name="csrf" value={ vm.Layout.CSRF }/>
+			if vm.DeleteSlug != "" {
+				<label>Type <code>{ vm.DeleteSlug }</code> to confirm the delete <input type="text" name="confirm_slug" autocomplete="off" required/></label>
+			}
+			if vm.NeedsOverride {
+				<p class="warn">The calibration score drops by more than 0.02.</p>
+				<label><input type="checkbox" name="override" value="1"/> Apply despite lower calibration score</label>
+			}
+			<button type="submit">Apply</button>
+		</form>
+	}
+}

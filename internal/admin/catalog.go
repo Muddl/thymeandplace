@@ -1,8 +1,6 @@
 package admin
 
 import (
-	"errors"
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -195,32 +193,11 @@ func (a *Admin) formPreview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// previewChangeset is a temporary stand-in for the real preview page; Task 3
-// replaces it with the full preview/apply UI.
-func (a *Admin) previewChangeset(w http.ResponseWriter, r *http.Request, cs changeset.Changeset, onInvalid func(map[string][]string)) {
-	_, pv, err := a.d.Changes.Preview(r.Context(), cs)
-	var inv *changeset.InvalidError
-	if errors.As(err, &inv) {
-		onInvalid(a.problemsToErrors(inv.Problems))
-		return
-	}
-	if err != nil {
-		http.Error(w, "Couldn't build the preview.", http.StatusInternalServerError)
-		return
-	}
-	for _, c := range pv.Diff.Changed {
-		for _, f := range c.Fields {
-			fmt.Fprintln(w, f.Field)
-		}
-	}
-}
-
-// formPreview, deletePreview, importPage, importSubmit, apply, export and
-// history are the full write-side handlers; only formPreview is implemented
-// here (the form tests need it). The rest are stubbed until Tasks 3-5.
-func (a *Admin) deletePreview(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }
-func (a *Admin) importPage(w http.ResponseWriter, r *http.Request)    { http.NotFound(w, r) }
-func (a *Admin) importSubmit(w http.ResponseWriter, r *http.Request)  { http.NotFound(w, r) }
-func (a *Admin) apply(w http.ResponseWriter, r *http.Request)         { http.NotFound(w, r) }
-func (a *Admin) export(w http.ResponseWriter, r *http.Request)        { http.NotFound(w, r) }
-func (a *Admin) history(w http.ResponseWriter, r *http.Request)       { http.NotFound(w, r) }
+// importPage, importSubmit, apply, export and history are the full
+// write-side handlers; formPreview and deletePreview (preview.go) are done.
+// The rest are stubbed until Tasks 4-5.
+func (a *Admin) importPage(w http.ResponseWriter, r *http.Request)   { http.NotFound(w, r) }
+func (a *Admin) importSubmit(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }
+func (a *Admin) apply(w http.ResponseWriter, r *http.Request)        { http.NotFound(w, r) }
+func (a *Admin) export(w http.ResponseWriter, r *http.Request)       { http.NotFound(w, r) }
+func (a *Admin) history(w http.ResponseWriter, r *http.Request)      { http.NotFound(w, r) }

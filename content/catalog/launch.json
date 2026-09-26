@@ -1,0 +1,689 @@
+{
+  "format": "thymeandplace-catalog/v1",
+  "exported_at": "2026-09-26T00:00:00Z",
+  "ingredients": [
+    { "slug": "tomato", "name": "Tomato", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [16, 30], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Heavy for its size, glossy, fragrant at the stem.",
+                "store": "Stem-side down at room temperature; refrigerate only when fully ripe." },
+      "pairings": ["basil", "garlic", "oregano", "zucchini", "eggplant"], "note": "" },
+
+    { "slug": "bell-pepper", "name": "Bell pepper", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [18, 30], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Firm and glossy with taut skin and a fresh green stem.",
+                "store": "Unwashed in the fridge crisper; use within a week." },
+      "pairings": ["tomato", "onion", "eggplant", "basil"], "note": "Green peppers are unripe; red, yellow and orange ones are left longer on the plant." },
+
+    { "slug": "chili-pepper", "name": "Chili pepper", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [18, 32], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Shiny, firm and unwrinkled; heat varies by variety, not by size.",
+                "store": "In a paper bag in the fridge for up to two weeks, or dry or freeze them." },
+      "pairings": ["garlic", "ginger", "coriander", "tomato", "lemongrass"], "note": "" },
+
+    { "slug": "eggplant", "name": "Eggplant", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [18, 32], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Heavy, glossy skin that springs back when pressed; green cap.",
+                "store": "Cool room temperature and use within a few days; it dislikes the cold." },
+      "pairings": ["tomato", "garlic", "basil", "mint", "bell-pepper"], "note": "" },
+
+    { "slug": "zucchini", "name": "Zucchini", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [15, 30], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Small to medium, firm, with glossy unblemished skin.",
+                "store": "Unwashed in the fridge; use within 4 to 5 days." },
+      "pairings": ["tomato", "basil", "mint", "garlic", "lemon"], "note": "" },
+
+    { "slug": "cucumber", "name": "Cucumber", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [16, 30], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Firm from end to end with no soft or yellow patches.",
+                "store": "In the warmest part of the fridge; use within a week." },
+      "pairings": ["dill", "mint", "tomato", "lemon"], "note": "" },
+
+    { "slug": "sweet-corn", "name": "Sweet corn", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [15, 32], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Bright green husks, moist brown silk, plump kernels to the tip.",
+                "store": "In the husk in the fridge; cook the same day for the sweetest flavour." },
+      "pairings": ["chili-pepper", "tomato", "coriander", "green-bean"], "note": "The sugars turn to starch within hours of picking." },
+
+    { "slug": "green-bean", "name": "Green bean", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [15, 30], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Bright, slim and firm enough to snap cleanly.",
+                "store": "Unwashed in a bag in the fridge; use within 5 days." },
+      "pairings": ["garlic", "tomato", "potato", "lemon"], "note": "" },
+
+    { "slug": "winter-squash", "name": "Winter squash", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [15, 30], "months_to_harvest": 3, "storage_months": 5,
+      "tips": { "choose": "Heavy, with hard matte skin and a dry, corky stem.",
+                "store": "Whole in a cool, dry place for months; once cut, wrap and refrigerate." },
+      "pairings": ["sage", "thyme", "onion", "ginger"], "note": "Pumpkin and butternut are winter squash." },
+
+    { "slug": "okra", "name": "Okra", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [20, 35], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Small pods under about 8 cm that snap rather than bend.",
+                "store": "Dry and unwashed in a paper bag in the fridge; use within 2 to 3 days." },
+      "pairings": ["tomato", "onion", "chili-pepper", "sweet-corn"], "note": "" },
+
+    { "slug": "sweet-potato", "name": "Sweet potato", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [20, 35], "months_to_harvest": 4, "storage_months": 4,
+      "tips": { "choose": "Firm and smooth with no soft ends or sprouts.",
+                "store": "Cool, dark and dry, but not in the fridge." },
+      "pairings": ["ginger", "chili-pepper", "coriander", "lemongrass"], "note": "" },
+
+    { "slug": "broad-bean", "name": "Broad bean", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 18], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Bright green, plump pods that feel full; small beans are sweeter.",
+                "store": "In their pods in the fridge; use within 2 to 3 days." },
+      "pairings": ["mint", "pea", "lemon", "asparagus"], "note": "" },
+
+    { "slug": "pea", "name": "Pea", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 20], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Glossy, well-filled pods that squeak when rubbed together.",
+                "store": "In the pod in the fridge; shell and cook within a day or two." },
+      "pairings": ["mint", "broad-bean", "lettuce", "asparagus"], "note": "" },
+
+    { "slug": "lettuce", "name": "Lettuce", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 22], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Crisp, lively leaves with no wilting or browned edges.",
+                "store": "Wrapped in a damp towel in the fridge crisper; use within 5 days." },
+      "pairings": ["radish", "cucumber", "chives", "pea"], "note": "" },
+
+    { "slug": "spinach", "name": "Spinach", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [4, 18], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Deep green, crisp leaves with no slime or yellowing.",
+                "store": "Loosely bagged in the fridge; use within 3 days." },
+      "pairings": ["garlic", "lemon", "button-mushroom", "potato"], "note": "" },
+
+    { "slug": "kale", "name": "Kale", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [4, 20], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Crisp, deep-coloured leaves without yellowing.", "store": "Wrapped loosely in the fridge; use within 5 days." },
+      "pairings": ["garlic", "lemon", "potato", "chili-pepper"], "note": "Sweeter after a frost." },
+
+    { "slug": "cabbage", "name": "Cabbage", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [4, 20], "months_to_harvest": 3, "storage_months": 2,
+      "tips": { "choose": "Heavy for its size with tight, squeaky leaves.",
+                "store": "Whole in the fridge for up to two weeks; wrap cut halves." },
+      "pairings": ["carrot", "apple", "onion", "dill"], "note": "" },
+
+    { "slug": "cauliflower", "name": "Cauliflower", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [6, 20], "months_to_harvest": 4, "storage_months": 0,
+      "tips": { "choose": "Tight, creamy curds with fresh green leaves hugging the head.",
+                "store": "Stem down in a loose bag in the fridge; use within a week." },
+      "pairings": ["garlic", "parsley", "potato", "lemon"], "note": "" },
+
+    { "slug": "broccoli", "name": "Broccoli", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [6, 20], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Tight, dark green florets and a firm stalk; no yellow buds.",
+                "store": "Unwashed in a loose bag in the fridge; use within 4 days." },
+      "pairings": ["garlic", "lemon", "chili-pepper", "ginger"], "note": "" },
+
+    { "slug": "brussels-sprouts", "name": "Brussels sprouts", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [4, 20], "months_to_harvest": 5, "storage_months": 0,
+      "tips": { "choose": "Small, tight, bright green heads; still on the stalk if you can.",
+                "store": "Unwashed in the fridge; use within a week." },
+      "pairings": ["garlic", "lemon", "thyme", "chili-pepper"], "note": "Sweeter after a frost." },
+
+    { "slug": "leek", "name": "Leek", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [4, 20], "months_to_harvest": 5, "storage_months": 3,
+      "tips": { "choose": "Long white shanks, firm and straight, with fresh dark tops.",
+                "store": "Untrimmed and loosely wrapped in the fridge for up to two weeks." },
+      "pairings": ["potato", "thyme", "button-mushroom", "carrot"], "note": "Hardy leeks are often left in the ground and lifted through winter." },
+
+    { "slug": "carrot", "name": "Carrot", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 22], "months_to_harvest": 3, "storage_months": 4,
+      "tips": { "choose": "Firm and smooth with no cracks; perky tops if still attached.",
+                "store": "Tops removed, in a bag in the fridge for several weeks." },
+      "pairings": ["ginger", "parsley", "onion", "dill", "celery"], "note": "" },
+
+    { "slug": "beetroot", "name": "Beetroot", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 22], "months_to_harvest": 3, "storage_months": 3,
+      "tips": { "choose": "Firm, smooth, small to medium roots; fresh leaves if attached.",
+                "store": "Cut the leaves off leaving 2 cm of stem; roots keep for weeks in the fridge." },
+      "pairings": ["dill", "orange", "apple", "chives"], "note": "The leaves cook like chard." },
+
+    { "slug": "potato", "name": "Potato", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [10, 24], "months_to_harvest": 3, "storage_months": 6,
+      "tips": { "choose": "Firm, with no green patches, sprouts or soft spots.",
+                "store": "Cool, dark and dry in a paper bag; not in the fridge." },
+      "pairings": ["rosemary", "leek", "dill", "chives", "garlic"], "note": "" },
+
+    { "slug": "onion", "name": "Onion", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [6, 26], "months_to_harvest": 5, "storage_months": 6,
+      "tips": { "choose": "Heavy, firm and dry with papery skins and no sprouting.",
+                "store": "Cool, dark and airy; away from potatoes." },
+      "pairings": ["garlic", "thyme", "tomato", "potato"], "note": "" },
+
+    { "slug": "garlic", "name": "Garlic", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 24], "months_to_harvest": 4, "storage_months": 8,
+      "tips": { "choose": "Plump, tight heads that feel heavy; no soft cloves or green shoots.",
+                "store": "Whole heads in a cool, dry, airy place for months." },
+      "pairings": ["tomato", "parsley", "rosemary", "chili-pepper", "lemon"], "note": "" },
+
+    { "slug": "parsnip", "name": "Parsnip", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [4, 20], "months_to_harvest": 6, "storage_months": 3,
+      "tips": { "choose": "Small to medium, firm and creamy white; large ones can be woody.",
+                "store": "Unwashed in a bag in the fridge for two to three weeks." },
+      "pairings": ["carrot", "thyme", "apple", "rosemary"], "note": "Sweeter after a frost." },
+
+    { "slug": "turnip", "name": "Turnip", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [4, 20], "months_to_harvest": 2, "storage_months": 2,
+      "tips": { "choose": "Small, heavy and smooth; young ones are sweet and mild.",
+                "store": "Greens removed, in the fridge for up to two weeks." },
+      "pairings": ["carrot", "thyme", "potato", "parsley"], "note": "" },
+
+    { "slug": "radish", "name": "Radish", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 22], "months_to_harvest": 1, "storage_months": 0,
+      "tips": { "choose": "Firm, bright roots with crisp green leaves.",
+                "store": "Leaves removed, in a bag in the fridge for about a week." },
+      "pairings": ["lettuce", "chives", "cucumber", "mint"], "note": "" },
+
+    { "slug": "celery", "name": "Celery", "category": "vegetable", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [10, 22], "months_to_harvest": 4, "storage_months": 0,
+      "tips": { "choose": "Tight, crisp, pale green stalks that snap; fresh leaves.",
+                "store": "Wrapped in foil or a damp towel in the fridge for up to two weeks." },
+      "pairings": ["carrot", "onion", "apple", "parsley"], "note": "" },
+
+    { "slug": "fennel", "name": "Fennel", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [8, 22], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Firm, white, tightly layered bulbs with bright fronds.",
+                "store": "In a bag in the fridge; use within 5 days." },
+      "pairings": ["orange", "lemon", "tomato", "dill"], "note": "" },
+
+    { "slug": "spring-onion", "name": "Spring onion", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 24], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Crisp white bulbs and bright, upright green tops.",
+                "store": "Roots in a little water in the fridge, or wrapped in a damp towel." },
+      "pairings": ["ginger", "chili-pepper", "bok-choy", "potato"], "note": "" },
+
+    { "slug": "chard", "name": "Chard", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 24], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Glossy, unblemished leaves and firm, crisp stems.",
+                "store": "Unwashed in a loose bag in the fridge; use within 3 days." },
+      "pairings": ["garlic", "lemon", "chili-pepper", "onion"], "note": "" },
+
+    { "slug": "bok-choy", "name": "Bok choy", "category": "vegetable", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [6, 20], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Firm white stems and crisp, dark green leaves.",
+                "store": "Unwashed in a bag in the fridge; use within 3 to 4 days." },
+      "pairings": ["ginger", "garlic", "shiitake", "spring-onion"], "note": "" },
+
+    { "slug": "asparagus", "name": "Asparagus", "category": "vegetable", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 2, "warmup_temp_c": 6.5, "months_bloom_to_harvest": 1,
+      "harvest_span_months": 3, "storage_months": 0,
+      "tips": { "choose": "Firm, straight spears with tight, dry tips.",
+                "store": "Stand upright in a little water in the fridge; use within 2 days." },
+      "pairings": ["lemon", "chives", "morel", "pea"], "note": "A perennial crop: spears are cut for a few weeks each spring." },
+
+    { "slug": "rhubarb", "name": "Rhubarb", "category": "vegetable", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 3, "warmup_temp_c": 6.5, "months_bloom_to_harvest": 1,
+      "harvest_span_months": 3, "storage_months": 0,
+      "tips": { "choose": "Crisp, glossy stalks that snap; the leaves are poisonous, so discard them.",
+                "store": "Leaves removed, wrapped in the fridge for up to a week." },
+      "pairings": ["strawberry", "ginger", "orange"], "note": "Forced rhubarb arrives earlier, in late winter." },
+
+    { "slug": "globe-artichoke", "name": "Globe artichoke", "category": "vegetable", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 10.5, "months_bloom_to_harvest": 1,
+      "harvest_span_months": 3, "storage_months": 0,
+      "tips": { "choose": "Heavy, with tight leaves that squeak when squeezed.",
+                "store": "Sprinkle with water and refrigerate in a bag; use within 4 days." },
+      "pairings": ["lemon", "garlic", "parsley", "mint"], "note": "" },
+
+    { "slug": "bean-sprouts", "name": "Bean sprouts", "category": "vegetable", "kind": "cultivated_year_round",
+      "tips": { "choose": "Crisp, white and dry, with no browning or sour smell.",
+                "store": "In the fridge and use within 2 days." },
+      "pairings": ["spring-onion", "chili-pepper", "coriander", "ginger"], "note": "" },
+
+    { "slug": "ginger", "name": "Ginger", "category": "vegetable", "kind": "cultivated_year_round",
+      "tips": { "choose": "Firm and heavy with smooth, taut skin; it should snap cleanly.",
+                "store": "Unpeeled in the fridge for weeks, or frozen and grated from frozen." },
+      "pairings": ["garlic", "spring-onion", "lemongrass", "carrot"], "note": "" },
+
+    { "slug": "watercress", "name": "Watercress", "category": "vegetable", "kind": "cultivated_year_round",
+      "tips": { "choose": "Dark green, perky leaves with no yellowing or slime.",
+                "store": "Stems in a glass of water in the fridge, loosely covered; use within 2 days." },
+      "pairings": ["orange", "potato", "beetroot", "pear"], "note": "Farmed in spring-fed beds and sold all year." },
+
+    { "slug": "apple", "name": "Apple", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 3, "warmup_temp_c": 10, "months_bloom_to_harvest": 5,
+      "harvest_span_months": 3, "storage_months": 5,
+      "tips": { "choose": "Firm, no soft spots, smells like apple.", "store": "Cold and humid, away from leafy greens." },
+      "pairings": ["blackberry", "sage", "cabbage", "celery"], "note": "" },
+
+    { "slug": "pear", "name": "Pear", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 3, "warmup_temp_c": 10, "months_bloom_to_harvest": 5,
+      "harvest_span_months": 2, "storage_months": 3,
+      "tips": { "choose": "Firm and unbruised; ripe when the neck gives slightly to gentle pressure.",
+                "store": "Ripen at room temperature, then refrigerate for a few days." },
+      "pairings": ["ginger", "watercress", "blackberry", "rosemary"], "note": "Pears ripen off the tree." },
+
+    { "slug": "plum", "name": "Plum", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 3, "warmup_temp_c": 10, "months_bloom_to_harvest": 4,
+      "harvest_span_months": 2, "storage_months": 0,
+      "tips": { "choose": "Plump, deeply coloured, with a light bloom and a slight give.",
+                "store": "Ripen at room temperature, then refrigerate for up to 3 days." },
+      "pairings": ["ginger", "apple", "thyme", "fig"], "note": "" },
+
+    { "slug": "cherry", "name": "Cherry", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 3, "warmup_temp_c": 10, "months_bloom_to_harvest": 2,
+      "harvest_span_months": 2, "storage_months": 0,
+      "tips": { "choose": "Glossy, firm and plump with green, flexible stems.",
+                "store": "Unwashed in the fridge; wash just before eating." },
+      "pairings": ["apricot", "mint", "basil", "rhubarb"], "note": "" },
+
+    { "slug": "apricot", "name": "Apricot", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 2, "warmup_temp_c": 10, "months_bloom_to_harvest": 3,
+      "harvest_span_months": 2, "storage_months": 0,
+      "tips": { "choose": "Deep orange, fragrant and slightly soft; avoid green shoulders.",
+                "store": "Ripen at room temperature, then refrigerate for 2 to 3 days." },
+      "pairings": ["cherry", "thyme", "rosemary", "raspberry"], "note": "" },
+
+    { "slug": "peach", "name": "Peach", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 2, "warmup_temp_c": 10, "months_bloom_to_harvest": 3,
+      "harvest_span_months": 3, "storage_months": 0,
+      "tips": { "choose": "Sweet-smelling with a golden background colour and a slight give.",
+                "store": "Ripen at room temperature, stem-side down; refrigerate once ripe." },
+      "pairings": ["raspberry", "basil", "blueberry", "tomato"], "note": "Nectarines are smooth-skinned peaches." },
+
+    { "slug": "fig", "name": "Fig", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 15, "months_bloom_to_harvest": 3,
+      "harvest_span_months": 2, "storage_months": 0,
+      "tips": { "choose": "Soft, heavy and fragrant, with intact skin and a slightly bent neck.",
+                "store": "In a single layer in the fridge; eat within 2 days." },
+      "pairings": ["rosemary", "thyme", "orange", "plum"], "note": "" },
+
+    { "slug": "grape", "name": "Grape", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "tender", "chill_months_min": 0, "warmup_temp_c": 12, "months_bloom_to_harvest": 4,
+      "harvest_span_months": 2, "storage_months": 0,
+      "tips": { "choose": "Plump grapes firmly attached to green, flexible stems.",
+                "store": "Unwashed in the fridge for up to a week." },
+      "pairings": ["fig", "rosemary", "pear", "fennel"], "note": "" },
+
+    { "slug": "strawberry", "name": "Strawberry", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 2, "warmup_temp_c": 10, "months_bloom_to_harvest": 2,
+      "harvest_span_months": 3, "storage_months": 0,
+      "tips": { "choose": "Fragrant, glossy and red right to the green cap.",
+                "store": "Unwashed in a single layer in the fridge; bring to room temperature to eat." },
+      "pairings": ["rhubarb", "mint", "basil", "orange"], "note": "" },
+
+    { "slug": "raspberry", "name": "Raspberry", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 3, "warmup_temp_c": 10, "months_bloom_to_harvest": 3,
+      "harvest_span_months": 3, "storage_months": 0,
+      "tips": { "choose": "Dry, plump, evenly coloured; check the punnet for mould or juice stains.",
+                "store": "Unwashed in a single layer in the fridge; eat within 2 days." },
+      "pairings": ["peach", "mint", "lemon", "blueberry"], "note": "" },
+
+    { "slug": "blueberry", "name": "Blueberry", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 3, "warmup_temp_c": 10, "months_bloom_to_harvest": 3,
+      "harvest_span_months": 2, "storage_months": 0,
+      "tips": { "choose": "Firm, dusty-blue berries with a silvery bloom; no red ones.",
+                "store": "Unwashed in the fridge for up to a week." },
+      "pairings": ["lemon", "peach", "raspberry", "mint"], "note": "" },
+
+    { "slug": "blackberry", "name": "Blackberry", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 2, "warmup_temp_c": 10, "months_bloom_to_harvest": 4,
+      "harvest_span_months": 2, "storage_months": 0,
+      "tips": { "choose": "Glossy, fully black and plump; red berries are underripe.",
+                "store": "Unwashed in a single layer in the fridge; eat within 2 days." },
+      "pairings": ["apple", "pear", "lemon", "mint"], "note": "" },
+
+    { "slug": "lemon", "name": "Lemon", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "tender", "chill_months_min": 0, "warmup_temp_c": 19.5, "months_bloom_to_harvest": 5,
+      "harvest_span_months": 6, "storage_months": 0,
+      "tips": { "choose": "Heavy for its size with fine-pored, glossy skin.",
+                "store": "In a bag in the fridge for up to a month." },
+      "pairings": ["garlic", "parsley", "thyme", "blueberry", "rosemary"], "note": "" },
+
+    { "slug": "orange", "name": "Orange", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "tender", "chill_months_min": 0, "warmup_temp_c": 19.5, "months_bloom_to_harvest": 6,
+      "harvest_span_months": 4, "storage_months": 0,
+      "tips": { "choose": "Heavy and firm with smooth skin; colour is not a sign of ripeness.",
+                "store": "Room temperature for a week, or in the fridge for longer." },
+      "pairings": ["fennel", "beetroot", "rosemary", "mint"], "note": "" },
+
+    { "slug": "mandarin", "name": "Mandarin", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "tender", "chill_months_min": 0, "warmup_temp_c": 19.5, "months_bloom_to_harvest": 5,
+      "harvest_span_months": 3, "storage_months": 0,
+      "tips": { "choose": "Heavy, fragrant fruit with glossy skin and no soft spots.",
+                "store": "In the fridge for up to two weeks." },
+      "pairings": ["ginger", "mint", "chili-pepper"], "note": "Includes clementines and satsumas." },
+
+    { "slug": "avocado", "name": "Avocado", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "tender", "chill_months_min": 0, "warmup_temp_c": 19.5, "months_bloom_to_harvest": 9,
+      "harvest_span_months": 6, "storage_months": 0,
+      "tips": { "choose": "Yields slightly to gentle pressure near the stem; no hollow or sunken spots.",
+                "store": "Ripen at room temperature; refrigerate once ripe for a few days." },
+      "pairings": ["lemon", "tomato", "coriander", "chili-pepper"], "note": "Fruit ripens off the tree and can hang for months." },
+
+    { "slug": "mango", "name": "Mango", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "tender", "chill_months_min": 0, "warmup_temp_c": 20, "months_bloom_to_harvest": 2,
+      "harvest_span_months": 3, "storage_months": 0,
+      "tips": { "choose": "Fragrant at the stem end and yields slightly; colour varies by variety.",
+                "store": "Ripen at room temperature; refrigerate once ripe." },
+      "pairings": ["chili-pepper", "lemongrass", "coriander", "mint"], "note": "" },
+
+    { "slug": "banana", "name": "Banana", "category": "fruit", "kind": "cultivated_year_round",
+      "tips": { "choose": "Yellow with a few brown flecks for eating now.", "store": "Room temperature; refrigerate once ripe." },
+      "pairings": ["strawberry", "blueberry", "mango"], "note": "" },
+
+    { "slug": "pineapple", "name": "Pineapple", "category": "fruit", "kind": "cultivated_year_round",
+      "tips": { "choose": "Heavy, fragrant at the base, with fresh green leaves.",
+                "store": "Room temperature for a day or two; cut fruit in the fridge." },
+      "pairings": ["mint", "chili-pepper", "coriander", "ginger"], "note": "It does not ripen further after picking." },
+
+    { "slug": "papaya", "name": "Papaya", "category": "fruit", "kind": "cultivated_year_round",
+      "tips": { "choose": "Mostly yellow-orange skin that yields slightly to gentle pressure.",
+                "store": "Ripen at room temperature; refrigerate once ripe and eat within 2 days." },
+      "pairings": ["lemon", "chili-pepper", "mint", "lemongrass"], "note": "" },
+
+    { "slug": "watermelon", "name": "Watermelon", "category": "fruit", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [20, 35], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Heavy, with a creamy yellow patch where it rested on the ground.",
+                "store": "Whole at room temperature; cut pieces wrapped in the fridge." },
+      "pairings": ["mint", "cucumber", "basil", "chili-pepper"], "note": "" },
+
+    { "slug": "kiwifruit", "name": "Kiwifruit", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "tender", "chill_months_min": 2, "warmup_temp_c": 10, "months_bloom_to_harvest": 6,
+      "harvest_span_months": 2, "storage_months": 4,
+      "tips": { "choose": "Firm to slightly yielding, with unwrinkled skin.",
+                "store": "Ripen at room temperature, then refrigerate for up to two weeks." },
+      "pairings": ["strawberry", "mint", "banana", "orange"], "note": "Picked hard and stored for months." },
+
+    { "slug": "pomegranate", "name": "Pomegranate", "category": "fruit", "kind": "perennial_fruit",
+      "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 19.5, "months_bloom_to_harvest": 3,
+      "harvest_span_months": 3, "storage_months": 2,
+      "tips": { "choose": "Heavy, with firm, glossy, slightly angular skin.",
+                "store": "Whole in the fridge for up to two months; seeds for a few days." },
+      "pairings": ["mint", "orange", "eggplant", "parsley"], "note": "" },
+
+    { "slug": "basil", "name": "Basil", "category": "herb", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [16, 32], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Bright, perky leaves with no black spots.",
+                "store": "Stems in a glass of water on the counter, out of direct sun; not in the fridge." },
+      "pairings": ["tomato", "garlic", "zucchini", "strawberry"], "note": "" },
+
+    { "slug": "parsley", "name": "Parsley", "category": "herb", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 24], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Bright green, springy leaves with no wilting or yellowing.",
+                "store": "Stems in water in the fridge, loosely covered with a bag." },
+      "pairings": ["garlic", "lemon", "potato", "tomato", "mint"], "note": "" },
+
+    { "slug": "coriander", "name": "Coriander", "category": "herb", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [6, 22], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Fresh, fragrant leaves; roots attached keep it longer.",
+                "store": "Stems in water in the fridge, loosely covered; use within a week." },
+      "pairings": ["chili-pepper", "lemongrass", "ginger", "avocado", "mango"], "note": "Bolts quickly in hot weather." },
+
+    { "slug": "dill", "name": "Dill", "category": "herb", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [10, 24], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Feathery, bright green fronds that are not wilted.",
+                "store": "Wrapped in a damp towel in the fridge; use within 3 days." },
+      "pairings": ["cucumber", "potato", "beetroot", "atlantic-cod"], "note": "" },
+
+    { "slug": "mint", "name": "Mint", "category": "herb", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [8, 30], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Vivid, fragrant leaves with no dark spots.",
+                "store": "Stems in water in the fridge, loosely covered." },
+      "pairings": ["pea", "strawberry", "cucumber", "watermelon", "lemon"], "note": "A perennial that dies back in winter." },
+
+    { "slug": "chives", "name": "Chives", "category": "herb", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [6, 24], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Uniformly green, firm stems with no yellowing tips.",
+                "store": "Wrapped in a damp towel in the fridge; use within 5 days." },
+      "pairings": ["potato", "radish", "beetroot", "asparagus"], "note": "" },
+
+    { "slug": "thyme", "name": "Thyme", "category": "herb", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 26], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Fragrant sprigs with green leaves and no dry brown patches.",
+                "store": "Wrapped in a damp towel in the fridge for up to two weeks." },
+      "pairings": ["potato", "onion", "button-mushroom", "lemon", "carrot"], "note": "An evergreen perennial; picked whenever it is growing." },
+
+    { "slug": "rosemary", "name": "Rosemary", "category": "herb", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 26], "months_to_harvest": 1, "storage_months": 0,
+      "tips": { "choose": "Springy, resinous needles; avoid dry or blackened sprigs.",
+                "store": "Wrapped in a damp towel in the fridge for up to two weeks." },
+      "pairings": ["potato", "garlic", "lemon", "orange"], "note": "An evergreen shrub; picked whenever it is growing." },
+
+    { "slug": "sage", "name": "Sage", "category": "herb", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [5, 26], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Soft, velvety grey-green leaves with no wilting.",
+                "store": "Wrapped in a damp towel in the fridge for up to a week." },
+      "pairings": ["winter-squash", "onion", "apple", "button-mushroom"], "note": "" },
+
+    { "slug": "oregano", "name": "Oregano", "category": "herb", "kind": "annual",
+      "frost": "hardy", "grow_temp_c": [8, 26], "months_to_harvest": 2, "storage_months": 0,
+      "tips": { "choose": "Fragrant, firm green leaves; no wilting.",
+                "store": "Wrapped in a damp towel in the fridge, or hang to dry." },
+      "pairings": ["tomato", "garlic", "lemon", "bell-pepper"], "note": "" },
+
+    { "slug": "lemongrass", "name": "Lemongrass", "category": "herb", "kind": "annual",
+      "frost": "tender", "grow_temp_c": [18, 35], "months_to_harvest": 3, "storage_months": 0,
+      "tips": { "choose": "Firm, pale stalks that smell of lemon when scratched.",
+                "store": "Wrapped in the fridge for two weeks, or frozen." },
+      "pairings": ["ginger", "chili-pepper", "coriander", "garlic"], "note": "" },
+
+    { "slug": "button-mushroom", "name": "Button mushroom", "category": "mushroom", "kind": "cultivated_year_round",
+      "tips": { "choose": "Closed caps and a dry, smooth surface.", "store": "Paper bag in the fridge; use within 5 days." },
+      "pairings": ["garlic", "thyme", "parsley", "spinach"], "note": "Chestnut mushrooms and portobellos are the same species." },
+
+    { "slug": "oyster-mushroom", "name": "Oyster mushroom", "category": "mushroom", "kind": "cultivated_year_round",
+      "tips": { "choose": "Firm, dry, fan-shaped caps with no sliminess.",
+                "store": "Paper bag in the fridge; use within 3 days." },
+      "pairings": ["garlic", "thyme", "spring-onion", "ginger"], "note": "" },
+
+    { "slug": "shiitake", "name": "Shiitake", "category": "mushroom", "kind": "cultivated_year_round",
+      "tips": { "choose": "Thick, firm, domed caps with curled edges.",
+                "store": "Paper bag in the fridge; use within a week." },
+      "pairings": ["ginger", "garlic", "bok-choy", "spring-onion"], "note": "" },
+
+    { "slug": "chanterelle", "name": "Chanterelle", "category": "mushroom", "kind": "wild_mushroom",
+      "fruiting_temp_c": [12, 20], "min_precip_mm": 60, "storage_months": 0,
+      "tips": { "choose": "Dry, firm, apricot smell; from a seller who can name the forager.",
+                "store": "Paper bag in the fridge; use within 3 days." },
+      "pairings": ["thyme", "garlic", "parsley", "potato"], "note": "" },
+
+    { "slug": "porcini", "name": "Porcini", "category": "mushroom", "kind": "wild_mushroom",
+      "fruiting_temp_c": [10, 18], "min_precip_mm": 60, "storage_months": 0,
+      "tips": { "choose": "Firm, heavy caps with pale pores and no worm holes in the stem; from a named forager.",
+                "store": "Paper bag in the fridge; use within 2 days, or slice and dry." },
+      "pairings": ["garlic", "thyme", "parsley", "potato"], "note": "Also sold as cep." },
+
+    { "slug": "morel", "name": "Morel", "category": "mushroom", "kind": "wild_mushroom",
+      "fruiting_temp_c": [8, 14], "min_precip_mm": 50, "storage_months": 0,
+      "tips": { "choose": "Firm, dry, hollow and intact; from a seller who can name the forager.",
+                "store": "Paper bag in the fridge; use within 2 days. Always cook thoroughly." },
+      "pairings": ["asparagus", "chives", "pea", "thyme"], "note": "A spring mushroom; never eat raw." },
+
+    { "slug": "atlantic-cod", "name": "Atlantic cod", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 20, "months": [1,2,3,4,5,6,7,8,9,10,11,12], "peak_months": [2,3] },
+        { "ecoregion_id": 23, "months": [1,2,3,4], "peak_months": [2,3] },
+        { "ecoregion_id": 25, "months": [1,5,6,7,8,9,10,11,12] }
+      ],
+      "tips": { "choose": "Firm, translucent flesh; clean sea smell.",
+                "store": "Coldest part of the fridge; cook within 2 days." },
+      "pairings": ["potato", "dill", "parsley", "lemon"], "note": "Norwegian winter cod (skrei) is landed January to April." },
+
+    { "slug": "sardine", "name": "Sardine", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 26, "months": [7,8,9,10,11,12], "peak_months": [9,10,11] },
+        { "ecoregion_id": 27, "months": [5,6,7,8,9,10], "peak_months": [6,7,8] },
+        { "ecoregion_id": 35, "months": [5,6,7,8,9], "peak_months": [6,7,8] }
+      ],
+      "tips": { "choose": "Bright eyes, shiny scales and a stiff body.",
+                "store": "Coldest part of the fridge; cook the day you buy them." },
+      "pairings": ["lemon", "tomato", "parsley", "garlic"], "note": "Large sardines are sold as pilchards." },
+
+    { "slug": "american-lobster", "name": "American lobster", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 37, "months": [5,6,7,8,9,10], "peak_months": [5,6] },
+        { "ecoregion_id": 39, "months": [11,12,1,2,3,4,5], "peak_months": [12,5] },
+        { "ecoregion_id": 40, "months": [6,7,8,9,10,11,12], "peak_months": [8,9,10] }
+      ],
+      "tips": { "choose": "Lively, with curled tail and a heavy feel for its size.",
+                "store": "Cook the day you buy it; keep alive in the fridge under a damp cloth, never in water." },
+      "pairings": ["lemon", "sweet-corn", "potato", "chives"], "note": "" },
+
+    { "slug": "mussel", "name": "Mussel", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 25, "months": [1,2,3,4,9,10,11,12] },
+        { "ecoregion_id": 26, "months": [1,2,3,4,9,10,11,12] },
+        { "ecoregion_id": 27, "months": [1,2,3,4,9,10,11,12] }
+      ],
+      "tips": { "choose": "Tightly closed shells, or ones that close when tapped; fresh sea smell.",
+                "store": "In a bowl covered with a damp cloth in the fridge; cook within a day." },
+      "pairings": ["garlic", "parsley", "fennel", "tomato"], "note": "Discard any that stay open before cooking." },
+
+    { "slug": "oyster", "name": "Oyster", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 26, "months": [1,2,3,4,9,10,11,12] },
+        { "ecoregion_id": 27, "months": [1,2,3,4,9,10,11,12], "peak_months": [12] },
+        { "ecoregion_id": 56, "months": [1,2,3,4,10,11,12] }
+      ],
+      "tips": { "choose": "Closed, heavy shells full of liquor; they should smell of the sea.",
+                "store": "Cupped side down under a damp cloth in the fridge; eat within 2 days." },
+      "pairings": ["lemon", "chili-pepper", "spring-onion"], "note": "" },
+
+    { "slug": "snapper", "name": "Snapper", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 196, "months": [10,11,12,1,2,3,4], "peak_months": [11,12] },
+        { "ecoregion_id": 203, "months": [5,6,7,8,9,10], "peak_months": [6,7] }
+      ],
+      "tips": { "choose": "Bright pink skin, clear eyes and red gills.",
+                "store": "Coldest part of the fridge; cook within 2 days." },
+      "pairings": ["lemon", "ginger", "coriander", "chili-pepper"], "note": "Australasian snapper (Chrysophrys auratus)." },
+
+    { "slug": "mackerel", "name": "Mackerel", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 22, "months": [8,9,10,11], "peak_months": [9,10] },
+        { "ecoregion_id": 25, "months": [10,11,12,1,2], "peak_months": [10,11] },
+        { "ecoregion_id": 26, "months": [6,7,8,9,10], "peak_months": [7,8,9] }
+      ],
+      "tips": { "choose": "Iridescent, stiff and bright-eyed; it spoils fast, so buy it very fresh.",
+                "store": "Coldest part of the fridge; cook the day you buy it." },
+      "pairings": ["rhubarb", "beetroot", "lemon", "potato"], "note": "" },
+
+    { "slug": "dungeness-crab", "name": "Dungeness crab", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 57, "months": [12,1,2,3,4,5,6,7,8], "peak_months": [12,1] },
+        { "ecoregion_id": 58, "months": [11,12,1,2,3,4,5,6], "peak_months": [11,12,1] }
+      ],
+      "tips": { "choose": "Lively and heavy for its size; cooked crab should smell sweet.",
+                "store": "Cook live crab the day you buy it; cooked crab in the fridge for up to 2 days." },
+      "pairings": ["lemon", "garlic", "chives", "fennel"], "note": "" },
+
+    { "slug": "sockeye-salmon", "name": "Sockeye salmon", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 14, "months": [6,7,8], "peak_months": [7] },
+        { "ecoregion_id": 54, "months": [5,6,7,8], "peak_months": [6,7] },
+        { "ecoregion_id": 56, "months": [7,8,9], "peak_months": [8] }
+      ],
+      "tips": { "choose": "Deep red, firm flesh that springs back; no fishy smell.",
+                "store": "Coldest part of the fridge; cook within 2 days, or freeze." },
+      "pairings": ["dill", "lemon", "potato", "asparagus"], "note": "Wild sockeye runs are short; frozen-at-sea fish is sold all year." },
+
+    { "slug": "southern-rock-lobster", "name": "Southern rock lobster", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 205, "months": [11,12,1,2,3,4], "peak_months": [12,1] },
+        { "ecoregion_id": 206, "months": [10,11,12,1,2,3,4,5], "peak_months": [12,1] }
+      ],
+      "tips": { "choose": "Lively, with a hard shell and a heavy feel for its size.",
+                "store": "Cook the day you buy it; cooked meat in the fridge for up to 2 days." },
+      "pairings": ["lemon", "garlic", "parsley", "avocado"], "note": "Also sold as crayfish." },
+
+    { "slug": "blue-crab", "name": "Blue crab", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 41, "months": [4,5,6,7,8,9,10,11,12], "peak_months": [7,8,9] },
+        { "ecoregion_id": 42, "months": [4,5,6,7,8,9,10,11], "peak_months": [6,7,8] }
+      ],
+      "tips": { "choose": "Lively crabs that feel heavy; soft-shells should be plump and moist.",
+                "store": "Keep live crabs cool and damp, not submerged; cook the same day." },
+      "pairings": ["sweet-corn", "lemon", "potato", "celery"], "note": "" },
+
+    { "slug": "stone-crab", "name": "Stone crab", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 43, "months": [10,11,12,1,2,3,4], "peak_months": [10,11] },
+        { "ecoregion_id": 70, "months": [10,11,12,1,2,3,4], "peak_months": [10,11] }
+      ],
+      "tips": { "choose": "Claws are sold cooked: look for bright shells and firm, sweet-smelling meat.",
+                "store": "In the fridge and eat within 2 days; serve cold." },
+      "pairings": ["lemon", "avocado", "mango"], "note": "Only the claws are taken; the crab is returned to the sea." },
+
+    { "slug": "barramundi", "name": "Barramundi", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 140, "months": [2,3,4,5,6,7,8,9], "peak_months": [3,4,5] },
+        { "ecoregion_id": 142, "months": [2,3,4,5,6,7,8,9,10], "peak_months": [3,4,5] },
+        { "ecoregion_id": 143, "months": [2,3,4,5,6,7,8,9,10], "peak_months": [3,4,5] }
+      ],
+      "tips": { "choose": "Firm, moist, white flesh; whole fish with bright eyes and silver skin.",
+                "store": "Coldest part of the fridge; cook within 2 days." },
+      "pairings": ["lemongrass", "ginger", "chili-pepper", "coriander"], "note": "Farmed barramundi is sold all year." },
+
+    { "slug": "mahi-mahi", "name": "Mahi-mahi", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 70, "months": [4,5,6,7,8,9], "peak_months": [5,6] },
+        { "ecoregion_id": 152, "months": [1,2,3,4,5,6,7,8,9,10,11,12], "peak_months": [3,4,5,9,10,11] }
+      ],
+      "tips": { "choose": "Pinkish, translucent flesh with a bright red bloodline.",
+                "store": "Coldest part of the fridge; cook within 2 days." },
+      "pairings": ["mango", "pineapple", "lemon", "coriander"], "note": "Also sold as dolphinfish or dorado." },
+
+    { "slug": "anchovy", "name": "Anchovy", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 27, "months": [3,4,5,6], "peak_months": [4,5] },
+        { "ecoregion_id": 35, "months": [4,5,6,7,8,9], "peak_months": [5,6] }
+      ],
+      "tips": { "choose": "Shiny, silver and stiff, with bright eyes.",
+                "store": "Coldest part of the fridge; clean and cook or marinate the same day." },
+      "pairings": ["garlic", "parsley", "lemon", "tomato"], "note": "" },
+
+    { "slug": "scallop", "name": "Scallop", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 26, "months": [11,12,1,2,3,4,5], "peak_months": [12,1,2] },
+        { "ecoregion_id": 40, "months": [12,1,2,3,4], "peak_months": [12,1] }
+      ],
+      "tips": { "choose": "Dry-packed, ivory to pinkish, sweet smelling; hand-dived if you can.",
+                "store": "Coldest part of the fridge; cook within a day." },
+      "pairings": ["lemon", "pea", "garlic", "parsley"], "note": "" },
+
+    { "slug": "spot-prawn", "name": "Spot prawn", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 55, "months": [5,6], "peak_months": [5] },
+        { "ecoregion_id": 56, "months": [5,6], "peak_months": [5] }
+      ],
+      "tips": { "choose": "Bought live or frozen at sea; remove the heads soon after buying.",
+                "store": "Cook the day you buy them, or freeze." },
+      "pairings": ["garlic", "lemon", "chili-pepper", "chives"], "note": "A short season of about six to eight weeks." },
+
+    { "slug": "hoki", "name": "Hoki", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 199, "months": [6,7,8,9], "peak_months": [7,8] }
+      ],
+      "tips": { "choose": "Moist, white, delicate fillets with no browning at the edges.",
+                "store": "Coldest part of the fridge; cook within a day." },
+      "pairings": ["potato", "lemon", "parsley"], "note": "The winter spawning fishery." },
+
+    { "slug": "hilsa", "name": "Hilsa", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 108, "months": [7,8,9,10], "peak_months": [8,9] }
+      ],
+      "tips": { "choose": "Bright silver, firm, with clear eyes and red gills.",
+                "store": "Coldest part of the fridge; cook the same day." },
+      "pairings": ["chili-pepper", "ginger", "lemon"], "note": "Fishing is closed during spawning bans; check local rules." },
+
+    { "slug": "pacific-saury", "name": "Pacific saury", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 47, "months": [8,9,10,11], "peak_months": [9,10] },
+        { "ecoregion_id": 48, "months": [8,9,10,11,12], "peak_months": [9,10] }
+      ],
+      "tips": { "choose": "Plump, glossy, with a yellow tip on the jaw and a firm body.",
+                "store": "Coldest part of the fridge; grill the day you buy it." },
+      "pairings": ["lemon", "ginger", "spring-onion"], "note": "Known in Japan as sanma." },
+
+    { "slug": "snoek", "name": "Snoek", "category": "seafood", "kind": "seafood",
+      "regions": [
+        { "ecoregion_id": 191, "months": [4,5,6,7,8], "peak_months": [6,7] },
+        { "ecoregion_id": 192, "months": [4,5,6,7,8], "peak_months": [6,7] }
+      ],
+      "tips": { "choose": "Firm, silver and fresh smelling; it softens quickly once caught.",
+                "store": "Coldest part of the fridge; cook within a day." },
+      "pairings": ["sweet-potato", "lemon", "garlic", "apricot"], "note": "" }
+  ]
+}

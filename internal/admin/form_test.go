@@ -67,6 +67,26 @@ func TestParseNumbers(t *testing.T) {
 	}
 }
 
+// Review Focus 6: an imported tip is stored with "\n" line breaks; the form
+// textarea round-trips it as "\r\n" on Windows. Without normalizing here,
+// re-saving that form with no real edit would show a phantom change.
+func TestTipAndNoteCRLFNormalized(t *testing.T) {
+	v := url.Values{
+		"slug": {"tomato"}, "name": {"Tomato"}, "category": {"vegetable"}, "kind": {"annual"},
+		"storage_months": {"0"},
+		"tip_choose":      {"Line one\r\nLine two"},
+		"tip_store":       {"Store one\r\nStore two"},
+		"note":            {"Note one\r\nNote two"},
+	}
+	ing, ps := parseIngredientForm(v)
+	if len(ps) != 0 {
+		t.Fatalf("problems: %v", ps)
+	}
+	if ing.TipChoose != "Line one\nLine two" || ing.TipStore != "Store one\nStore two" || ing.Note != "Note one\nNote two" {
+		t.Fatalf("ing = %+v", ing)
+	}
+}
+
 func TestRegionsCRLF(t *testing.T) {
 	rs, ps := parseRegions("25: 1,2,3,4 | peak 2,3\r\n30: 10,11\r\n")
 	if len(ps) != 0 || len(rs) != 2 || rs[0].EcoregionID != 25 || rs[1].EcoregionID != 30 ||

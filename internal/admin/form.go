@@ -47,6 +47,14 @@ func parseInt(v url.Values, field string, ps *[]catalog.Problem, slug string) *i
 	return &i
 }
 
+// normalizeText matches how parseRegions treats line breaks: a browser on
+// Windows submits multi-line textarea content as "\r\n", so without this an
+// imported tip (already stored as "\n") would show a phantom change on the
+// very next save of that form.
+func normalizeText(s string) string {
+	return strings.TrimSpace(strings.ReplaceAll(s, "\r\n", "\n"))
+}
+
 func parsePairings(text string) []string {
 	var out []string
 	for _, p := range strings.Split(text, ",") {
@@ -141,8 +149,8 @@ func parseIngredientForm(v url.Values) (catalog.Ingredient, []catalog.Problem) {
 		Slug: slug, Name: strings.TrimSpace(v.Get("name")),
 		Category: catalog.Category(v.Get("category")), Kind: catalog.Kind(v.Get("kind")),
 		Frost:     catalog.Frost(v.Get("frost")),
-		TipChoose: strings.TrimSpace(v.Get("tip_choose")), TipStore: strings.TrimSpace(v.Get("tip_store")),
-		Note: strings.TrimSpace(v.Get("note")), Pairings: parsePairings(v.Get("pairings")),
+		TipChoose: normalizeText(v.Get("tip_choose")), TipStore: normalizeText(v.Get("tip_store")),
+		Note: normalizeText(v.Get("note")), Pairings: parsePairings(v.Get("pairings")),
 	}
 	ing.GrowTempMinC = parseFloat(v, "grow_temp_min_c", &ps, slug)
 	ing.GrowTempMaxC = parseFloat(v, "grow_temp_max_c", &ps, slug)

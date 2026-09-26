@@ -54,6 +54,9 @@ DELETE FROM admin_session WHERE token_hash = @token_hash;
 -- name: DeleteAllSessions :execrows
 DELETE FROM admin_session;
 
+-- name: DeleteOtherSessions :execrows
+DELETE FROM admin_session WHERE token_hash <> @keep;
+
 -- name: InsertEnrollmentToken :exec
 INSERT INTO admin_enrollment_token (token_hash, created_at, expires_at) VALUES (@token_hash, @created_at, @expires_at);
 

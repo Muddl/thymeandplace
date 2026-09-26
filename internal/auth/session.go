@@ -79,6 +79,11 @@ func (s *Service) RevokeAllSessions(ctx context.Context) (int64, error) {
 	return s.q().DeleteAllSessions(ctx)
 }
 
+// RevokeOtherSessions ends every session except keep (the caller's own).
+func (s *Service) RevokeOtherSessions(ctx context.Context, keep Session) (int64, error) {
+	return s.q().DeleteOtherSessions(ctx, keep.TokenHash)
+}
+
 func SetSessionCookie(w http.ResponseWriter, raw string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: CookieName, Value: raw, Path: "/", MaxAge: int(AbsoluteTimeout.Seconds()),

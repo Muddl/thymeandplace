@@ -58,8 +58,27 @@ func TestRemovePasskey(t *testing.T) {
 		t.Fatalf("remove needs re-auth: %d", rec.Code)
 	}
 	key.login(c, "/admin/security/reauth/begin", "/admin/security/reauth/finish")
+
+	// Final review item 6: removing a passkey signs out every other session
+	// (e.g. one started with the removed passkey), but not the current one.
+	other := e.client(t)
+	other.ip = "192.0.2.99"
+	other.get("/admin/login")
+	if rec := key.login(other, "/admin/login/passkey/begin", "/admin/login/passkey/finish"); rec.Code != 200 {
+		t.Fatalf("second session: %d", rec.Code)
+	}
+	if rec := other.get("/admin"); rec.Code != 200 {
+		t.Fatalf("second session not signed in: %d", rec.Code)
+	}
+
 	if rec := c.postForm("/admin/security/passkeys/"+id+"/remove", url.Values{}); rec.Code != 303 {
 		t.Fatalf("remove after reauth: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := c.get("/admin/security"); rec.Code != 200 {
+		t.Fatalf("current session ended by its own passkey removal: %d", rec.Code)
+	}
+	if rec := other.get("/admin"); rec.Code != 303 {
+		t.Fatalf("other session survived a passkey removal: %d", rec.Code)
 	}
 }
 

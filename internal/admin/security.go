@@ -165,6 +165,17 @@ func (a *Admin) removePasskey(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		a.securityWithMessage(w, r, http.StatusBadRequest, "Couldn't remove the passkey.")
 	default:
+		// A removed passkey may be lost or stolen: sign out every other
+		// session, which may have been started with it. requireAuth
+		// guarantees the current session is present.
+		ctx := r.Context()
+		sess, _ := SessionFrom(ctx)
+		if _, err := a.d.Auth.RevokeOtherSessions(ctx, sess); err != nil {
+			a.d.Log.Error("revoke other sessions failed", "err", err, "request_id", web.RequestIDFrom(ctx))
+			a.securityWithMessage(w, r, http.StatusInternalServerError,
+				"The passkey was removed, but other sessions couldn't be signed out. Run admin revoke-sessions on the server.")
+			return
+		}
 		http.Redirect(w, r, "/admin/security", http.StatusSeeOther)
 	}
 }

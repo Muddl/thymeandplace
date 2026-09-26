@@ -91,3 +91,22 @@ func TestSessionCookieAttributes(t *testing.T) {
 		t.Fatalf("cookie = %+v", ck)
 	}
 }
+
+func TestRevokeOtherSessions(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestService(t, true)
+	keepRaw, keep, _ := s.CreateSession(ctx, "passkey")
+	a, _, _ := s.CreateSession(ctx, "passkey")
+	b, _, _ := s.CreateSession(ctx, "backup")
+	if n, err := s.RevokeOtherSessions(ctx, keep); err != nil || n != 2 {
+		t.Fatalf("revoked %d %v", n, err)
+	}
+	if _, ok, _ := s.LookupSession(ctx, keepRaw); !ok {
+		t.Fatal("current session was revoked")
+	}
+	for _, raw := range []string{a, b} {
+		if _, ok, _ := s.LookupSession(ctx, raw); ok {
+			t.Fatal("other session still valid")
+		}
+	}
+}

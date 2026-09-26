@@ -69,6 +69,18 @@ func (q *Queries) DeleteAllSessions(ctx context.Context) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const deleteOtherSessions = `-- name: DeleteOtherSessions :execrows
+DELETE FROM admin_session WHERE token_hash <> $1
+`
+
+func (q *Queries) DeleteOtherSessions(ctx context.Context, keep []byte) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOtherSessions, keep)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deletePasskey = `-- name: DeletePasskey :execrows
 DELETE FROM admin_passkey WHERE credential_id = $1
 `

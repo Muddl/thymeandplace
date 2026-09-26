@@ -9,22 +9,32 @@ calibration score is the judge. Temperatures are **monthly mean** temperatures
 | Kind | Field | Typical range | Notes |
 |---|---|---|---|
 | annual, warm-season (tomato, pepper, squash, basil, beans, corn) | frost | `tender` | |
-| | grow_temp_c | [15–18, 30–32] | lower bound is the key lever |
+| | grow_temp_c | [13–18, 30–32] | lower bound is the key lever; 13–15 lets cool maritime summers (London, Hobart) harvest outdoor tomatoes, squash and beans |
 | | months_to_harvest | 2–4 | from planting (or transplant) to first harvest |
 | annual, cool-season (kale, cabbage, peas, lettuce, spinach, leeks) | frost | `hardy` | |
 | | grow_temp_c | [4–7, 18–22] | upper bound stops summer "bolting" months |
 | | months_to_harvest | 1–4 | |
+| cool-season, summer-picked (pea, broad bean, lettuce, radish) | grow_temp_c | [9, 20–22] | a lower bound above the mildest winters (Hobart's coldest month is 8.5 °C) keeps them from being year-round in maritime climates |
+| cool-season, winter-picked (Brussels sprouts, parsnip) | grow_temp_c | [2, 13] | the window is the picking season, so months_to_harvest is 1; the low upper bound keeps summer out |
 | root/storage crops (potato, onion, carrot, squash) | storage_months | 3–8 | only if typically sold from storage |
-| perennial_fruit, temperate (apple, pear, plum, cherry) | chill_months_min | 3–5 | months with mean < 7 °C |
-| | warmup_temp_c | 9–12 | spring warm-up |
+| perennial_fruit, temperate (apple, pear, plum, cherry) | chill_months_min | 0–1 | months with mean < 7 °C; monthly means undercount chill in mild maritime winters (Hobart has none), so leave this low |
+| | warmup_temp_c | 9–12 | spring warm-up; a climate with no month below it (the tropics, Sydney, Cape Town) never shows the fruit |
 | | months_bloom_to_harvest | 2 (cherry) – 6 (late apple) | |
 | | harvest_span_months | 1–3 | |
-| perennial_fruit, subtropical (citrus, avocado) | frost | `tender` | frost months drop out of the harvest |
+| perennial_fruit, subtropical (citrus, avocado) | frost | `tender` | frost months drop out of the harvest, and the tree winter-kills (not grown at all) where the coldest month's mean minimum is below 0 °C |
 | | chill_months_min | 0 | |
+| | warmup_temp_c | 19.5–20 | a hot-summer threshold; cool-summer climates never reach it |
 | cultivated_year_round | – | – | bananas, button mushrooms, greenhouse staples sold all year |
 | wild_mushroom | fruiting_temp_c | [8–12, 16–20] | |
-| | min_precip_mm | 40–80 | monthly |
+| | min_precip_mm | 40–45 | monthly; 60 or more rules out drier maritime climates such as London |
 | seafood | regions | MEOW ecoregions | months from fisheries guidance, peak where clear |
+
+Winter-kill (controller ruling G, beyond spec §12.3): a `perennial_fruit` with
+`frost: tender` is not grown locally where the coldest month's mean minimum
+temperature is below 0 °C. Exactly 0 °C still counts as survivable. Use
+`tender` only for trees that cannot survive a hard frost (citrus, avocado,
+mango); winter-hardy vines and trees stay `hardy` even when their fruit is
+picked before the first frost.
 
 Known limitation (spec §12.3): a `perennial_fruit` needs one clear month when
 the mean crosses `warmup_temp_c`. In climates that never cross it (the humid
@@ -35,7 +45,7 @@ papaya) should be `cultivated_year_round`.
 
 ```json
 { "slug": "tomato", "name": "Tomato", "category": "vegetable", "kind": "annual",
-  "frost": "tender", "grow_temp_c": [16, 30], "months_to_harvest": 3, "storage_months": 0,
+  "frost": "tender", "grow_temp_c": [14, 30], "months_to_harvest": 2, "storage_months": 0,
   "tips": { "choose": "Heavy for its size, glossy, fragrant at the stem.",
             "store": "Stem-side down at room temperature; refrigerate only when fully ripe." },
   "pairings": ["basil", "garlic"], "note": "" }
@@ -46,7 +56,7 @@ papaya) should be `cultivated_year_round`.
   "pairings": ["garlic", "lemon"], "note": "Sweeter after a frost." }
 
 { "slug": "apple", "name": "Apple", "category": "fruit", "kind": "perennial_fruit",
-  "frost": "hardy", "chill_months_min": 3, "warmup_temp_c": 10, "months_bloom_to_harvest": 5,
+  "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 10, "months_bloom_to_harvest": 5,
   "harvest_span_months": 3, "storage_months": 5,
   "tips": { "choose": "Firm, no soft spots, smells like apple.", "store": "Cold and humid, away from leafy greens." },
   "pairings": ["pork", "cinnamon"], "note": "" }
@@ -56,8 +66,8 @@ papaya) should be `cultivated_year_round`.
   "pairings": [], "note": "" }
 
 { "slug": "chanterelle", "name": "Chanterelle", "category": "mushroom", "kind": "wild_mushroom",
-  "fruiting_temp_c": [10, 18], "min_precip_mm": 60, "storage_months": 0,
-  "tips": { "choose": "Dry, firm, apricot smell; from a seller who can name the forager.",
+  "fruiting_temp_c": [12, 20], "min_precip_mm": 40, "storage_months": 0,
+  "tips": { "choose": "Firm, dry and springy, with clean edges; pass on any that are soggy, slimy or bruised.",
             "store": "Paper bag in the fridge; use within 3 days." },
   "pairings": ["butter", "thyme"], "note": "" }
 ```
@@ -126,12 +136,21 @@ a near-duplicate ingredient.
 - Subtropical fruit that needs a hot summer (citrus, `avocado`, `mango`,
   `pomegranate`) uses a high `warmup_temp_c` (19.5–20). Cool-summer climates
   never reach it, so these fruit do not show where they cannot ripen; the
-  bloom-to-harvest offset is counted from that later month.
-- `grape` and `kiwifruit` are `tender` so that a harvest does not appear in
-  frost months in short-summer climates.
+  bloom-to-harvest offset is counted from that later month. They are also
+  `tender`, so the winter-kill rule keeps them out of hard-winter climates
+  (New York, Toronto, Chicago, Beijing). `globe-artichoke` is `tender` for
+  the same reason.
+- `grape` and `kiwifruit` are `hardy` (the vines survive hard winters). Their
+  harvest windows come from the warm-up month (11.5 °C and 13 °C). With no
+  chill requirement they can also show in cold-winter climates such as Oslo,
+  which the calibration fixtures should catch.
+- Temperate fruit, berries, `asparagus` and `rhubarb` need no chill months:
+  their `warmup_temp_c` (9–11.5 °C) keeps them out of climates whose coldest
+  month never drops below it.
 - Perennial herbs (thyme, rosemary, sage, oregano, mint) are modelled as
   `annual`: they are picked whenever the plant is growing.
-- The rules are temperature-only, so spring and autumn with the same mean
-  look alike. Wild mushrooms (`morel` especially) and overwintered crops
-  (`broad-bean`, `brussels-sprouts`) can show in the "wrong" shoulder
-  season; tune them against the calibration fixtures.
+- The rules use temperature only, so spring and autumn with the same mean
+  look alike. `morel` shows in spring and again in autumn. `chanterelle` and
+  `porcini` start in late spring as well as autumn (London: chanterelle
+  May–Oct, porcini May–Jun and Sep–Nov). Tune them against the calibration
+  fixtures.

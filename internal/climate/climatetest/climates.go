@@ -76,11 +76,36 @@ func Mediterranean() climate.MonthlyNormals {
 	return cosine(17, 7, 7, 10, [12]float64{100, 90, 70, 40, 20, 5, 1, 2, 20, 60, 90, 110})
 }
 
+// Continental is a hot-summer, hard-winter climate like New York: the
+// coldest month's tmin is -4.5 °C, so tender perennials winter-kill.
+func Continental() climate.MonthlyNormals {
+	return FromMeans(
+		[12]float64{0.5, 2, 6, 12, 17, 22, 25, 24.5, 21, 14.5, 9, 3.5}, 9, even(100),
+	)
+}
+
+// MaritimeNorth is a mild, cool-summer maritime climate like London.
+func MaritimeNorth() climate.MonthlyNormals {
+	return FromMeans(
+		[12]float64{5, 5.5, 7.5, 10, 13, 16, 18.5, 18, 15.5, 12, 8, 5.5}, 8,
+		[12]float64{55, 41, 41, 43, 47, 45, 45, 50, 49, 69, 59, 55},
+	)
+}
+
+// MaritimeSouth is a mild southern-hemisphere maritime climate like Hobart:
+// no month has a mean below 7 °C.
+func MaritimeSouth() climate.MonthlyNormals {
+	return FromMeans(
+		[12]float64{17, 17, 16, 13, 11, 9, 8.5, 9, 11, 13, 14, 16}, 9, even(50),
+	)
+}
+
 // All returns every named synthetic climate. Each is unimodal, so rotation
 // properties hold for them.
 func All() map[string]climate.MonthlyNormals {
 	return map[string]climate.MonthlyNormals{
 		"tropical": Tropical(), "temperate-north": TemperateNorth(), "temperate-south": TemperateSouth(),
 		"alpine": Alpine(), "polar": Polar(), "mediterranean": Mediterranean(), "temperate": Temperate(),
+		"continental": Continental(), "maritime-north": MaritimeNorth(), "maritime-south": MaritimeSouth(),
 	}
 }

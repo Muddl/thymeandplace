@@ -105,7 +105,7 @@ func TestAdminMountedWithCatalogDeps(t *testing.T) {
 	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	cfg, err := loadConfig(func(k string) string {
 		return map[string]string{"DATABASE_URL": pool.Config().ConnString(), "ADMIN_SECRET_KEY": key}[k]
-	})
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,18 +218,19 @@ func TestWaitForSnapshotRetries(t *testing.T) {
 }
 
 func TestLoadConfig(t *testing.T) {
-	if _, err := loadConfig(func(string) string { return "" }); err == nil {
+	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if _, err := loadConfig(func(string) string { return "" }, discard); err == nil {
 		t.Fatal("DATABASE_URL is required")
 	}
 	c, err := loadConfig(func(k string) string {
 		return map[string]string{"DATABASE_URL": "postgres://x", "TRUST_PROXY_HEADERS": "true"}[k]
-	})
+	}, discard)
 	if err != nil || c.Addr != ":8080" || !c.TrustProxy {
 		t.Fatalf("%+v %v", c, err)
 	}
 	if _, err := loadConfig(func(k string) string {
 		return map[string]string{"DATABASE_URL": "postgres://x", "ADMIN_SECRET_KEY": "c2hvcnQ="}[k]
-	}); err == nil {
+	}, discard); err == nil {
 		t.Fatal("a short ADMIN_SECRET_KEY must be rejected")
 	}
 
@@ -243,9 +244,56 @@ func TestLoadConfig(t *testing.T) {
 	} {
 		c, err := loadConfig(func(k string) string {
 			return map[string]string{"DATABASE_URL": "postgres://x", "ADMIN_RP_ID": tc.rpID, "ADMIN_ORIGIN": tc.origin}[k]
-		})
+		}, discard)
 		if err != nil || c.AdminOrigin != tc.want {
 			t.Fatalf("rp=%q origin=%q: AdminOrigin=%q want %q (%v)", tc.rpID, tc.origin, c.AdminOrigin, tc.want, err)
 		}
+	}
+}
+
+// TestLoadConfigPublicToday covers Ruling F: TP_PUBLIC_TODAY pins config.now
+// (which feeds web.Deps.Now, the public site's clock) to a fixed calendar
+// date while keeping the real time of day, an invalid value is a startup
+// error, and leaving it unset leaves config.now nil (time.Now, the
+// production default).
+func TestLoadConfigPublicToday(t *testing.T) {
+	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	c, err := loadConfig(func(k string) string {
+		return map[string]string{"DATABASE_URL": "postgres://x"}[k]
+	}, discard)
+	if err != nil || c.now != nil {
+		t.Fatalf("no TP_PUBLIC_TODAY: now should stay nil (err=%v, now set=%v)", err, c.now != nil)
+	}
+
+	c, err = loadConfig(func(k string) string {
+		return map[string]string{"DATABASE_URL": "postgres://x", "TP_PUBLIC_TODAY": "2026-05-15"}[k]
+	}, discard)
+	if err != nil {
+		t.Fatalf("valid TP_PUBLIC_TODAY: %v", err)
+	}
+	if c.now == nil {
+		t.Fatal("TP_PUBLIC_TODAY set but config.now is still nil")
+	}
+	got := c.now()
+	if y, m, d := got.Date(); y != 2026 || m != time.May || d != 15 {
+		t.Fatalf("now() = %v, want 2026-05-15 (with the real time of day)", got)
+	}
+	if got.Location() != time.UTC {
+		t.Fatalf("now() must be UTC, got %v", got.Location())
+	}
+	// The time of day tracks the real clock (not frozen at midnight): it
+	// must be within a minute of time.Now().UTC()'s time of day.
+	nowUTC := time.Now().UTC()
+	real := time.Duration(nowUTC.Hour())*time.Hour + time.Duration(nowUTC.Minute())*time.Minute
+	pinned := time.Duration(got.Hour())*time.Hour + time.Duration(got.Minute())*time.Minute
+	if diff := real - pinned; diff < -time.Minute || diff > time.Minute {
+		t.Fatalf("now() time-of-day = %v, want close to real %v", pinned, real)
+	}
+
+	if _, err := loadConfig(func(k string) string {
+		return map[string]string{"DATABASE_URL": "postgres://x", "TP_PUBLIC_TODAY": "not-a-date"}[k]
+	}, discard); err == nil {
+		t.Fatal("an invalid TP_PUBLIC_TODAY must be a startup error")
 	}
 }

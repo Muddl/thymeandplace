@@ -40,7 +40,7 @@ type config struct {
 	now func() time.Time // server clock for the public site; nil → time.Now (tests pin it)
 }
 
-func loadConfig(getenv func(string) string) (config, error) {
+func loadConfig(getenv func(string) string, log *slog.Logger) (config, error) {
 	c := config{DatabaseURL: getenv("DATABASE_URL"), Addr: getenv("ADDR"), TrustProxy: getenv("TRUST_PROXY_HEADERS") == "true"}
 	if c.Addr == "" {
 		c.Addr = ":8080"
@@ -66,6 +66,21 @@ func loadConfig(getenv func(string) string) (config, error) {
 	// origin (nor the enrollment links built from it).
 	c.AdminOrigin = strings.TrimRight(c.AdminOrigin, "/")
 	c.AdminBackup = getenv("ADMIN_BACKUP_LOGIN") != "off"
+	// TP_PUBLIC_TODAY pins the public site's "today" to a fixed calendar
+	// date, keeping the current time of day. Test use only (e2e needs a
+	// specific month, e.g. one where an edit crosses a season boundary),
+	// never set in production.
+	if v := getenv("TP_PUBLIC_TODAY"); v != "" {
+		d, err := time.Parse("2006-01-02", v)
+		if err != nil {
+			return c, fmt.Errorf("TP_PUBLIC_TODAY: %w", err)
+		}
+		log.Warn("TP_PUBLIC_TODAY is set; the public site's month is pinned — test use only")
+		c.now = func() time.Time {
+			now := time.Now().UTC()
+			return time.Date(d.Year(), d.Month(), d.Day(), now.Hour(), now.Minute(), now.Second(), now.Nanosecond(), time.UTC)
+		}
+	}
 	return c, nil
 }
 

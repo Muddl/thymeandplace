@@ -24,7 +24,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cfg, err := loadConfig(os.Getenv)
+	cfg, err := loadConfig(os.Getenv, log)
 	if err != nil {
 		log.Error("config", "err", err)
 		os.Exit(1)

@@ -3,6 +3,7 @@ package admin
 import (
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 
 	"thymeandplace/internal/catalog"
@@ -38,7 +39,7 @@ func TestParseAnnual(t *testing.T) {
 // Review Focus 2.
 func TestParseNumbers(t *testing.T) {
 	base := url.Values{"slug": {"x"}, "name": {"X"}, "category": {"vegetable"}, "kind": {"annual"}, "storage_months": {""}}
-	for _, bad := range []string{"abc", "1e400", "NaN", "Inf"} {
+	for _, bad := range []string{"abc", "1e400", "NaN", "Inf", "-Inf"} {
 		v := cloneValues(base)
 		v.Set("grow_temp_min_c", bad)
 		if _, ps := parseIngredientForm(v); !hasField(ps, "grow_temp_min_c") {
@@ -55,6 +56,29 @@ func TestParseNumbers(t *testing.T) {
 	ing, ps := parseIngredientForm(v)
 	if len(ps) != 0 || ing.GrowTempMinC == nil || *ing.GrowTempMinC != 0 || ing.GrowTempMaxC != nil || ing.StorageMonths != 0 {
 		t.Fatalf("zero/blank handling: %+v %v", ing, ps)
+	}
+	// Ruling: a whitespace-only numeric field is treated the same as blank
+	// (unset), not as a parse error.
+	v = cloneValues(base)
+	v.Set("grow_temp_min_c", "   ")
+	ing, ps = parseIngredientForm(v)
+	if len(ps) != 0 || ing.GrowTempMinC != nil {
+		t.Fatalf("whitespace-only field not treated as blank: %+v %v", ing, ps)
+	}
+}
+
+func TestRegionsCRLF(t *testing.T) {
+	rs, ps := parseRegions("25: 1,2,3,4 | peak 2,3\r\n30: 10,11\r\n")
+	if len(ps) != 0 || len(rs) != 2 || rs[0].EcoregionID != 25 || rs[1].EcoregionID != 30 ||
+		!reflect.DeepEqual(rs[1].Months, []int{10, 11}) {
+		t.Fatalf("rs=%+v ps=%v", rs, ps)
+	}
+}
+
+func TestRegionsOversizedEcoregionID(t *testing.T) {
+	_, ps := parseRegions(strings.Repeat("9", 40) + ": 1,2")
+	if !hasField(ps, "regions[0].months") {
+		t.Fatal("40-digit ecoregion ID accepted")
 	}
 }
 

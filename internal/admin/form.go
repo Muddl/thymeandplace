@@ -79,7 +79,7 @@ func parseRegions(text string) ([]catalog.SeafoodRegion, []catalog.Problem) {
 	var rs []catalog.SeafoodRegion
 	var ps []catalog.Problem
 	i := 0
-	for _, line := range strings.Split(text, "\n") {
+	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -87,10 +87,14 @@ func parseRegions(text string) ([]catalog.SeafoodRegion, []catalog.Problem) {
 		i++
 		m := regionLine.FindStringSubmatch(line)
 		if m == nil {
-			ps = append(ps, catalog.Problem{Field: field, Message: fmt.Sprintf("%q should look like \"25: 1,2,3 | peak 2\"", strings.TrimSpace(line))})
+			ps = append(ps, regionSyntaxProblem(field, line))
 			continue
 		}
-		id, _ := strconv.Atoi(m[1])
+		id, err := strconv.Atoi(m[1])
+		if err != nil || id < 1 || id > math.MaxInt32 {
+			ps = append(ps, regionSyntaxProblem(field, line))
+			continue
+		}
 		months, err1 := parseMonths(m[2])
 		peak, err2 := parseMonths(m[3])
 		if err1 != nil || err2 != nil {
@@ -100,6 +104,13 @@ func parseRegions(text string) ([]catalog.SeafoodRegion, []catalog.Problem) {
 		rs = append(rs, catalog.SeafoodRegion{EcoregionID: ocean.EcoregionID(id), Months: months, PeakMonths: peak})
 	}
 	return rs, ps
+}
+
+// regionSyntaxProblem reports a region line that doesn't parse as a
+// "25: 1,2,3 | peak 2" line, including an ecoregion ID that is missing,
+// non-numeric, or out of int32 range.
+func regionSyntaxProblem(field, line string) catalog.Problem {
+	return catalog.Problem{Field: field, Message: fmt.Sprintf("%q should look like \"25: 1,2,3 | peak 2\"", strings.TrimSpace(line))}
 }
 
 func joinInts(xs []int) string {

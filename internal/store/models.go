@@ -143,6 +143,50 @@ func (ns NullIngredientKind) Value() (driver.Value, error) {
 	return string(ns.IngredientKind), nil
 }
 
+type AdminBackup struct {
+	ID            bool
+	PasswordHash  string
+	TotpSecretEnc []byte
+	LastTotpStep  int64
+	FailedCount   int32
+	LockLevel     int32
+	LockedUntil   pgtype.Timestamptz
+}
+
+type AdminEnrollmentToken struct {
+	TokenHash []byte
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+	UsedAt    pgtype.Timestamptz
+}
+
+type AdminLoginLog struct {
+	ID      int64
+	At      pgtype.Timestamptz
+	Ip      string
+	Method  string
+	Outcome string
+}
+
+type AdminPasskey struct {
+	CredentialID []byte
+	PublicKey    []byte
+	SignCount    int64
+	Credential   []byte
+	Name         string
+	CreatedAt    pgtype.Timestamptz
+	LastUsedAt   pgtype.Timestamptz
+}
+
+type AdminSession struct {
+	TokenHash  []byte
+	CsrfToken  string
+	Method     string
+	CreatedAt  pgtype.Timestamptz
+	LastSeenAt pgtype.Timestamptz
+	AuthAt     pgtype.Timestamptz
+}
+
 type CalibrationRun struct {
 	ID          int64
 	RanAt       pgtype.Timestamptz

@@ -9,7 +9,8 @@ export MSYS_NO_PATHCONV=1
 C="docker compose -f ../deploy/compose.yaml -f ../deploy/compose.e2e.yaml"
 # compose.e2e.yaml names the project thymeandplace-e2e, so this down -v only
 # ever removes thymeandplace-e2e_* volumes, never production's thymeandplace_*.
-trap '$C down -v >/dev/null 2>&1 || true' EXIT
+# --profile tools makes it remove the ingest_work volume the devseed run creates.
+trap '$C --profile tools down -v >/dev/null 2>&1 || true' EXIT
 $C build
 $C up -d --wait db app caddy
 $C --profile tools run --rm --entrypoint /app/devseed ingest

@@ -18,7 +18,9 @@ scratch_url=$(echo "$DATABASE_URL" | sed -E "s#/[^/?]+(\?|$)#/$scratch_db\1#")
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qc "DROP DATABASE IF EXISTS $scratch_db WITH (FORCE)" -c "CREATE DATABASE $scratch_db"
 trap 'psql "$DATABASE_URL" -qc "DROP DATABASE IF EXISTS '"$scratch_db"' WITH (FORCE)" >/dev/null 2>&1 || true' EXIT
-restore.sh "backups/daily/$latest" "$scratch_url"
+# restore.sh refuses to run without RESTORE_CONFIRM naming the target
+# database; we own the scratch database here, so confirm it ourselves.
+RESTORE_CONFIRM="$scratch_db" restore.sh "backups/daily/$latest" "$scratch_url"
 
 status=0
 for t in ingredient ingredient_pairing seafood_region catalog_history dataset_versions admin_passkey admin_backup climate_cell ocean_ecoregion place; do

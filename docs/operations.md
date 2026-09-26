@@ -108,23 +108,26 @@ docker compose --profile tools run --rm --entrypoint restore-test.sh backup
 
 ### Verifying locally before relying on it
 
-The scripts were exercised end to end against a local MinIO container standing in for the production bucket, using the e2e stack seeded via `devseed` (which itself refuses to run without `DEVSEED_ALLOW=1` — dev/e2e only, never set in production):
+The scripts were exercised end to end against a local S3-compatible container standing in for the production bucket, using the e2e stack seeded via `devseed` (which itself refuses to run without `DEVSEED_ALLOW=1` — dev/e2e only, never set in production).
+
+`minio/minio` and `minio/mc` are both pull-access-denied on Docker Hub and Quay as of this writing (MinIO gated them behind their commercial subscription), so this recipe uses `zenko/cloudserver` — a freely-pullable S3-compatible server — as the bucket stand-in, and drives it with the `mc` already baked into the `backup` image itself (sha256-pinned in `deploy/backup/Dockerfile`) instead of pulling a second `minio/mc` image. The commands below were run as written, in this order, in a Git Bash shell:
 
 ```bash
 docker network create tp-backup-test
 docker run -d --rm --name tp-minio --network tp-backup-test \
-  -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio12345 minio/minio server /data
+  -e ENDPOINT=tp-minio -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver:latest
 
 cd deploy && export TP_ENV_FILE=./e2e.env
 C="docker compose -f compose.yaml -f compose.e2e.yaml"
 $C up -d --build --wait db app
-$C --profile tools run --rm --entrypoint /app/devseed ingest
+MSYS_NO_PATHCONV=1 $C --profile tools run --rm --entrypoint /app/devseed ingest
 docker network connect tp-backup-test "$($C ps -q db)"
-docker run --rm --network tp-backup-test --entrypoint sh minio/mc -c \
-  "mc alias set m http://tp-minio:9000 minio minio12345 && mc mb m/tp-backups"
 
-BK="-e BUCKET_ENDPOINT=tp-minio:9000 -e BUCKET_NAME=tp-backups -e BUCKET_ACCESS_KEY=minio -e BUCKET_SECRET_KEY=minio12345 -e BUCKET_USE_SSL=false"
 $C --profile tools build backup
+docker run --rm --network tp-backup-test --entrypoint sh thymeandplace-backup:latest -c \
+  "mc alias set m http://tp-minio:8000 accessKey1 verySecretKey1 && mc mb m/tp-backups"
+
+BK="-e BUCKET_ENDPOINT=tp-minio:8000 -e BUCKET_NAME=tp-backups -e BUCKET_ACCESS_KEY=accessKey1 -e BUCKET_SECRET_KEY=verySecretKey1 -e BUCKET_USE_SSL=false"
 docker run --rm --network tp-backup-test --env-file e2e.env $BK \
   -e DATABASE_URL="postgres://tp:tp-e2e-only@$($C ps -q db | cut -c1-12):5432/thymeandplace?sslmode=disable" \
   thymeandplace-backup:latest
@@ -135,14 +138,16 @@ docker run --rm --network tp-backup-test --env-file e2e.env $BK \
 $C down -v; docker rm -f tp-minio; docker network rm tp-backup-test
 ```
 
-Expected output: `backup ok: backups/daily/<date>.dump`, then a table of equal `live=`/`restored=` counts per table, then `restore-test ok (<date>.dump)`.
+Expected output: `backup ok: backups/daily/<date>.dump`, then a table of equal `live=`/`restored=` counts per table, then `restore-test ok (<date>.dump)`. `accessKey1`/`verySecretKey1` are `zenko/cloudserver`'s built-in defaults, used only for this throwaway local container — never real credentials.
 
 **Windows / Git Bash note:** Git Bash rewrites a leading `/` in arguments as a Windows path, which breaks `--entrypoint /app/devseed` and similar. Prefix those commands with `MSYS_NO_PATHCONV=1`, e.g. `MSYS_NO_PATHCONV=1 $C --profile tools run --rm --entrypoint /app/devseed ingest`.
 
 ## Restoring from backup
 
+`restore.sh` refuses to run unless `RESTORE_CONFIRM` is set to the exact database name parsed out of the target URL (the last path segment before any `?params`) — this stops a stale or copy-pasted `DATABASE_URL` from silently overwriting the wrong database, since `pg_restore --clean` drops every object in the target first.
+
 1. `docker compose stop app`
-2. `docker compose --profile tools run --rm --entrypoint restore.sh backup backups/daily/<date>.dump "$DATABASE_URL"`
+2. `docker compose --profile tools run --rm -e RESTORE_CONFIRM=thymeandplace --entrypoint restore.sh backup backups/daily/<date>.dump "$DATABASE_URL"` (`thymeandplace` is `POSTGRES_DB` from `app.env`; if it refuses with "refusing to restore over ...", check that the name after `-e RESTORE_CONFIRM=` matches the database name in `$DATABASE_URL` exactly).
 3. `docker compose start app`
 
 ## Reverse proxy trust and logging

@@ -95,7 +95,9 @@ func (s *Service) BackupLogin(ctx context.Context, password, code string) error 
 			d = LockoutMax
 		}
 		until = ts(now.Add(d))
-		level++
+		if d < LockoutMax {
+			level++
+		}
 		failed = 0
 	}
 	if err := q.UpdateBackupState(ctx, store.UpdateBackupStateParams{

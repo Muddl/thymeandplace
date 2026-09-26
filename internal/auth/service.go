@@ -54,6 +54,9 @@ func NewService(pool *pgxpool.Pool, cfg Config) (*Service, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.Log == nil {
+		cfg.Log = slog.Default()
+	}
 	return &Service{pool: pool, wa: wa, sealer: sealer, backup: cfg.BackupEnabled, now: cfg.Now, log: cfg.Log}, nil
 }
 

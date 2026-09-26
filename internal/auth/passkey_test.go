@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -27,30 +28,47 @@ func newDevice() *device {
 	}
 }
 
-// register drives a full registration ceremony against s. It returns any
-// error from BeginRegistration, parsing the options, or FinishRegistration
-// instead of calling t.Fatal, so it is safe to call from a goroutine (e.g.
-// from a concurrency test) as well as from the main test body.
-func (d *device) register(t *testing.T, s *Service, name, token string) error {
-	t.Helper()
-	ctx := context.Background()
-	opts, state, err := s.BeginRegistration(ctx)
-	if err != nil {
-		return err
-	}
+// create completes a registration ceremony whose options came from a Begin*
+// call, finishing it with finish. It returns errors instead of calling
+// t.Fatal, so it is safe to call from a goroutine (e.g. from a concurrency
+// test) as well as from the main test body.
+func (d *device) create(opts []byte, finish func(r *http.Request) error) error {
 	ao, err := virtualwebauthn.ParseAttestationOptions(string(opts))
 	if err != nil {
 		return err
 	}
 	body := virtualwebauthn.CreateAttestationResponse(d.rp, d.auth, d.cred, *ao)
-	err = s.FinishRegistration(ctx, state, httptest.NewRequest("POST", "/", bytes.NewBufferString(body)), name, token)
+	err = finish(httptest.NewRequest("POST", "/", bytes.NewBufferString(body)))
 	if err == nil {
 		d.auth.AddCredential(d.cred)
 	}
 	return err
 }
 
-// login drives a full login ceremony against s. Like register, it returns
+// enroll registers d through an enrollment link (BeginEnrollment and
+// FinishEnrollment with the same token).
+func (d *device) enroll(t *testing.T, s *Service, name, token string) error {
+	t.Helper()
+	ctx := context.Background()
+	opts, state, err := s.BeginEnrollment(ctx, token)
+	if err != nil {
+		return err
+	}
+	return d.create(opts, func(r *http.Request) error { return s.FinishEnrollment(ctx, state, r, name, token) })
+}
+
+// add registers d as the signed-in owner (BeginRegistration and AddPasskey).
+func (d *device) add(t *testing.T, s *Service, name string) error {
+	t.Helper()
+	ctx := context.Background()
+	opts, state, err := s.BeginRegistration(ctx)
+	if err != nil {
+		return err
+	}
+	return d.create(opts, func(r *http.Request) error { return s.AddPasskey(ctx, state, r, name) })
+}
+
+// login drives a full login ceremony against s. Like create, it returns
 // errors rather than calling t.Fatal so it is goroutine-safe.
 func (d *device) login(t *testing.T, s *Service) error {
 	t.Helper()
@@ -78,7 +96,7 @@ func TestEnrollRegisterLogin(t *testing.T) {
 		t.Fatalf("token: %v %v", exp, err)
 	}
 	phone := newDevice()
-	if err := phone.register(t, s, "Phone", tok); err != nil {
+	if err := phone.enroll(t, s, "Phone", tok); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	if ok, _ := s.EnrollmentValid(ctx, tok); ok {
@@ -113,7 +131,7 @@ func TestEnrollmentTokenExpiryAndReuse(t *testing.T) {
 	if ok, _ := s.EnrollmentValid(ctx, tok); ok {
 		t.Fatal("expired token valid")
 	}
-	if err := newDevice().register(t, s, "Late", tok); !errors.Is(err, ErrBadEnrollment) {
+	if err := newDevice().enroll(t, s, "Late", tok); !errors.Is(err, ErrBadEnrollment) {
 		t.Fatalf("expired token registered: %v", err)
 	}
 }
@@ -126,7 +144,7 @@ func TestRenameRemoveAndLastPasskeyGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := newDevice()
-	if err := a.register(t, s, "Phone", tok); err != nil {
+	if err := a.enroll(t, s, "Phone", tok); err != nil {
 		t.Fatal(err)
 	}
 	pks, err := s.Passkeys(ctx)
@@ -140,7 +158,7 @@ func TestRenameRemoveAndLastPasskeyGuard(t *testing.T) {
 		t.Fatalf("removed the only passkey: %v", err)
 	}
 	b := newDevice()
-	if err := b.register(t, s, "Key", ""); err != nil { // signed-in add: no token
+	if err := b.add(t, s, "Key"); err != nil { // signed-in add: no token
 		t.Fatal(err)
 	}
 	if err := s.RenamePasskey(ctx, pks[0].ID, "Old phone"); err != nil {
@@ -165,7 +183,7 @@ func TestStateTampering(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := newDevice()
-	if err := d.register(t, s, "Phone", tok); err != nil {
+	if err := d.enroll(t, s, "Phone", tok); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.FinishLogin(ctx, "not-a-sealed-state", httptest.NewRequest("POST", "/", bytes.NewBufferString("{}"))); !errors.Is(err, ErrCeremony) {
@@ -179,7 +197,7 @@ func TestStateTampering(t *testing.T) {
 // enough shared shape (both carry a Challenge and UserID; only registration
 // lacks AllowedCredentialIDs, which some login paths treat permissively)
 // that FinishLogin could accept a registration state, and nothing at all
-// stopped a login state from reaching FinishRegistration.
+// stopped a login state from reaching a registration finish.
 func TestCeremonyStateBoundToKind(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newTestService(t, true)
@@ -188,18 +206,26 @@ func TestCeremonyStateBoundToKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := newDevice()
-	if err := d.register(t, s, "Phone", tok); err != nil {
+	if err := d.enroll(t, s, "Phone", tok); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Run("login state rejected by FinishRegistration", func(t *testing.T) {
+	t.Run("login state rejected by AddPasskey and FinishEnrollment", func(t *testing.T) {
 		_, loginState, err := s.BeginLogin(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = s.FinishRegistration(ctx, loginState, httptest.NewRequest("POST", "/", bytes.NewBufferString("{}")), "Impostor", "")
+		err = s.AddPasskey(ctx, loginState, httptest.NewRequest("POST", "/", bytes.NewBufferString("{}")), "Impostor")
 		if !errors.Is(err, ErrCeremony) {
-			t.Fatalf("login state accepted by FinishRegistration: %v", err)
+			t.Fatalf("login state accepted by AddPasskey: %v", err)
+		}
+		tok2, _, err := s.CreateEnrollmentToken(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = s.FinishEnrollment(ctx, loginState, httptest.NewRequest("POST", "/", bytes.NewBufferString("{}")), "Impostor", tok2)
+		if !errors.Is(err, ErrCeremony) {
+			t.Fatalf("login state accepted by FinishEnrollment: %v", err)
 		}
 	})
 
@@ -229,7 +255,7 @@ func TestCeremonyStateBoundToKind(t *testing.T) {
 	})
 }
 
-// TestFinishRegistrationDuplicateCredential exercises the pgconn
+// TestAddPasskeyDuplicateCredential exercises the pgconn
 // unique-violation mapping: go-webauthn's FinishRegistration never re-checks
 // the response's credential ID against the exclusion list BeginRegistration
 // sent (that is enforced only by the client), and virtualwebauthn does not
@@ -237,7 +263,7 @@ func TestCeremonyStateBoundToKind(t *testing.T) {
 // second, otherwise-valid attestation for a credential_id that already
 // exists. The resulting primary-key violation must surface as ErrCeremony,
 // not a raw pgconn error.
-func TestFinishRegistrationDuplicateCredential(t *testing.T) {
+func TestAddPasskeyDuplicateCredential(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newTestService(t, true)
 	tok, _, err := s.CreateEnrollmentToken(ctx)
@@ -245,31 +271,40 @@ func TestFinishRegistrationDuplicateCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := newDevice()
-	if err := d.register(t, s, "Phone", tok); err != nil {
+	if err := d.enroll(t, s, "Phone", tok); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.register(t, s, "Phone again", ""); !errors.Is(err, ErrCeremony) {
+	if err := d.add(t, s, "Phone again"); !errors.Is(err, ErrCeremony) {
 		t.Fatalf("duplicate credential: %v", err)
 	}
 }
 
-// TestFinishRegistrationConsumedTokenRejected drives a real, full
-// registration ceremony with a token that a prior full ceremony already
-// consumed, rather than only asserting EnrollmentValid's return value.
-func TestFinishRegistrationConsumedTokenRejected(t *testing.T) {
+// TestFinishEnrollmentConsumedTokenRejected drives a real, full enrollment
+// ceremony with a token that a prior full ceremony already consumed, rather
+// than only asserting EnrollmentValid's return value: both ceremonies begin
+// while the token is still valid, and only the first finish may use it.
+func TestFinishEnrollmentConsumedTokenRejected(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newTestService(t, true)
 	tok, _, err := s.CreateEnrollmentToken(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
+	opts2, state2, err := s.BeginEnrollment(ctx, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
 	first := newDevice()
-	if err := first.register(t, s, "First", tok); err != nil {
+	if err := first.enroll(t, s, "First", tok); err != nil {
 		t.Fatal(err)
 	}
 	second := newDevice()
-	if err := second.register(t, s, "Second", tok); !errors.Is(err, ErrBadEnrollment) {
+	err = second.create(opts2, func(r *http.Request) error { return s.FinishEnrollment(ctx, state2, r, "Second", tok) })
+	if !errors.Is(err, ErrBadEnrollment) {
 		t.Fatalf("consumed token accepted: %v", err)
+	}
+	if _, _, err := s.BeginEnrollment(ctx, tok); !errors.Is(err, ErrBadEnrollment) {
+		t.Fatalf("BeginEnrollment with a consumed token: %v", err)
 	}
 	pks, err := s.Passkeys(ctx)
 	if err != nil {
@@ -292,7 +327,7 @@ func TestBeginRegistrationExcludesExistingCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := newDevice()
-	if err := d.register(t, s, "Phone", tok); err != nil {
+	if err := d.enroll(t, s, "Phone", tok); err != nil {
 		t.Fatal(err)
 	}
 
@@ -329,11 +364,11 @@ func TestRemovePasskeyConcurrentRace(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := newDevice()
-	if err := a.register(t, s, "A", tokA); err != nil {
+	if err := a.enroll(t, s, "A", tokA); err != nil {
 		t.Fatal(err)
 	}
 	b := newDevice()
-	if err := b.register(t, s, "B", ""); err != nil {
+	if err := b.add(t, s, "B"); err != nil {
 		t.Fatal(err)
 	}
 	pks, err := s.Passkeys(ctx)
@@ -381,8 +416,8 @@ func TestRemovePasskeyConcurrentRace(t *testing.T) {
 }
 
 // TestEnrollmentTokenConcurrentRegistrationRace guards against a token being
-// consumed by two racing FinishRegistration calls: at most one should
-// succeed, and the other must see ErrBadEnrollment. register() reports
+// consumed by two racing FinishEnrollment calls: at most one should
+// succeed, and the other must see ErrBadEnrollment. enroll() reports
 // failures via its return value rather than t.Fatal, so it is safe to call
 // from these goroutines.
 func TestEnrollmentTokenConcurrentRegistrationRace(t *testing.T) {
@@ -401,11 +436,11 @@ func TestEnrollmentTokenConcurrentRegistrationRace(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		errs[0] = da.register(t, s, "A", tok)
+		errs[0] = da.enroll(t, s, "A", tok)
 	}()
 	go func() {
 		defer wg.Done()
-		errs[1] = db.register(t, s, "B", tok)
+		errs[1] = db.enroll(t, s, "B", tok)
 	}()
 	wg.Wait()
 
@@ -430,5 +465,72 @@ func TestEnrollmentTokenConcurrentRegistrationRace(t *testing.T) {
 	}
 	if len(pks) != 1 {
 		t.Fatalf("want exactly 1 passkey registered, got %d", len(pks))
+	}
+}
+
+// TestFinishEnrollmentBindsToken is the regression test for the final-review
+// finding where an enrollment finish without a token (the old "signed-in
+// owner" sentinel) registered a passkey from an enrollment state without
+// consuming the token. Every attempt below carries an otherwise-valid
+// attestation, so only the token and ceremony-kind checks can reject it.
+func TestFinishEnrollmentBindsToken(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestService(t, true)
+	tok, _, err := s.CreateEnrollmentToken(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, err := s.CreateEnrollmentToken(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishEnroll := func(state, token string) func(*http.Request) error {
+		return func(r *http.Request) error { return s.FinishEnrollment(ctx, state, r, "Intruder", token) }
+	}
+
+	opts, state, err := s.BeginEnrollment(ctx, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := newDevice().create(opts, finishEnroll(state, "")); !errors.Is(err, ErrBadEnrollment) {
+		t.Fatalf("enroll finish with no token: %v", err)
+	}
+	if err := newDevice().create(opts, finishEnroll(state, other)); !errors.Is(err, ErrBadEnrollment) {
+		t.Fatalf("enroll finish with a different valid token: %v", err)
+	}
+	regOpts, regState, err := s.BeginRegistration(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := newDevice().create(regOpts, finishEnroll(regState, tok)); !errors.Is(err, ErrCeremony) {
+		t.Fatalf("enroll finish with a reg state: %v", err)
+	}
+	if err := newDevice().create(opts, func(r *http.Request) error { return s.AddPasskey(ctx, state, r, "Intruder") }); !errors.Is(err, ErrCeremony) {
+		t.Fatalf("AddPasskey with an enroll state: %v", err)
+	}
+	if _, _, err := s.BeginEnrollment(ctx, ""); !errors.Is(err, ErrBadEnrollment) {
+		t.Fatalf("BeginEnrollment with no token: %v", err)
+	}
+
+	if pks, err := s.Passkeys(ctx); err != nil || len(pks) != 0 {
+		t.Fatalf("rejected finishes stored passkeys: %d %v", len(pks), err)
+	}
+	for _, tk := range []string{tok, other} {
+		if ok, err := s.EnrollmentValid(ctx, tk); err != nil || !ok {
+			t.Fatalf("rejected finishes consumed a token: ok=%v err=%v", ok, err)
+		}
+	}
+
+	// The original token still works, exactly once: a replay of the same
+	// state and token after it succeeded is rejected.
+	d := newDevice()
+	if err := d.create(opts, func(r *http.Request) error { return s.FinishEnrollment(ctx, state, r, "Phone", tok) }); err != nil {
+		t.Fatalf("original token no longer works: %v", err)
+	}
+	if err := newDevice().create(opts, finishEnroll(state, tok)); !errors.Is(err, ErrBadEnrollment) {
+		t.Fatalf("replayed enroll state: %v", err)
+	}
+	if pks, err := s.Passkeys(ctx); err != nil || len(pks) != 1 || pks[0].Name != "Phone" {
+		t.Fatalf("passkeys = %+v %v", pks, err)
 	}
 }

@@ -103,7 +103,7 @@ func (a *Admin) addFinish(w http.ResponseWriter, r *http.Request) {
 	}
 	err := limitCeremonyBody(w, r)
 	if err == nil {
-		err = a.d.Auth.FinishRegistration(r.Context(), state, r, r.URL.Query().Get("name"), "")
+		err = a.d.Auth.AddPasskey(r.Context(), state, r, r.URL.Query().Get("name"))
 	}
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, "The passkey couldn't be registered. Try again.")

@@ -222,14 +222,14 @@ func (a *Admin) enrollPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) enrollBegin(w http.ResponseWriter, r *http.Request) {
-	if ok, _ := a.d.Auth.EnrollmentValid(r.Context(), r.URL.Query().Get("token")); !ok {
+	opts, state, err := a.d.Auth.BeginEnrollment(r.Context(), r.URL.Query().Get("token"))
+	if errors.Is(err, auth.ErrBadEnrollment) {
 		jsonError(w, http.StatusBadRequest, "This enrollment link is invalid or has expired. Run admin enroll again.")
 		return
 	}
-	opts, state, err := a.d.Auth.BeginRegistration(r.Context())
 	if err != nil {
-		a.d.Log.Error("registration begin failed", "err", err)
-		jsonError(w, http.StatusInternalServerError, "Couldn't start passkey registration.")
+		a.d.Log.Error("enrollment begin failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
+		jsonError(w, http.StatusServiceUnavailable, "Couldn't start passkey registration. Try again.")
 		return
 	}
 	auth.SetStateCookie(w, state)
@@ -247,7 +247,7 @@ func (a *Admin) enrollFinish(w http.ResponseWriter, r *http.Request) {
 	auth.ClearStateCookie(w)
 	err := limitCeremonyBody(w, r)
 	if err == nil {
-		err = a.d.Auth.FinishRegistration(ctx, state, r, r.URL.Query().Get("name"), r.URL.Query().Get("token"))
+		err = a.d.Auth.FinishEnrollment(ctx, state, r, r.URL.Query().Get("name"), r.URL.Query().Get("token"))
 	}
 	switch {
 	case errors.Is(err, auth.ErrBadEnrollment):

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,23 +36,29 @@ const (
 
 var adminUserID = []byte("thymeandplace-admin")
 
-// ceremonyKind labels a sealed ceremony state so a login state can never be
-// replayed into FinishRegistration, or a registration state into
-// FinishLogin. Without this, a registration SessionData (which carries a
-// UserID and no AllowedCredentialIDs) can pass FinishLogin's checks even
-// though it was never a login ceremony.
+// ceremonyKind labels a sealed ceremony state so a state issued for one
+// ceremony can never be finished by another: a login state never reaches
+// AddPasskey or FinishEnrollment, a registration state never reaches
+// FinishLogin, and an owner "add passkey" state never reaches
+// FinishEnrollment (or vice versa). Without this, a registration SessionData
+// (which carries a UserID and no AllowedCredentialIDs) can pass FinishLogin's
+// checks even though it was never a login ceremony.
 type ceremonyKind string
 
 const (
 	ceremonyLogin        ceremonyKind = "login"
-	ceremonyRegistration ceremonyKind = "reg"
+	ceremonyRegistration ceremonyKind = "reg"    // signed-in owner adds a passkey
+	ceremonyEnroll       ceremonyKind = "enroll" // enrollment link registers a passkey
 )
 
 // sealedState is the wire format sealed into the state cookie: the ceremony
-// kind alongside the webauthn.SessionData it was issued for.
+// kind alongside the webauthn.SessionData it was issued for. For an
+// "enroll" ceremony, TokenHash binds the state to the enrollment token that
+// BeginEnrollment checked, so FinishEnrollment can only consume that token.
 type sealedState struct {
-	Kind ceremonyKind         `json:"k"`
-	SD   webauthn.SessionData `json:"sd"`
+	Kind      ceremonyKind         `json:"k"`
+	SD        webauthn.SessionData `json:"sd"`
+	TokenHash []byte               `json:"th,omitempty"`
 }
 
 type Passkey struct {
@@ -102,33 +109,33 @@ func (s *Service) Passkeys(ctx context.Context) ([]Passkey, error) {
 	return out, nil
 }
 
-func (s *Service) seal(kind ceremonyKind, sd *webauthn.SessionData) (string, error) {
-	b, err := json.Marshal(sealedState{Kind: kind, SD: *sd})
+func (s *Service) seal(kind ceremonyKind, sd *webauthn.SessionData, tokenHash []byte) (string, error) {
+	b, err := json.Marshal(sealedState{Kind: kind, SD: *sd, TokenHash: tokenHash})
 	if err != nil {
 		return "", err
 	}
 	return b64u.EncodeToString(s.sealer.Seal(b)), nil
 }
 
-// unseal decrypts state and returns its SessionData, rejecting it unless it
-// was sealed for the expected ceremony kind.
-func (s *Service) unseal(kind ceremonyKind, state string) (webauthn.SessionData, error) {
+// unseal decrypts state, rejecting it unless it was sealed for the expected
+// ceremony kind.
+func (s *Service) unseal(kind ceremonyKind, state string) (sealedState, error) {
 	var wrapped sealedState
 	raw, err := b64u.DecodeString(state)
 	if err != nil {
-		return webauthn.SessionData{}, err
+		return sealedState{}, err
 	}
 	plain, err := s.sealer.Open(raw)
 	if err != nil {
-		return webauthn.SessionData{}, err
+		return sealedState{}, err
 	}
 	if err := json.Unmarshal(plain, &wrapped); err != nil {
-		return webauthn.SessionData{}, err
+		return sealedState{}, err
 	}
 	if wrapped.Kind != kind {
-		return webauthn.SessionData{}, fmt.Errorf("ceremony state is for %q, not %q", wrapped.Kind, kind)
+		return sealedState{}, fmt.Errorf("ceremony state is for %q, not %q", wrapped.Kind, kind)
 	}
-	return wrapped.SD, nil
+	return wrapped, nil
 }
 
 func (s *Service) BeginLogin(ctx context.Context) ([]byte, string, error) {
@@ -147,12 +154,12 @@ func (s *Service) BeginLogin(ctx context.Context) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	state, err := s.seal(ceremonyLogin, sd)
+	state, err := s.seal(ceremonyLogin, sd, nil)
 	return opts, state, err
 }
 
 func (s *Service) FinishLogin(ctx context.Context, state string, r *http.Request) error {
-	sd, err := s.unseal(ceremonyLogin, state)
+	st, err := s.unseal(ceremonyLogin, state)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrCeremony, err)
 	}
@@ -160,7 +167,7 @@ func (s *Service) FinishLogin(ctx context.Context, state string, r *http.Request
 	if err != nil {
 		return err
 	}
-	cred, err := s.wa.FinishLogin(u, sd, r)
+	cred, err := s.wa.FinishLogin(u, st.SD, r)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrCeremony, err)
 	}
@@ -176,7 +183,9 @@ func (s *Service) FinishLogin(ctx context.Context, state string, r *http.Request
 	})
 }
 
-func (s *Service) BeginRegistration(ctx context.Context) ([]byte, string, error) {
+// beginCreation starts a WebAuthn registration ceremony for the owner and
+// seals its state for kind, bound to tokenHash (enroll only).
+func (s *Service) beginCreation(ctx context.Context, kind ceremonyKind, tokenHash []byte) ([]byte, string, error) {
 	u, _, err := s.loadUser(ctx)
 	if err != nil {
 		return nil, "", err
@@ -193,32 +202,79 @@ func (s *Service) BeginRegistration(ctx context.Context) ([]byte, string, error)
 	if err != nil {
 		return nil, "", err
 	}
-	state, err := s.seal(ceremonyRegistration, sd)
+	state, err := s.seal(kind, sd, tokenHash)
 	return opts, state, err
 }
 
-// FinishRegistration verifies the new credential and stores it. With an
-// enrollment token, the token is consumed in the same transaction as the
-// passkey insert (via the conditional UPDATE in ConsumeEnrollmentToken), so
-// two racing finishes sharing one token register at most one passkey.
-func (s *Service) FinishRegistration(ctx context.Context, state string, r *http.Request, name, enrollToken string) error {
+// BeginRegistration starts the signed-in owner's "add a passkey" ceremony.
+// Its state can only be finished by AddPasskey. Callers must only reach it
+// from behind a signed-in session with a recent re-auth.
+func (s *Service) BeginRegistration(ctx context.Context) ([]byte, string, error) {
+	return s.beginCreation(ctx, ceremonyRegistration, nil)
+}
+
+// AddPasskey finishes a BeginRegistration ceremony for the signed-in owner.
+// It never accepts an enrollment ("enroll") or login state.
+func (s *Service) AddPasskey(ctx context.Context, state string, r *http.Request, name string) error {
+	st, err := s.unseal(ceremonyRegistration, state)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrCeremony, err)
+	}
+	return s.finishCreation(ctx, st.SD, r, name, nil)
+}
+
+// BeginEnrollment starts a registration ceremony from an enrollment link.
+// The token must currently be valid (ErrBadEnrollment otherwise); its hash is
+// sealed into the returned state so FinishEnrollment can only complete this
+// ceremony with this same token.
+func (s *Service) BeginEnrollment(ctx context.Context, token string) ([]byte, string, error) {
+	ok, err := s.EnrollmentValid(ctx, token)
+	if err != nil {
+		return nil, "", err
+	}
+	if !ok {
+		return nil, "", ErrBadEnrollment
+	}
+	return s.beginCreation(ctx, ceremonyEnroll, HashToken(token))
+}
+
+// FinishEnrollment finishes a BeginEnrollment ceremony. token is required and
+// must be the one the state was issued for (ErrBadEnrollment otherwise). The
+// token is consumed in the same transaction as the passkey insert (via the
+// conditional UPDATE in ConsumeEnrollmentToken), so two racing finishes
+// sharing one token register at most one passkey, and a replayed state
+// cannot register a second one.
+func (s *Service) FinishEnrollment(ctx context.Context, state string, r *http.Request, name, token string) error {
+	if token == "" {
+		return ErrBadEnrollment
+	}
+	st, err := s.unseal(ceremonyEnroll, state)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrCeremony, err)
+	}
+	hash := HashToken(token)
+	if len(st.TokenHash) == 0 || subtle.ConstantTimeCompare(hash, st.TokenHash) != 1 {
+		return ErrBadEnrollment
+	}
+	if ok, err := s.EnrollmentValid(ctx, token); err != nil {
+		return err
+	} else if !ok {
+		return ErrBadEnrollment
+	}
+	return s.finishCreation(ctx, st.SD, r, name, hash)
+}
+
+// finishCreation verifies the new credential and stores it. A non-nil
+// consumeHash names the enrollment token to consume in the same transaction
+// as the insert; it is only ever non-nil from FinishEnrollment, which has
+// already checked it against the sealed state.
+func (s *Service) finishCreation(ctx context.Context, sd webauthn.SessionData, r *http.Request, name string, consumeHash []byte) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = "Passkey"
 	}
 	if len([]rune(name)) > maxPasskeyName {
 		name = string([]rune(name)[:maxPasskeyName])
-	}
-	if enrollToken != "" {
-		if ok, err := s.EnrollmentValid(ctx, enrollToken); err != nil {
-			return err
-		} else if !ok {
-			return ErrBadEnrollment
-		}
-	}
-	sd, err := s.unseal(ceremonyRegistration, state)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrCeremony, err)
 	}
 	u, _, err := s.loadUser(ctx)
 	if err != nil {
@@ -240,8 +296,8 @@ func (s *Service) FinishRegistration(ctx context.Context, state string, r *http.
 	defer tx.Rollback(ctx) //nolint:errcheck
 	q := store.New(tx)
 	now := s.now()
-	if enrollToken != "" {
-		n, err := q.ConsumeEnrollmentToken(ctx, store.ConsumeEnrollmentTokenParams{TokenHash: HashToken(enrollToken), Now: ts(now)})
+	if consumeHash != nil {
+		n, err := q.ConsumeEnrollmentToken(ctx, store.ConsumeEnrollmentTokenParams{TokenHash: consumeHash, Now: ts(now)})
 		if err != nil {
 			return err
 		}
@@ -253,7 +309,7 @@ func (s *Service) FinishRegistration(ctx context.Context, state string, r *http.
 		CredentialID: cred.ID, PublicKey: cred.PublicKey, SignCount: int64(cred.Authenticator.SignCount),
 		Credential: b, Name: name, CreatedAt: ts(now),
 	}); err != nil {
-		// The exclusion list BeginRegistration sends is only ever enforced
+		// The exclusion list beginCreation sends is only ever enforced
 		// by the client/authenticator; go-webauthn's server-side
 		// FinishRegistration does not re-check it against the response, so
 		// a client that ignores it (or a replayed attestation) can reach

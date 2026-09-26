@@ -287,3 +287,66 @@ func TestCSRFOnEveryWriteRoute(t *testing.T) {
 		}
 	}
 }
+
+// Final review, critical: an enrollment finish must present the same token
+// its begin was issued for. Before the fix, POST /admin/enroll/finish with no
+// ?token= took the "signed-in owner" path, registered a passkey from an
+// enrollment state and started a session without consuming the token.
+func TestEnrollFinishBindsToken(t *testing.T) {
+	e := newEnv(t, true)
+	tok, _, _ := e.auth.CreateEnrollmentToken(t.Context())
+	other, _, _ := e.auth.CreateEnrollmentToken(t.Context())
+	passkeys := func() int {
+		pks, err := e.auth.Passkeys(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(pks)
+	}
+	stillValid := func(tokens ...string) {
+		t.Helper()
+		for _, tk := range tokens {
+			if ok, err := e.auth.EnrollmentValid(t.Context(), tk); err != nil || !ok {
+				t.Fatalf("token consumed by a rejected finish: ok=%v err=%v", ok, err)
+			}
+		}
+	}
+
+	for _, finish := range []string{"/admin/enroll/finish", "/admin/enroll/finish?token=", "/admin/enroll/finish?token=" + other} {
+		c := e.client(t)
+		c.get("/admin/enroll?token=" + tok)
+		rec, err := newDevice().register(c, "/admin/enroll/begin?token="+tok, finish)
+		if err != nil || rec.Code != 400 {
+			t.Fatalf("%s: %d %s (err=%v)", finish, rec.Code, rec.Body.String(), err)
+		}
+		if c.jar[auth.CookieName] != "" {
+			t.Fatalf("%s: a session was started", finish)
+		}
+	}
+	if n := passkeys(); n != 0 {
+		t.Fatalf("rejected finishes stored %d passkeys", n)
+	}
+	stillValid(tok, other)
+
+	// The original token still works.
+	owner := e.client(t)
+	owner.get("/admin/enroll?token=" + tok)
+	if rec, err := newDevice().register(owner, "/admin/enroll/begin?token="+tok, "/admin/enroll/finish?token="+tok+"&name=Phone"); err != nil || rec.Code != 200 {
+		t.Fatalf("original token: %d (err=%v)", rec.Code, err)
+	}
+	owner.get("/admin")
+
+	// A signed-in owner's "reg" state cannot finish an enrollment, and an
+	// "enroll" state cannot finish the owner's add-passkey route.
+	third, _, _ := e.auth.CreateEnrollmentToken(t.Context())
+	if rec, err := newDevice().register(owner, "/admin/security/passkeys/begin", "/admin/enroll/finish?token="+third); err != nil || rec.Code != 400 {
+		t.Fatalf("reg state at enroll finish: %d %s (err=%v)", rec.Code, rec.Body.String(), err)
+	}
+	if rec, err := newDevice().register(owner, "/admin/enroll/begin?token="+third, "/admin/security/passkeys/finish?name=Key"); err != nil || rec.Code != 400 {
+		t.Fatalf("enroll state at add finish: %d %s (err=%v)", rec.Code, rec.Body.String(), err)
+	}
+	if n := passkeys(); n != 1 {
+		t.Fatalf("want 1 passkey, got %d", n)
+	}
+	stillValid(third, other)
+}

@@ -4,11 +4,19 @@ x-env: &env
   env_file:
     - ${TP_ENV_FILE:-/etc/thymeandplace/app.env}
 
+# Rotate container logs (Docker's json-file default grows without bound).
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
 services:
   db:
+    <<: [*logging, *env]
     image: postgis/postgis:17-3.5
     restart: unless-stopped
-    <<: *env
     volumes:
       - dbdata:/var/lib/postgresql/data
     healthcheck:
@@ -17,12 +25,12 @@ services:
       retries: 20
 
   app:
+    <<: [*logging, *env]
     build:
       context: ..
       dockerfile: deploy/Dockerfile.app
     image: thymeandplace-app:latest
     restart: unless-stopped
-    <<: *env
     environment:
       ADDR: ":8080"
       TRUST_PROXY_HEADERS: "true"
@@ -37,6 +45,7 @@ services:
       start_period: 60s
 
   caddy:
+    <<: *logging
     image: caddy:2
     restart: unless-stopped
     ports:
@@ -52,12 +61,12 @@ services:
       - app
 
   ingest:
+    <<: [*logging, *env]
     profiles: [tools]
     build:
       context: ..
       dockerfile: deploy/Dockerfile.ingest
     image: thymeandplace-ingest:latest
-    <<: *env
     environment:
       INGEST_WORKDIR: /work
     volumes:
@@ -67,6 +76,7 @@ services:
         condition: service_healthy
 
   transform:
+    <<: *logging
     profiles: [tools]
     build:
       context: ../pipeline/transform
@@ -75,11 +85,11 @@ services:
       - ingest_work:/work
 
   backup:
+    <<: [*logging, *env]
     profiles: [tools]
     build:
       context: ./backup
     image: thymeandplace-backup:latest
-    <<: *env
     depends_on:
       db:
         condition: service_healthy

@@ -204,5 +204,5 @@ Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`, or 
 ## Health and logs
 
 - `docker compose ps` shows health; `curl -s https://thymeand.place/readyz` returns `ready` when the DB is reachable and the catalog is loaded.
-- Logs are JSON on stdout: `docker compose logs -f app`. Public requests record `cell_id`, never coordinates. Successful backup logins log at `WARN`, and so do calibration drops of more than 0.02.
+- Logs are JSON on stdout: `docker compose logs -f app`. Every service uses Docker's `json-file` driver with rotation (`max-size: 10m`, `max-file: 5`, set once in `deploy/compose.yaml`'s `x-logging` anchor), so each container keeps at most ~50 MB of logs; older lines are gone after rotation. Public requests record `cell_id`, never coordinates. Successful backup logins log at `WARN`, and so do calibration drops of more than 0.02.
 - Docker Compose does not restart containers just for being unhealthy. The app exits on fatal errors, and `restart: unless-stopped` brings it back. If you want automatic restarts on failed `/healthz` checks, add a supervisor; it isn't included.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"thymeandplace/internal/store"
 )
@@ -25,9 +26,33 @@ const (
 	// concurrent removals starting from two passkeys cannot both observe a
 	// count of two and both proceed to delete, leaving zero.
 	removePasskeyLockKey int64 = 0x74705f706b
+
+	// uniqueViolation is the Postgres/SQLSTATE error code for a unique
+	// constraint violation (used to detect a duplicate credential_id on
+	// insert).
+	uniqueViolation = "23505"
 )
 
 var adminUserID = []byte("thymeandplace-admin")
+
+// ceremonyKind labels a sealed ceremony state so a login state can never be
+// replayed into FinishRegistration, or a registration state into
+// FinishLogin. Without this, a registration SessionData (which carries a
+// UserID and no AllowedCredentialIDs) can pass FinishLogin's checks even
+// though it was never a login ceremony.
+type ceremonyKind string
+
+const (
+	ceremonyLogin        ceremonyKind = "login"
+	ceremonyRegistration ceremonyKind = "reg"
+)
+
+// sealedState is the wire format sealed into the state cookie: the ceremony
+// kind alongside the webauthn.SessionData it was issued for.
+type sealedState struct {
+	Kind ceremonyKind         `json:"k"`
+	SD   webauthn.SessionData `json:"sd"`
+}
 
 type Passkey struct {
 	ID         []byte
@@ -77,25 +102,33 @@ func (s *Service) Passkeys(ctx context.Context) ([]Passkey, error) {
 	return out, nil
 }
 
-func (s *Service) seal(sd *webauthn.SessionData) (string, error) {
-	b, err := json.Marshal(sd)
+func (s *Service) seal(kind ceremonyKind, sd *webauthn.SessionData) (string, error) {
+	b, err := json.Marshal(sealedState{Kind: kind, SD: *sd})
 	if err != nil {
 		return "", err
 	}
 	return b64u.EncodeToString(s.sealer.Seal(b)), nil
 }
 
-func (s *Service) unseal(state string) (webauthn.SessionData, error) {
-	var sd webauthn.SessionData
+// unseal decrypts state and returns its SessionData, rejecting it unless it
+// was sealed for the expected ceremony kind.
+func (s *Service) unseal(kind ceremonyKind, state string) (webauthn.SessionData, error) {
+	var wrapped sealedState
 	raw, err := b64u.DecodeString(state)
 	if err != nil {
-		return sd, err
+		return webauthn.SessionData{}, err
 	}
 	plain, err := s.sealer.Open(raw)
 	if err != nil {
-		return sd, err
+		return webauthn.SessionData{}, err
 	}
-	return sd, json.Unmarshal(plain, &sd)
+	if err := json.Unmarshal(plain, &wrapped); err != nil {
+		return webauthn.SessionData{}, err
+	}
+	if wrapped.Kind != kind {
+		return webauthn.SessionData{}, fmt.Errorf("ceremony state is for %q, not %q", wrapped.Kind, kind)
+	}
+	return wrapped.SD, nil
 }
 
 func (s *Service) BeginLogin(ctx context.Context) ([]byte, string, error) {
@@ -114,12 +147,12 @@ func (s *Service) BeginLogin(ctx context.Context) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	state, err := s.seal(sd)
+	state, err := s.seal(ceremonyLogin, sd)
 	return opts, state, err
 }
 
 func (s *Service) FinishLogin(ctx context.Context, state string, r *http.Request) error {
-	sd, err := s.unseal(state)
+	sd, err := s.unseal(ceremonyLogin, state)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrCeremony, err)
 	}
@@ -160,7 +193,7 @@ func (s *Service) BeginRegistration(ctx context.Context) ([]byte, string, error)
 	if err != nil {
 		return nil, "", err
 	}
-	state, err := s.seal(sd)
+	state, err := s.seal(ceremonyRegistration, sd)
 	return opts, state, err
 }
 
@@ -183,7 +216,7 @@ func (s *Service) FinishRegistration(ctx context.Context, state string, r *http.
 			return ErrBadEnrollment
 		}
 	}
-	sd, err := s.unseal(state)
+	sd, err := s.unseal(ceremonyRegistration, state)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrCeremony, err)
 	}
@@ -220,6 +253,16 @@ func (s *Service) FinishRegistration(ctx context.Context, state string, r *http.
 		CredentialID: cred.ID, PublicKey: cred.PublicKey, SignCount: int64(cred.Authenticator.SignCount),
 		Credential: b, Name: name, CreatedAt: ts(now),
 	}); err != nil {
+		// The exclusion list BeginRegistration sends is only ever enforced
+		// by the client/authenticator; go-webauthn's server-side
+		// FinishRegistration does not re-check it against the response, so
+		// a client that ignores it (or a replayed attestation) can reach
+		// here with a credential_id that already exists. Map that to
+		// ErrCeremony instead of leaking a raw pgconn unique-violation.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
+			return fmt.Errorf("%w: credential already registered", ErrCeremony)
+		}
 		return err
 	}
 	return tx.Commit(ctx)

@@ -41,16 +41,34 @@ func parseLatLng(latS, lngS string) (float64, float64, bool) {
 	return lat, lng, true
 }
 
-// monthFor uses the cook's local date; missing or malformed → server UTC (§12.5).
+// parseDate accepts the cook's local date (YYYY-MM-DD) only if it is within
+// one calendar day of the server's current UTC date. Anything else, e.g. a
+// date frozen into a bookmarked URL, is rejected so callers fall back to the
+// server date (§12.5).
+func (s *Server) parseDate(date string) (time.Time, bool) {
+	d, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return time.Time{}, false
+	}
+	y, m, day := s.d.Now().UTC().Date()
+	today := time.Date(y, m, day, 0, 0, 0, 0, time.UTC)
+	if diff := d.Sub(today); diff < -24*time.Hour || diff > 24*time.Hour {
+		return time.Time{}, false
+	}
+	return d, true
+}
+
+// monthFor uses the cook's local date; missing, malformed or stale → server UTC (§12.5).
 func (s *Server) monthFor(date string) time.Month {
-	if d, err := time.Parse("2006-01-02", date); err == nil {
+	if d, ok := s.parseDate(date); ok {
 		return d.Month()
 	}
 	return s.d.Now().UTC().Month()
 }
 
-func validDate(date string) string {
-	if _, err := time.Parse("2006-01-02", date); err == nil {
+// validDate returns date if parseDate accepts it, else "" (so links omit it).
+func (s *Server) validDate(date string) string {
+	if _, ok := s.parseDate(date); ok {
 		return date
 	}
 	return ""
@@ -112,7 +130,7 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusOK, "Seasons", "", nil, views.Unsupported())
 		return
 	}
-	vm := s.seasonVM(ctx, core, snap, month, q.Get("place"), lat, lng, validDate(q.Get("date")))
+	vm := s.seasonVM(ctx, core, snap, month, q.Get("place"), lat, lng, s.validDate(q.Get("date")))
 	s.render(w, r, http.StatusOK, vm.Label, "", nil, views.Season(vm))
 }
 

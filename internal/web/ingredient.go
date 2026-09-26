@@ -31,7 +31,7 @@ func (s *Server) ingredient(w http.ResponseWriter, r *http.Request) {
 	}
 	SetCellID(ctx, cell)
 	month := s.monthFor(q.Get("date"))
-	date := validDate(q.Get("date"))
+	date := s.validDate(q.Get("date"))
 
 	normals, err := s.d.Climate.ForCell(ctx, cell)
 	if err != nil {

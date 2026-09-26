@@ -28,6 +28,8 @@ type config struct {
 	DatabaseURL string
 	Addr        string
 	TrustProxy  bool
+
+	now func() time.Time // server clock for the public site; nil → time.Now (tests pin it)
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -97,7 +99,7 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	public := web.New(web.Deps{
 		Climate: a.climate, Ocean: a.ocean, Places: places.NewService(pool),
 		Snapshot: a.holder.Current, DataVersion: a.watcher.Current, Adjuster: season.NoopAdjuster{},
-		Ping: pool.Ping, Log: log, TrustProxy: cfg.TrustProxy,
+		Ping: pool.Ping, Now: cfg.now, Log: log, TrustProxy: cfg.TrustProxy,
 	})
 	a.mux = http.NewServeMux()
 	a.mux.Handle("/", public)

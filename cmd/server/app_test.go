@@ -41,7 +41,11 @@ func TestAppServesAndReloadsWithoutRestart(t *testing.T) {
 	}
 	_ = tx.Commit(ctx)
 
-	a, err := newApp(ctx, config{DatabaseURL: pool.Config().ConnString(), Addr: ":0"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// The server ignores a date more than a day from its own UTC date, so pin
+	// its clock to the date the season URL below asks for.
+	cfg := config{DatabaseURL: pool.Config().ConnString(), Addr: ":0",
+		now: func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) }}
+	a, err := newApp(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}

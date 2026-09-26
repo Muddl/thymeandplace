@@ -80,17 +80,35 @@ func TestSeasonBadCoordinates(t *testing.T) {
 	}
 }
 
-// Review Focus 2.
+// Review Focus 2: the cook's local date wins across a year boundary, in
+// either direction, as long as it is within a calendar day of server UTC.
 func TestSeasonMonthFromLocalDate(t *testing.T) {
 	hs := newHarness(t)
-	hs.now = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
-	_, body, _ := hs.get(lisbonQ+"&date=2026-12-31", true)
-	if !strings.Contains(body, "December") {
-		t.Fatal("client's local December must win over server January")
+	hs.now = time.Date(2026, 12, 31, 20, 0, 0, 0, time.UTC) // local date already 2027-01-01 east of UTC+4
+	_, body, _ := hs.get(lisbonQ+"&date=2027-01-01", true)
+	if !strings.Contains(body, "January") {
+		t.Fatal("client's local January must win over server December")
 	}
 	code, body, _ := hs.get(lisbonQ+"&date=31/12/2026", true)
-	if code != 200 || !strings.Contains(body, "January") {
+	if code != 200 || !strings.Contains(body, "December") {
 		t.Fatalf("malformed date must fall back to the server month: %d", code)
+	}
+	hs.now = time.Date(2027, 1, 1, 3, 0, 0, 0, time.UTC) // local date still 2026-12-31 west of UTC-3
+	if _, body, _ = hs.get(lisbonQ+"&date=2026-12-31", true); !strings.Contains(body, "December") {
+		t.Fatal("client's local December must win over server January")
+	}
+}
+
+// Final review 3: a date frozen into a bookmarked URL is ignored once it is
+// more than a calendar day from the server's UTC date (§12.5).
+func TestSeasonIgnoresStaleDate(t *testing.T) {
+	hs := newHarness(t) // server clock: 2026-08-15 UTC
+	code, body, _ := hs.get(lisbonQ+"&date=2026-09-14", true)
+	if code != 200 || !strings.Contains(body, "August") || strings.Contains(body, "September") {
+		t.Fatalf("stale date must fall back to the server month: %d\n%s", code, body)
+	}
+	if strings.Contains(body, "date=2026-09-14") {
+		t.Fatal("a stale date must not be carried into item links")
 	}
 }
 
@@ -113,12 +131,12 @@ func TestSeasonWarmCacheSurvivesOutage(t *testing.T) {
 	}
 	calls := hs.climate.calls
 	hs.climate.down, hs.ocean.down, hs.places.down = true, true, true
-	code, body, _ := hs.get(lisbonQ+"&date=2026-08-20", true)
+	code, body, _ := hs.get(lisbonQ+"&date=2026-08-16", true)
 	if code != 200 || !strings.Contains(body, "Tomato") || hs.climate.calls != calls {
 		t.Fatalf("cached result not served during outage: %d", code)
 	}
 	hs.version = "v2" // a data-version change makes the entry unreachable
-	if code, _, _ := hs.get(lisbonQ+"&date=2026-08-20", true); code != 503 {
+	if code, _, _ := hs.get(lisbonQ+"&date=2026-08-16", true); code != 503 {
 		t.Fatal("new data version must miss the cache")
 	}
 }

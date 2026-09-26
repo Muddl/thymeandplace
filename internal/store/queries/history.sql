@@ -8,4 +8,4 @@ ORDER BY id DESC
 LIMIT 101;
 
 -- name: ChangeApplied :one
-SELECT EXISTS (SELECT 1 FROM catalog_history WHERE change_id = $1) AS applied;
+SELECT EXISTS (SELECT 1 FROM catalog_history WHERE change_id = sqlc.arg(change_id)::bigint) AS applied;

@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const changeApplied = `-- name: ChangeApplied :one
+SELECT EXISTS (SELECT 1 FROM catalog_history WHERE change_id = $1::bigint) AS applied
+`
+
+func (q *Queries) ChangeApplied(ctx context.Context, changeID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, changeApplied, changeID)
+	var applied bool
+	err := row.Scan(&applied)
+	return applied, err
+}
+
 const listHistory = `-- name: ListHistory :many
 SELECT id, changed_at, actor, change_id, action, table_name, row_key, before, after FROM catalog_history
 WHERE ($1::text IS NULL OR row_key->>'slug' = $1::text)
@@ -24,6 +35,8 @@ type ListHistoryParams struct {
 	Before pgtype.Int8
 }
 
+// One extra row over the page size, so the caller can tell a full last page
+// apart from a page with more still to come without a second query.
 func (q *Queries) ListHistory(ctx context.Context, arg ListHistoryParams) ([]CatalogHistory, error) {
 	rows, err := q.db.Query(ctx, listHistory, arg.Slug, arg.Before)
 	if err != nil {
@@ -52,15 +65,4 @@ func (q *Queries) ListHistory(ctx context.Context, arg ListHistoryParams) ([]Cat
 		return nil, err
 	}
 	return items, nil
-}
-
-const changeApplied = `-- name: ChangeApplied :one
-SELECT EXISTS (SELECT 1 FROM catalog_history WHERE change_id = $1) AS applied
-`
-
-func (q *Queries) ChangeApplied(ctx context.Context, changeID int64) (bool, error) {
-	row := q.db.QueryRow(ctx, changeApplied, changeID)
-	var applied bool
-	err := row.Scan(&applied)
-	return applied, err
 }

@@ -8,12 +8,14 @@ require (
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/moby/moby/client v0.5.1
 	github.com/pquerna/otp v1.5.0
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	golang.org/x/crypto v0.57.0
+	golang.org/x/term v0.46.0
 	golang.org/x/time v0.16.0
 )
 
@@ -101,6 +103,7 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
+	rsc.io/qr v0.2.0 // indirect
 )
 
 tool github.com/a-h/templ/cmd/templ

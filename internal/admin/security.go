@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"thymeandplace/internal/admin/views"
@@ -88,6 +89,7 @@ func (a *Admin) reauthFinish(w http.ResponseWriter, r *http.Request) {
 func (a *Admin) addBegin(w http.ResponseWriter, r *http.Request) {
 	opts, state, err := a.d.Auth.BeginRegistration(r.Context())
 	if err != nil {
+		a.d.Log.Error("add passkey begin failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
 		jsonError(w, http.StatusInternalServerError, "Couldn't start passkey registration.")
 		return
 	}
@@ -97,19 +99,26 @@ func (a *Admin) addBegin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) addFinish(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	state := ""
 	if c, err := r.Cookie(auth.StateCookie); err == nil {
 		state = c.Value
 	}
+	// As on every finish route, clear the state cookie on every response.
+	auth.ClearStateCookie(w)
 	err := limitCeremonyBody(w, r)
 	if err == nil {
-		err = a.d.Auth.AddPasskey(r.Context(), state, r, r.URL.Query().Get("name"))
+		err = a.d.Auth.AddPasskey(ctx, state, r, r.URL.Query().Get("name"))
 	}
 	if err != nil {
+		lvl := slog.LevelError
+		if errors.Is(err, auth.ErrCeremony) {
+			lvl = slog.LevelWarn
+		}
+		a.d.Log.Log(ctx, lvl, "add passkey finish failed", "err", err, "request_id", web.RequestIDFrom(ctx))
 		jsonError(w, http.StatusBadRequest, "The passkey couldn't be registered. Try again.")
 		return
 	}
-	auth.ClearStateCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"redirect": "/admin/security"})
 }
 

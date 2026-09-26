@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"thymeandplace/internal/auth"
 	"thymeandplace/internal/dbtest"
+	"thymeandplace/internal/web"
 )
 
 type clock struct{ t time.Time }
@@ -30,21 +32,63 @@ type env struct {
 	auth  *auth.Service
 	clock *clock
 	pool  *pgxpool.Pool
+	logs  *logBuffer
 }
+
+// logBuffer collects the handler's log output; it is safe for the
+// concurrent requests some tests make.
+type logBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// testRequestID is sent as X-Request-ID on every test request, so tests can
+// assert that error logs carry the request's ID.
+const testRequestID = "test-request-0001"
 
 func newEnv(t *testing.T, backup bool) *env {
 	t.Helper()
+	return newEnvOn(t, dbtest.New(t), backup)
+}
+
+func newEnvOn(t *testing.T, pool *pgxpool.Pool, backup bool) *env {
+	t.Helper()
 	c := &clock{t: time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
-	pool := dbtest.New(t)
+	logs := &logBuffer{}
+	log := slog.New(slog.NewTextHandler(logs, nil))
 	svc, err := auth.NewService(pool, auth.Config{
 		RPID: "localhost", RPOrigins: []string{"https://localhost"},
-		SecretKey: bytes.Repeat([]byte{3}, 32), BackupEnabled: backup, Now: c.now,
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		SecretKey: bytes.Repeat([]byte{3}, 32), BackupEnabled: backup, Now: c.now, Log: log,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &env{h: New(Deps{Auth: svc, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}), auth: svc, clock: c, pool: pool}
+	h := web.RequestID(New(Deps{Auth: svc, Log: log}))
+	return &env{h: h, auth: svc, clock: c, pool: pool, logs: logs}
+}
+
+// newBrokenEnv serves the admin handler on a pool that is already closed, so
+// every database call fails immediately and deterministically.
+func newBrokenEnv(t *testing.T) *env {
+	t.Helper()
+	pool, err := pgxpool.New(t.Context(), "postgres://nobody@127.0.0.1:1/nothing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+	return newEnvOn(t, pool, true)
 }
 
 var csrfRE = regexp.MustCompile(`name="csrf-token" content="([^"]*)"`)
@@ -66,6 +110,7 @@ func (c *client) do(method, path string, body io.Reader, hdr map[string]string) 
 	c.t.Helper()
 	r := httptest.NewRequest(method, path, body)
 	r.RemoteAddr = c.ip + ":1"
+	r.Header.Set("X-Request-ID", testRequestID)
 	for k, v := range c.jar {
 		r.AddCookie(&http.Cookie{Name: k, Value: v})
 	}

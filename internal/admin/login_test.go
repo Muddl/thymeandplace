@@ -350,3 +350,75 @@ func TestEnrollFinishBindsToken(t *testing.T) {
 	}
 	stillValid(third, other)
 }
+
+// Final review item 2: a database error while checking an enrollment link is
+// a 503 (logged with the request ID), never "invalid or expired link".
+func TestEnrollDBErrorIs503(t *testing.T) {
+	e := newBrokenEnv(t)
+	c := e.client(t)
+	if rec := c.get("/admin/enroll?token=abc"); rec.Code != 503 || strings.Contains(rec.Body.String(), "invalid or has expired") {
+		t.Fatalf("enroll page: %d %s", rec.Code, rec.Body.String())
+	}
+	c.csrf = c.jar[PreCookie]
+	if rec := c.postJSON("/admin/enroll/begin?token=abc", "{}"); rec.Code != 503 || strings.Contains(rec.Body.String(), "invalid or has expired") {
+		t.Fatalf("enroll begin: %d %s", rec.Code, rec.Body.String())
+	}
+	logs := e.logs.String()
+	for _, want := range []string{"enrollment check failed", "enrollment begin failed"} {
+		if !strings.Contains(logs, want) {
+			t.Fatalf("log missing %q:\n%s", want, logs)
+		}
+	}
+	if n := strings.Count(logs, "request_id="+testRequestID); n < 2 {
+		t.Fatalf("request_id logged %d times:\n%s", n, logs)
+	}
+}
+
+// Final review item 4: an unexpected backup-login error is audited as
+// "error" and logged with the request ID.
+func TestBackupLoginErrorIsAudited(t *testing.T) {
+	e := newEnv(t, true)
+	if _, err := e.auth.SetBackup(t.Context(), "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(t.Context(), `UPDATE admin_backup SET password_hash = 'not-a-phc-string'`); err != nil {
+		t.Fatal(err)
+	}
+	c := e.client(t)
+	c.ip = "192.0.2.91"
+	c.get("/admin/login/backup")
+	if rec := c.postForm("/admin/login/backup", url.Values{"password": {"correct horse battery staple"}, "code": {"000000"}}); rec.Code != 500 {
+		t.Fatalf("backup error: %d", rec.Code)
+	}
+	var n int
+	_ = e.pool.QueryRow(t.Context(), `SELECT count(*) FROM admin_login_log WHERE ip = '192.0.2.91' AND method = 'backup' AND outcome = 'error'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("backup error audited %d times, want 1", n)
+	}
+	if logs := e.logs.String(); !strings.Contains(logs, "backup login error") || !strings.Contains(logs, "request_id="+testRequestID) {
+		t.Fatalf("backup error not logged with request_id:\n%s", logs)
+	}
+}
+
+// Final review item 2: a failure to create the session after a successful
+// login is logged with the request ID.
+func TestStartSessionFailureIsLogged(t *testing.T) {
+	e := newEnv(t, true)
+	uri, err := e.auth.SetBackup(t.Context(), "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(uri)
+	if _, err := e.pool.Exec(t.Context(), `ALTER TABLE admin_session ADD CONSTRAINT test_no_sessions CHECK (method = 'none')`); err != nil {
+		t.Fatal(err)
+	}
+	c := e.client(t)
+	c.get("/admin/login/backup")
+	cd, _ := totp.GenerateCode(u.Query().Get("secret"), e.clock.now())
+	if rec := c.postForm("/admin/login/backup", url.Values{"password": {"correct horse battery staple"}, "code": {cd}}); rec.Code != 500 {
+		t.Fatalf("session insert failure: %d", rec.Code)
+	}
+	if logs := e.logs.String(); !strings.Contains(logs, "session create failed") || !strings.Contains(logs, "request_id="+testRequestID) {
+		t.Fatalf("session create failure not logged with request_id:\n%s", logs)
+	}
+}

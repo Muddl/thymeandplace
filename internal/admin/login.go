@@ -45,6 +45,7 @@ func (a *Admin) startSession(w http.ResponseWriter, r *http.Request, method stri
 	}
 	raw, _, err := a.d.Auth.CreateSession(r.Context(), method)
 	if err != nil {
+		a.d.Log.Error("session create failed", "err", err, "method", method, "request_id", web.RequestIDFrom(r.Context()))
 		return err
 	}
 	auth.SetSessionCookie(w, raw)
@@ -193,7 +194,8 @@ func (a *Admin) backupSubmit(w http.ResponseWriter, r *http.Request) {
 		a.d.Auth.LogAttempt(ctx, ip, "backup", "failure")
 		page(http.StatusUnauthorized, "Password or code is wrong.")
 	default:
-		a.d.Log.Error("backup login error", "err", err)
+		a.d.Auth.LogAttempt(ctx, ip, "backup", "error")
+		a.d.Log.Error("backup login error", "err", err, "request_id", web.RequestIDFrom(ctx))
 		page(http.StatusInternalServerError, "Something went wrong. Try again.")
 	}
 }
@@ -212,7 +214,11 @@ func (a *Admin) enrollPage(w http.ResponseWriter, r *http.Request) {
 	tok := r.URL.Query().Get("token")
 	ok, err := a.d.Auth.EnrollmentValid(r.Context(), tok)
 	if err != nil {
-		a.d.Log.Error("enrollment check failed", "err", err)
+		// A database error says nothing about the link; don't tell the
+		// owner it is invalid or expired.
+		a.d.Log.Error("enrollment check failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
+		http.Error(w, "Something went wrong. Try again.", http.StatusServiceUnavailable)
+		return
 	}
 	status := http.StatusOK
 	if !ok {
@@ -256,6 +262,9 @@ func (a *Admin) enrollFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	case err != nil:
 		a.d.Auth.LogAttempt(ctx, ip, "enroll", "failure")
+		if !errors.Is(err, auth.ErrCeremony) {
+			a.d.Log.Error("enrollment finish failed", "err", err, "request_id", web.RequestIDFrom(ctx))
+		}
 		jsonError(w, http.StatusBadRequest, "The passkey couldn't be registered. Try again.")
 		return
 	}

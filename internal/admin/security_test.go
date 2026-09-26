@@ -134,3 +134,39 @@ func TestRenameRemoveUnknownPasskeyID(t *testing.T) {
 		t.Fatalf("unknown id remove: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// Final review items 2 and 3: add-passkey errors are logged with the request
+// ID, and the finish route clears the WebAuthn state cookie on failure too.
+func TestAddPasskeyErrorsLoggedAndStateCleared(t *testing.T) {
+	e := newEnv(t, true)
+	c, _ := e.enrolled(t)
+	if rec := c.postJSON("/admin/security/passkeys/begin", "{}"); rec.Code != 200 || c.jar[auth.StateCookie] == "" {
+		t.Fatalf("add begin: %d", rec.Code)
+	}
+	rec := c.postJSON("/admin/security/passkeys/finish?name=Key", "not json")
+	if rec.Code != 400 {
+		t.Fatalf("garbage add finish: %d", rec.Code)
+	}
+	cleared := false
+	for _, ck := range rec.Result().Cookies() {
+		if ck.Name == auth.StateCookie && ck.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatal("failed add finish left the WebAuthn state cookie in place")
+	}
+	if logs := e.logs.String(); !strings.Contains(logs, "add passkey finish failed") {
+		t.Fatalf("add finish failure not logged:\n%s", logs)
+	}
+
+	if _, err := e.pool.Exec(t.Context(), `UPDATE admin_passkey SET credential = '"corrupt"'`); err != nil {
+		t.Fatal(err)
+	}
+	if rec := c.postJSON("/admin/security/passkeys/begin", "{}"); rec.Code != 500 {
+		t.Fatalf("add begin with unreadable passkeys: %d", rec.Code)
+	}
+	if logs := e.logs.String(); !strings.Contains(logs, "add passkey begin failed") || !strings.Contains(logs, "request_id="+testRequestID) {
+		t.Fatalf("add begin failure not logged with request_id:\n%s", logs)
+	}
+}

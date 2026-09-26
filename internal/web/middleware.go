@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"runtime/debug"
 	"strings"
@@ -134,6 +135,25 @@ func ClientIP(r *http.Request, trustProxy bool) string {
 	return host
 }
 
+// limiterKey buckets a client IP for rate limiting: IPv4 (including
+// IPv4-mapped IPv6) per address, IPv6 per /64, since one subscriber
+// typically holds a whole /64. Unparseable values are used as-is.
+func limiterKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	a = a.Unmap().WithZone("")
+	if a.Is4() {
+		return a.String()
+	}
+	p, err := a.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
+}
+
 type Limit struct {
 	Rate  rate.Limit
 	Burst int
@@ -186,7 +206,7 @@ func (rl *RateLimiter) allow(key string, l Limit) bool {
 func (rl *RateLimiter) Middleware(trustProxy bool, classify func(string) (string, Limit, bool), onLimit func(http.ResponseWriter, *http.Request)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if class, l, ok := classify(r.URL.Path); ok && !rl.allow(class+"|"+ClientIP(r, trustProxy), l) {
+			if class, l, ok := classify(r.URL.Path); ok && !rl.allow(class+"|"+limiterKey(ClientIP(r, trustProxy)), l) {
 				onLimit(w, r)
 				return
 			}

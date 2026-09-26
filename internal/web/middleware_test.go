@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -196,5 +197,40 @@ func TestTimeout(t *testing.T) {
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil).WithContext(context.Background()))
 	if d := time.Until(dl); d <= 0 || d > 2*time.Second {
 		t.Fatalf("deadline in %v", d)
+	}
+}
+
+// Final review 5: IPv6 clients are limited per /64 (one subscriber), and
+// IPv4-mapped IPv6 addresses count as the IPv4 address.
+func TestRateLimitIPv6Prefix(t *testing.T) {
+	now := time.Unix(0, 0)
+	rl := NewRateLimiter(func() time.Time { return now })
+	h := rl.Middleware(false, PublicLimits, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	})(ok())
+	hit := func(remoteAddr string) int {
+		r := httptest.NewRequest("GET", "/places", nil)
+		r.RemoteAddr = remoteAddr
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	for i := 0; i < 20; i++ {
+		hit(fmt.Sprintf("[2001:db8:1:2::%x]:1", i+1)) // 20 addresses, one /64
+	}
+	if hit("[2001:db8:1:2:ffff::1]:1") != 429 {
+		t.Fatal("addresses in the same /64 must share a bucket")
+	}
+	if hit("[2001:db8:1:3::1]:1") != 200 {
+		t.Fatal("a different /64 is independent")
+	}
+	for i := 0; i < 20; i++ {
+		hit("9.9.9.9:1")
+	}
+	if hit("[::ffff:9.9.9.9]:1") != 429 {
+		t.Fatal("IPv4-mapped IPv6 must share the IPv4 bucket")
+	}
+	if hit("9.9.9.10:1") != 200 {
+		t.Fatal("IPv4 addresses are keyed individually")
 	}
 }

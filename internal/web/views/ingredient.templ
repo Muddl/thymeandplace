@@ -1,0 +1,40 @@
+package views
+
+templ Ingredient(vm IngredientVM) {
+	<article class="ingredient">
+		<p><a href={ templ.SafeURL(vm.BackURL) } hx-get={ vm.BackURL } hx-target="#results" hx-push-url="true">Back to the list</a></p>
+		<h2>{ vm.Name }</h2>
+		<p class="category">{ vm.Category }</p>
+		<ol class="bar" aria-label="Season by month">
+			for _, b := range vm.Bars {
+				<li class={ "m", b.Class, templ.KV("now", b.Current) } title={ b.Title }>{ b.Letter }</li>
+			}
+		</ol>
+		if vm.Local {
+			<p class="basis">{ vm.Basis }</p>
+		} else {
+			<p class="basis">Not grown or landed near here, as far as our estimates can tell.</p>
+		}
+		if vm.EstimateNote != "" {
+			<p class="badge">{ vm.EstimateNote }</p>
+		}
+		if vm.WildMushroom {
+			<p class="notice">{ WildMushroomDisclaimer }</p>
+		}
+		<h3>Choosing</h3>
+		<p>{ vm.TipChoose }</p>
+		<h3>Storing</h3>
+		<p>{ vm.TipStore }</p>
+		if vm.Note != "" {
+			<p class="note">{ vm.Note }</p>
+		}
+		if len(vm.Pairings) > 0 {
+			<h3>Goes well with</h3>
+			<ul class="pairings">
+				for _, p := range vm.Pairings {
+					<li><a href={ templ.SafeURL(p.URL) } hx-get={ p.URL } hx-target="#results" hx-push-url="true">{ p.Name }</a></li>
+				}
+			</ul>
+		}
+	</article>
+}

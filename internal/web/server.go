@@ -169,8 +169,3 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = w.Write([]byte("ready"))
 }
-
-// TODO(task 6): the stub below is temporary so this task compiles on its
-// own. It is replaced (and this block deleted) by the task that implements
-// the real handler: ingredient (task 6).
-func (s *Server) ingredient(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }

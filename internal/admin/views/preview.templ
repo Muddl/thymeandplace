@@ -73,16 +73,20 @@ templ PreviewPage(vm PreviewVM) {
 			}
 		}
 		<h2>Apply</h2>
-		<form method="post" action={ templ.SafeURL("/admin/changesets/" + itoa(vm.ID) + "/apply") }>
-			<input type="hidden" name="csrf" value={ vm.Layout.CSRF }/>
-			if vm.DeleteSlug != "" {
-				<label>Type <code>{ vm.DeleteSlug }</code> to confirm the delete <input type="text" name="confirm_slug" autocomplete="off" required/></label>
-			}
-			if vm.NeedsOverride {
-				<p class="warn">The calibration score drops by more than 0.02.</p>
-				<label><input type="checkbox" name="override" value="1"/> Apply despite lower calibration score</label>
-			}
-			<button type="submit">Apply</button>
-		</form>
+		if vm.Empty {
+			<p>Nothing to change.</p>
+		} else {
+			<form method="post" action={ templ.SafeURL("/admin/changesets/" + itoa(vm.ID) + "/apply") } data-apply-form>
+				<input type="hidden" name="csrf" value={ vm.Layout.CSRF }/>
+				if vm.DeleteSlug != "" {
+					<label>Type <code>{ vm.DeleteSlug }</code> to confirm the delete <input type="text" name="confirm_slug" autocomplete="off" required/></label>
+				}
+				if vm.NeedsOverride {
+					<p class="warn">The calibration score drops by more than 0.02.</p>
+					<label><input type="checkbox" name="override" value="1"/> Apply despite lower calibration score</label>
+				}
+				<button type="submit">Apply</button>
+			</form>
+		}
 	}
 }

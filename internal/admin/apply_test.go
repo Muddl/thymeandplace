@@ -63,7 +63,9 @@ func TestApplyDeleteWithConfirmation(t *testing.T) {
 
 func TestApplyStale(t *testing.T) {
 	e, c := catalogEnv(t)
-	id := pendingID(t, c.postForm("/admin/ingredients/tomato/preview", tomatoForm()).Body.String())
+	f := tomatoForm()
+	f.Set("note", "changed")
+	id := pendingID(t, c.postForm("/admin/ingredients/tomato/preview", f).Body.String())
 	_, _ = e.pool.Exec(t.Context(), `UPDATE ingredient SET note = 'elsewhere' WHERE slug = 'banana'`)
 	rec := c.postForm("/admin/changesets/"+id+"/apply", url.Values{})
 	if rec.Code != 409 || !strings.Contains(html.UnescapeString(rec.Body.String()), "The catalog changed since this preview. Preview again.") {
@@ -71,7 +73,12 @@ func TestApplyStale(t *testing.T) {
 	}
 }
 
-// Review Focus 5.
+// Review Focus 5, updated by Review Focus 4 (2026-09-25 final review): a
+// resubmit of an already-applied changeset (e.g. a double-clicked Apply
+// button, or an old tab's form resent) must land on the same success page a
+// first apply would, not a confusing "expired" error — the pending row is
+// gone in both cases (ErrNotFound), but catalog_history already has rows
+// for this change_id, which tells the two apart.
 func TestApplyResubmitted(t *testing.T) {
 	e, c := catalogEnv(t)
 	f := tomatoForm()
@@ -81,12 +88,26 @@ func TestApplyResubmitted(t *testing.T) {
 	var before int
 	_ = e.pool.QueryRow(t.Context(), `SELECT count(*) FROM catalog_history`).Scan(&before)
 	rec := c.postForm("/admin/changesets/"+id+"/apply", url.Values{})
-	if rec.Code != 410 || !strings.Contains(rec.Body.String(), "expired or was already applied") {
-		t.Fatalf("resubmit: %d", rec.Code)
+	if rec.Code != 303 || rec.Header().Get("Location") != "/admin?applied=1" {
+		t.Fatalf("resubmit: %d %s", rec.Code, rec.Header().Get("Location"))
 	}
 	var after int
 	_ = e.pool.QueryRow(t.Context(), `SELECT count(*) FROM catalog_history`).Scan(&after)
 	if after != before {
-		t.Fatal("resubmitted apply wrote history")
+		t.Fatal("resubmitted apply wrote history a second time")
+	}
+}
+
+// A truly expired preview (never applied: no pending row, no history for
+// this change_id) still gets the 410 page.
+func TestApplyExpiredNeverAppliedIs410(t *testing.T) {
+	e, c := catalogEnv(t)
+	f := tomatoForm()
+	f.Set("note", "changed")
+	id := pendingID(t, c.postForm("/admin/ingredients/tomato/preview", f).Body.String())
+	_, _ = e.pool.Exec(t.Context(), `UPDATE pending_changeset SET expires_at = now() - interval '1 second'`)
+	rec := c.postForm("/admin/changesets/"+id+"/apply", url.Values{})
+	if rec.Code != 410 || !strings.Contains(rec.Body.String(), "expired or was already applied") {
+		t.Fatalf("expired: %d %s", rec.Code, rec.Body.String())
 	}
 }

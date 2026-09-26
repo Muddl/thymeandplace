@@ -2,6 +2,7 @@ package admin
 
 import (
 	"html"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -61,5 +62,36 @@ func TestDeletePreviewNeedsTypedSlug(t *testing.T) {
 	b := html.UnescapeString(rec.Body.String())
 	if rec.Code != 200 || !strings.Contains(b, "Deleted") || !strings.Contains(b, `name="confirm_slug"`) || !strings.Contains(b, "Tomato") {
 		t.Fatalf("delete preview:\n%s", b)
+	}
+}
+
+// Review Focus 9: deleting an unknown slug is a rendered message page (with
+// the catalog/import navigation every other message page has), not a bare
+// plain-text 404.
+func TestDeletePreviewUnknownSlugIs404Page(t *testing.T) {
+	_, c := catalogEnv(t)
+	rec := c.postForm("/admin/ingredients/unicorn/delete/preview", url.Values{})
+	b := html.UnescapeString(rec.Body.String())
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("code = %d\n%s", rec.Code, b)
+	}
+	for _, want := range []string{"<html", "Can't delete unicorn: it does not exist.", "Back to the catalog", "Import"} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("missing %q:\n%s", want, b)
+		}
+	}
+}
+
+// Review Focus 8: a form save with no actual changes must not offer to
+// "Apply" a no-op.
+func TestEmptyDiffPreviewHasNoApply(t *testing.T) {
+	_, c := catalogEnv(t)
+	rec := c.postForm("/admin/ingredients/tomato/preview", tomatoForm())
+	b := html.UnescapeString(rec.Body.String())
+	if rec.Code != 200 || !strings.Contains(b, "Nothing to change.") {
+		t.Fatalf("empty diff:\n%s", b)
+	}
+	if strings.Contains(b, "<button type=\"submit\">Apply</button>") {
+		t.Fatalf("empty diff preview still offers Apply:\n%s", b)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"thymeandplace/internal/admin/views"
 	"thymeandplace/internal/changeset"
 	"thymeandplace/internal/season"
+	"thymeandplace/internal/store"
 )
 
 func score(p *float64) string {
@@ -36,6 +37,7 @@ func previewVM(layout views.LayoutVM, p changeset.Pending, pv changeset.Preview,
 		ScoreBefore: fmt.Sprintf("%.3f", pv.Before.Score), ScoreAfter: fmt.Sprintf("%.3f", pv.After.Score),
 		Delta: fmt.Sprintf("%+.3f", pv.Delta), Compared: max(pv.Before.Compared, pv.After.Compared),
 		NeedsOverride: pv.NeedsOverride, Message: msg, ExpiresAt: p.ExpiresAt.UTC().Format("15:04"),
+		Empty: len(pv.Diff.Added) == 0 && len(pv.Diff.Changed) == 0 && len(pv.Diff.Deleted) == 0,
 	}
 	if p.Changeset.Source == changeset.SourceDelete && len(p.Changeset.Deletes) == 1 {
 		vm.DeleteSlug = p.Changeset.Deletes[0]
@@ -86,7 +88,7 @@ func (a *Admin) previewChangeset(w http.ResponseWriter, r *http.Request, cs chan
 func (a *Admin) deletePreview(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	a.previewChangeset(w, r, changeset.DeleteChangeset(slug), func(errs map[string][]string) {
-		http.Error(w, "Can't delete "+slug+": it does not exist.", http.StatusNotFound)
+		a.messagePage(w, r, http.StatusNotFound, "Can't delete "+slug+": it does not exist.")
 	})
 }
 
@@ -106,13 +108,37 @@ func (a *Admin) apply(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, changeset.ErrOverrideRequired), errors.Is(err, changeset.ErrConfirmMismatch):
 		p, pv, rerr := a.d.Changes.Reopen(r.Context(), id)
 		if rerr != nil {
-			a.messagePage(w, r, http.StatusConflict, changeset.UserMessage(rerr))
+			a.reopenFailed(w, r, id, rerr, p)
 			return
 		}
 		a.renderPreview(w, r, http.StatusUnprocessableEntity, p, pv, changeset.UserMessage(err))
 	case errors.Is(err, changeset.ErrStale):
-		a.messagePage(w, r, http.StatusConflict, changeset.UserMessage(err))
+		// The pending row still exists (only the base version is stale), so
+		// it can be reopened to learn which slug this changeset concerned,
+		// and offer a link straight back to it.
+		p, _, rerr := a.d.Changes.Reopen(r.Context(), id)
+		if rerr != nil && !errors.Is(rerr, changeset.ErrStale) {
+			a.reopenFailed(w, r, id, rerr, p)
+			return
+		}
+		a.messagePage(w, r, http.StatusConflict, changeset.UserMessage(err), slugLinks(p.Changeset)...)
 	case errors.Is(err, changeset.ErrNotFound):
+		// A double-clicked Apply button (or a resubmit of an old tab) sends
+		// this request twice; the first request already deleted the pending
+		// row. Tell that apart from a genuinely expired preview by checking
+		// whether this change_id already wrote history: if it did, the first
+		// click succeeded and this one should land exactly where a first
+		// success would.
+		applied, aerr := store.New(a.d.Pool).ChangeApplied(r.Context(), id)
+		if aerr != nil {
+			a.d.Log.Error("check change applied failed", "err", aerr, "changeset", id)
+			http.Error(w, "Couldn't apply the change. Try again.", http.StatusInternalServerError)
+			return
+		}
+		if applied {
+			http.Redirect(w, r, "/admin?applied=1", http.StatusSeeOther)
+			return
+		}
 		a.messagePage(w, r, http.StatusGone, changeset.UserMessage(err))
 	case errors.As(err, &inv):
 		msgs := []string{}
@@ -126,6 +152,37 @@ func (a *Admin) apply(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *Admin) messagePage(w http.ResponseWriter, r *http.Request, status int, msg string) {
-	a.render(w, r, status, views.MessagePage(a.layout(r, "Catalog"), msg))
+// reopenFailed reports a failed Reopen with a message that is never blank:
+// ErrStale/ErrNotFound get their normal owner-facing text (and status), and
+// anything else (an infrastructure failure) is logged and reported as a 500.
+func (a *Admin) reopenFailed(w http.ResponseWriter, r *http.Request, id int64, err error, p changeset.Pending) {
+	switch {
+	case errors.Is(err, changeset.ErrStale):
+		a.messagePage(w, r, http.StatusConflict, changeset.UserMessage(err), slugLinks(p.Changeset)...)
+	case errors.Is(err, changeset.ErrNotFound):
+		a.messagePage(w, r, http.StatusGone, changeset.UserMessage(err))
+	default:
+		a.d.Log.Error("reopen changeset failed", "err", err, "changeset", id)
+		a.messagePage(w, r, http.StatusInternalServerError, "Couldn't reopen the preview. Try again.")
+	}
+}
+
+// slugLinks returns a link to the ingredient's edit form when cs concerns
+// exactly one slug (a single-item form save or a single delete), or nil
+// when the changeset spans several slugs (e.g. an import) or is unknown.
+func slugLinks(cs changeset.Changeset) []views.Link {
+	switch {
+	case len(cs.Upserts) == 1 && len(cs.Deletes) == 0:
+		slug := cs.Upserts[0].Slug
+		return []views.Link{{Href: "/admin/ingredients/" + slug, Label: "Edit " + slug}}
+	case len(cs.Deletes) == 1 && len(cs.Upserts) == 0:
+		slug := cs.Deletes[0]
+		return []views.Link{{Href: "/admin/ingredients/" + slug, Label: "Edit " + slug}}
+	default:
+		return nil
+	}
+}
+
+func (a *Admin) messagePage(w http.ResponseWriter, r *http.Request, status int, msg string, links ...views.Link) {
+	a.render(w, r, status, views.MessagePage(a.layout(r, "Catalog"), msg, links))
 }

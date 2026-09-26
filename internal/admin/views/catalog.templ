@@ -46,9 +46,17 @@ templ CatalogRows(vm CatalogVM) {
 	</table>
 }
 
-templ MessagePage(layout LayoutVM, msg string) {
+templ MessagePage(layout LayoutVM, msg string, links []Link) {
 	@Layout(layout) {
 		<p class="error warn">{ msg }</p>
+		if len(links) > 0 {
+			<p>
+				for _, l := range links {
+					<a href={ templ.SafeURL(l.Href) }>{ l.Label }</a>
+					{ " " }
+				}
+			</p>
+		}
 		<p><a href="/admin">Back to the catalog</a> · <a href="/admin/import">Import</a></p>
 	}
 }
@@ -98,7 +106,7 @@ templ FormPage(vm FormVM) {
 			</label>
 			<label>
 				Kind
-				<select name="kind" hx-get="/admin/ingredients/fields" hx-target="#kind-fields" hx-include="closest form" hx-swap="outerHTML">
+				<select name="kind" hx-get="/admin/kind-fields" hx-target="#kind-fields" hx-include="closest form" hx-swap="outerHTML" hx-params="not csrf">
 					for _, o := range vm.Kinds {
 						<option value={ o.Value } selected?={ o.Selected }>{ o.Label }</option>
 					}

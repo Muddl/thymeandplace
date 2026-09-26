@@ -54,6 +54,10 @@ type Option struct {
 	Selected     bool
 }
 
+// Link is an extra navigation link a message page can offer, beyond the
+// standard "Back to the catalog" / "Import" links.
+type Link struct{ Href, Label string }
+
 type CatalogRow struct{ Slug, Name, Category, Kind string }
 
 type CatalogVM struct {
@@ -133,6 +137,7 @@ type PreviewVM struct {
 	Items                   []ScoreRow
 	Message                 string
 	ExpiresAt               string
+	Empty                   bool // no added/changed/deleted items: nothing to apply
 }
 
 type ImportVM struct {

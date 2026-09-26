@@ -58,6 +58,18 @@
       }
     });
   }
+  // A double-clicked Apply button (or an impatient second click while the
+  // first POST is still in flight) must not fire the request twice. This is
+  // a plain form submit, not a WebAuthn ceremony, so it is handled on
+  // "submit" rather than the [data-webauthn] click handler below, and it
+  // only ever disables the button — never re-enables it, since a submit
+  // navigates away (or the server re-renders the page with a fresh button).
+  document.addEventListener("submit", function (e) {
+    var f = e.target;
+    if (!(f instanceof HTMLFormElement) || !f.hasAttribute("data-apply-form")) return;
+    var btn = f.querySelector('button[type="submit"]');
+    if (btn) btn.disabled = true;
+  });
   document.addEventListener("click", async function (e) {
     var b = e.target.closest("[data-webauthn]");
     if (!b || b.disabled) return;

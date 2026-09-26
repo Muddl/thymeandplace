@@ -472,3 +472,29 @@ func TestLogoutWithoutSessionRedirects(t *testing.T) {
 		t.Fatalf("session ended by a CSRF-failed logout: %d", rec.Code)
 	}
 }
+
+// Final review item 8: when the session lookup itself fails (database
+// down), loadSession answers 503 and must not clear the session cookie: the
+// session may well still be valid once the database is back.
+func TestLoadSessionDBErrorIs503KeepsCookie(t *testing.T) {
+	e := newBrokenEnv(t)
+	c := e.client(t)
+	c.jar[auth.CookieName] = "a-session-token-the-db-cannot-check"
+	for _, path := range []string{"/admin", "/admin/login"} {
+		rec := c.get(path)
+		if rec.Code != 503 {
+			t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
+		}
+		for _, ck := range rec.Result().Cookies() {
+			if ck.Name == auth.CookieName {
+				t.Fatalf("%s: session cookie touched on a lookup error: %+v", path, ck)
+			}
+		}
+		if c.jar[auth.CookieName] == "" {
+			t.Fatalf("%s: session cookie dropped", path)
+		}
+	}
+	if logs := e.logs.String(); !strings.Contains(logs, "session lookup failed") || !strings.Contains(logs, "request_id="+testRequestID) {
+		t.Fatalf("lookup failure not logged with request_id:\n%s", logs)
+	}
+}

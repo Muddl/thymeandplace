@@ -45,7 +45,11 @@ type Deps struct {
 	Now         func() time.Time
 	Log         *slog.Logger
 	TrustProxy  bool
+
+	timeout time.Duration // per-request deadline; 0 → defaultTimeout (tests shorten it)
 }
+
+const defaultTimeout = 2 * time.Second
 
 type Server struct {
 	d     Deps
@@ -60,6 +64,9 @@ func New(d Deps) http.Handler {
 	}
 	if d.Adjuster == nil {
 		d.Adjuster = season.NoopAdjuster{}
+	}
+	if d.timeout == 0 {
+		d.timeout = defaultTimeout
 	}
 	s := &Server{d: d, cache: cache.New[seasonCore](cache.DefaultSize)}
 
@@ -77,7 +84,7 @@ func New(d Deps) http.Handler {
 	})
 
 	var h http.Handler = mux
-	h = Timeout(2 * time.Second)(h)
+	h = Timeout(d.timeout)(h)
 	h = NewRateLimiter(nil).Middleware(d.TrustProxy, PublicLimits, s.tooMany)(h)
 	h = Recover(d.Log, func(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusInternalServerError, "Something went wrong", "", nil, views.LoadError("", r.URL.RequestURI()))
@@ -126,7 +133,10 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, titl
 	if c == nil { // an HTMX request for a page with no fragment (e.g. GET / with HX-Request)
 		c = templ.NopComponent
 	}
-	if err := c.Render(r.Context(), w); err != nil {
+	// Render without the request deadline: templ components return ctx.Err()
+	// on entry, so a request that has already timed out would otherwise send
+	// its status with an empty body instead of the error panel.
+	if err := c.Render(context.WithoutCancel(r.Context()), w); err != nil {
 		s.d.Log.Warn("render failed", "err", err, "request_id", RequestIDFrom(r.Context()))
 	}
 }

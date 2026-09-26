@@ -3,6 +3,7 @@ package web
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"thymeandplace/internal/web/views"
 )
@@ -61,6 +62,7 @@ func TestSeasonUnsupported(t *testing.T) {
 
 func TestSeasonHarsh(t *testing.T) {
 	hs := newHarness(t)
+	hs.now = time.Date(2026, 1, 10, 12, 0, 0, 0, time.UTC)
 	_, body, _ := hs.get("/season?lat=70&lng=20&date=2026-01-10", true)
 	if !strings.Contains(body, views.CopyHarsh) || !strings.Contains(body, "Banana") {
 		t.Fatalf("harsh:\n%s", body)
@@ -80,7 +82,8 @@ func TestSeasonBadCoordinates(t *testing.T) {
 
 // Review Focus 2.
 func TestSeasonMonthFromLocalDate(t *testing.T) {
-	hs := newHarness(t) // server clock: 2026-01-15 UTC
+	hs := newHarness(t)
+	hs.now = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 	_, body, _ := hs.get(lisbonQ+"&date=2026-12-31", true)
 	if !strings.Contains(body, "December") {
 		t.Fatal("client's local December must win over server January")
@@ -142,5 +145,30 @@ func TestSeasonItemLinksCarryCellAndDate(t *testing.T) {
 	_, body, _ := hs.get(lisbonQ+"&date=2026-08-15", true)
 	if !strings.Contains(body, "/ingredient/tomato?cell=") || !strings.Contains(body, "&date=2026-08-15") {
 		t.Fatalf("item link:\n%s", body)
+	}
+}
+
+// Final review 1: once the request deadline has passed, the error panel must
+// still render (templ components bail out on a done context).
+func TestSeasonTimeoutRendersLoadError(t *testing.T) {
+	hs := newHarness(t, shortTimeout)
+	hs.climate.block = true
+	code, body, _ := hs.get(lisbonQ+"&date=2026-08-15", true)
+	if code != 503 || !strings.Contains(body, views.CopyLoadError) {
+		t.Fatalf("%d\n%q", code, body)
+	}
+}
+
+// Final review 1: a hung place lookup must not eat the whole budget; the
+// label falls back and the cached results still render.
+func TestSeasonHungPlaceLookupFallsBack(t *testing.T) {
+	hs := newHarness(t, shortTimeout)
+	if code, _, _ := hs.get(lisbonQ+"&date=2026-08-15", true); code != 200 {
+		t.Fatal("warm-up failed")
+	}
+	hs.places.blockByID = true
+	code, body, _ := hs.get(lisbonQ+"&date=2026-08-15", true)
+	if code != 200 || !strings.Contains(body, "Tomato") || !strings.Contains(body, "near Lisbon, PT") {
+		t.Fatalf("%d\n%q", code, body)
 	}
 }

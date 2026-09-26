@@ -136,9 +136,16 @@ func (s *Server) compute(ctx context.Context, lat, lng float64, month time.Month
 	return core, nil
 }
 
+// placeLookupTimeout bounds the ?place= lookup so a hung places query can't
+// eat the whole request budget; on failure the label falls back.
+const placeLookupTimeout = 300 * time.Millisecond
+
 func (s *Server) label(ctx context.Context, placeParam string, core seasonCore, lat, lng float64) string {
 	if id, err := strconv.ParseInt(placeParam, 10, 32); err == nil {
-		if p, ok, err := s.d.Places.ByID(ctx, int32(id)); err == nil && ok {
+		pctx, cancel := context.WithTimeout(ctx, placeLookupTimeout)
+		p, ok, err := s.d.Places.ByID(pctx, int32(id))
+		cancel()
+		if err == nil && ok {
 			return p.Label()
 		}
 	}

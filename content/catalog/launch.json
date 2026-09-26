@@ -380,7 +380,7 @@
       "pairings": ["mint", "cucumber", "basil", "chili-pepper"], "note": "" },
 
     { "slug": "kiwifruit", "name": "Kiwifruit", "category": "fruit", "kind": "perennial_fruit",
-      "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 13, "months_bloom_to_harvest": 5,
+      "frost": "tender", "chill_months_min": 0, "warmup_temp_c": 13, "months_bloom_to_harvest": 5,
       "harvest_span_months": 2, "storage_months": 4,
       "tips": { "choose": "Firm to slightly yielding, with unwrinkled skin.",
                 "store": "Ripen at room temperature, then refrigerate for up to two weeks." },

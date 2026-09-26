@@ -140,17 +140,22 @@ a near-duplicate ingredient.
   `tender`, so the winter-kill rule keeps them out of hard-winter climates
   (New York, Toronto, Chicago, Beijing). `globe-artichoke` is `tender` for
   the same reason.
-- `grape` and `kiwifruit` are `hardy` (the vines survive hard winters). Their
-  harvest windows come from the warm-up month (11.5 °C and 13 °C). With no
-  chill requirement they can also show in cold-winter climates such as Oslo,
-  which the calibration fixtures should catch.
+- `grape` is `hardy` (the vine survives hard winters), with a warm-up of
+  11.5 °C. With no chill requirement it can also show in cold-winter
+  climates such as Oslo, which the calibration fixtures should catch.
+  `kiwifruit` is `tender` (controller amendment to ruling G: commercial
+  kiwifruit is not grown in hard-winter zones), so winter-kill keeps it out
+  of New York, Chicago, Toronto, Oslo, Stockholm and Beijing. Its harvest
+  window comes from a 13 °C warm-up.
 - Temperate fruit, berries, `asparagus` and `rhubarb` need no chill months:
   their `warmup_temp_c` (9–11.5 °C) keeps them out of climates whose coldest
   month never drops below it.
 - Perennial herbs (thyme, rosemary, sage, oregano, mint) are modelled as
   `annual`: they are picked whenever the plant is growing.
 - The rules use temperature only, so spring and autumn with the same mean
-  look alike. `morel` shows in spring and again in autumn. `chanterelle` and
-  `porcini` start in late spring as well as autumn (London: chanterelle
-  May–Oct, porcini May–Jun and Sep–Nov). Tune them against the calibration
-  fixtures.
+  look alike. The [2, 13] window for `brussels-sprouts` and `parsnip` also
+  opens briefly in spring in continental climates: New York and Chicago show
+  them in April, Oslo and Stockholm in May. `morel` shows in spring and
+  again in autumn. `chanterelle` and `porcini` start in late spring as well
+  as autumn (London: chanterelle May–Oct, porcini May–Jun and Sep–Nov).
+  Tune them against the calibration fixtures.

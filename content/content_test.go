@@ -126,14 +126,39 @@ func yearIn(n climate.MonthlyNormals, ing catalog.Ingredient) ([12]season.Status
 	return m, ok
 }
 
-// Ruling G: no tender perennial fruit survives a hard-winter continental climate.
-func TestNoTenderPerennialInContinentalClimate(t *testing.T) {
-	for _, ing := range launch(t).All() {
-		if ing.Kind != catalog.KindPerennialFruit || ing.Frost != catalog.FrostTender {
+// Ruling G: frost-sensitive perennials are not grown in a hard-winter
+// continental climate. The list is by slug so the gate checks the catalog's
+// frost settings, not just the engine rule.
+func TestNoFrostSensitivePerennialInContinentalClimate(t *testing.T) {
+	snap := launch(t)
+	for _, slug := range []string{"lemon", "orange", "mandarin", "avocado", "mango", "pomegranate", "globe-artichoke", "kiwifruit"} {
+		ing, ok := snap.Get(slug)
+		if !ok {
+			t.Errorf("%s is missing", slug)
 			continue
 		}
 		if m, ok := yearIn(climatetest.Continental(), ing); ok {
-			t.Errorf("%s is in season in the NYC-like continental climate: %v", ing.Slug, m)
+			t.Errorf("%s is in season in the NYC-like continental climate: %v", slug, m)
+		}
+	}
+	if ing, ok := snap.Get("lime"); ok {
+		if m, ok := yearIn(climatetest.Continental(), ing); ok {
+			t.Errorf("lime is in season in the NYC-like continental climate: %v", m)
+		}
+	}
+}
+
+// Temperate fruit is not grown in the humid tropics.
+func TestNoTemperateFruitInTropics(t *testing.T) {
+	snap := launch(t)
+	for _, slug := range []string{"apple", "cherry", "strawberry"} {
+		ing, ok := snap.Get(slug)
+		if !ok {
+			t.Errorf("%s is missing", slug)
+			continue
+		}
+		if m, ok := yearIn(climatetest.Tropical(), ing); ok {
+			t.Errorf("%s is in season in the tropical climate: %v", slug, m)
 		}
 	}
 }

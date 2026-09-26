@@ -77,7 +77,7 @@ func Mediterranean() climate.MonthlyNormals {
 }
 
 // Continental is a hot-summer, hard-winter climate like New York: the
-// coldest month's tmin is -4.5 °C, so tender perennials winter-kill.
+// coldest month's tmin is -4.0 °C, so tender perennials winter-kill.
 func Continental() climate.MonthlyNormals {
 	return FromMeans(
 		[12]float64{0.5, 2, 6, 12, 17, 22, 25, 24.5, 21, 14.5, 9, 3.5}, 9, even(100),

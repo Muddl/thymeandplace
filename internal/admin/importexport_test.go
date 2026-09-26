@@ -179,16 +179,19 @@ var (
 	seqRE       = regexp.MustCompile(`"seq": (\d+)`)
 )
 
-// TestHistoryPaging seeds 105 catalog_history rows directly (bypassing real
-// ingredient writes, which would need 105 slow preview/apply round trips)
+// TestHistoryPaging seeds 200 catalog_history rows directly (bypassing real
+// ingredient writes, which would need 200 slow preview/apply round trips)
 // under a slug no real ingredient uses, so the count is exact and isolated
 // from the rows catalogEnv's own setup writes. It checks the first page is
 // exactly 100 rows, newest first, with an "Older" link, and that following
-// that link returns the remaining 5.
+// that link returns the remaining 100 rows with no further "Older" link.
+// 200 is chosen deliberately, not 105: it makes the second page exactly 100
+// rows, the case a LIMIT-100 query cannot tell apart from "there might be
+// more" (see history in ListHistory's query, now LIMIT 101).
 func TestHistoryPaging(t *testing.T) {
 	e, c := catalogEnv(t)
 	const slug = "paging-test"
-	const total = 105
+	const total = 200
 	_, err := e.pool.Exec(context.Background(), `
 		INSERT INTO catalog_history (actor, action, table_name, row_key, after)
 		SELECT 'seed', 'update', 'ingredient', jsonb_build_object('slug', $1::text), jsonb_build_object('seq', seq)

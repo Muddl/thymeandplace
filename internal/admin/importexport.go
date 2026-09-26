@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -79,9 +80,10 @@ func (a *Admin) export(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) history(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	slug := strings.TrimSpace(q.Get("slug"))
 	params := store.ListHistoryParams{}
-	if s := q.Get("slug"); s != "" {
-		params.Slug = pgtype.Text{String: s, Valid: true}
+	if slug != "" {
+		params.Slug = pgtype.Text{String: slug, Valid: true}
 	}
 	if bs := q.Get("before"); bs != "" {
 		b, err := strconv.ParseInt(bs, 10, 64)
@@ -97,7 +99,14 @@ func (a *Admin) history(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Couldn't load history.", http.StatusInternalServerError)
 		return
 	}
-	vm := views.HistoryVM{Layout: a.layout(r, "History"), Slug: q.Get("slug")}
+	// ListHistory fetches one row past the page size (101), so a page of
+	// exactly 100 remaining rows can be told apart from one with more still
+	// to come: only trim and offer "Older" when that extra row showed up.
+	hasMore := len(rows) > 100
+	if hasMore {
+		rows = rows[:100]
+	}
+	vm := views.HistoryVM{Layout: a.layout(r, "History"), Slug: slug}
 	for _, h := range rows {
 		row := views.HistoryRow{
 			ID: h.ID, At: h.ChangedAt.Time.UTC().Format("2006-01-02 15:04:05"), Actor: h.Actor, Action: h.Action,
@@ -108,7 +117,7 @@ func (a *Admin) history(w http.ResponseWriter, r *http.Request) {
 		}
 		vm.Rows = append(vm.Rows, row)
 	}
-	if len(rows) == 100 {
+	if hasMore {
 		v := url.Values{"before": {strconv.FormatInt(rows[len(rows)-1].ID, 10)}}
 		if vm.Slug != "" {
 			v.Set("slug", vm.Slug)

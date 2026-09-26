@@ -188,7 +188,7 @@ docker compose start app
 
 ## Test-only settings — never set in production
 
-- `TP_PUBLIC_TODAY` pins the public site's "today" to a fixed calendar date (keeping the time of day). It exists for e2e scenarios that need a specific month (e.g. a season boundary crossing in May). The server logs a `WARN` at startup if it's set (`cmd/server/app.go`, `loadConfig`) — if you ever see that warning on the production instance, the env file has leaked a test setting; remove `TP_PUBLIC_TODAY` and restart. It is not present in `deploy/env.example`.
+- `TP_PUBLIC_TODAY` pins the public site's "today" to a fixed calendar date (keeping the time of day). It exists for e2e scenarios that need a specific month (e.g. a season boundary crossing in May). The server refuses to start with it unless `ADMIN_RP_ID=localhost` (the e2e stack's value; `cmd/server/app.go`, `loadConfig`), and logs a `WARN` when it is accepted. If the production app exits at startup with `TP_PUBLIC_TODAY is test-only and requires ADMIN_RP_ID=localhost`, the env file has leaked a test setting; remove `TP_PUBLIC_TODAY` and start the app again. It is not present in `deploy/env.example`.
 - `DEVSEED_ALLOW=1` is required for `devseed` (the seed-data command shipped in the `ingest` image) to run at all; without it, `devseed` refuses and exits 2. It's set in `deploy/e2e.env` for end-to-end tests and local dev only — never set it in `/etc/thymeandplace/app.env`. `devseed` resets the sample catalog, so running it against a real database would destroy real data.
 
 ## Admin access management

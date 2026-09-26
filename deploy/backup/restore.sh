@@ -1,14 +1,40 @@
 #!/bin/sh
-# usage: RESTORE_CONFIRM=<dbname> restore.sh <object key, e.g. backups/daily/2026-10-01.dump> <target DATABASE_URL>
+# usage: RESTORE_CONFIRM=<dbname> restore.sh <object key, e.g. backups/daily/2026-10-01.dump> [target DATABASE_URL]
+#
+# Replaces the target database with the dump: downloads and checks the dump,
+# then (connected to the `postgres` maintenance database on the same server)
+# DROP DATABASE <db> WITH (FORCE) and CREATE DATABASE <db>, then restores into
+# the empty database in a single transaction. Nothing created after the backup
+# survives, and pg_restore never has to drop objects one by one (which, with
+# --clean, could fail halfway on post-backup objects and leave the live
+# database gutted). The target defaults to this container's $DATABASE_URL and
+# must be a postgres:// URL. Stop the app before restoring over its database.
 set -eu
-[ $# -eq 2 ] || { echo "usage: restore.sh <key> <target-database-url>" >&2; exit 2; }
+[ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: RESTORE_CONFIRM=<dbname> restore.sh <key> [target-database-url]" >&2; exit 2; }
+key=$1
+target=${2:-${DATABASE_URL:-}}
+[ -n "$target" ] || { echo "restore: no target: pass a database URL or set DATABASE_URL" >&2; exit 2; }
 
-# --clean below drops and recreates every object in the target database, so
-# require the caller to name the database they intend to overwrite before
-# anything is downloaded or touched. This catches a copy-pasted or stale
-# DATABASE_URL pointed at the wrong database before it does any damage.
-dbname=${2##*/}
-dbname=${dbname%%\?*}
+# Split the URL: <prefix>/<dbname>[?params]. The maintenance URL is the same
+# server and credentials with the database swapped for `postgres`.
+base=${target%%\?*}
+params=${target#"$base"}
+dbname=${base##*/}
+prefix=${base%/*}
+case "$prefix" in
+  postgres://*|postgresql://*) ;;
+  *) echo "restore: target must be a postgres:// URL ending in /<dbname>" >&2; exit 2 ;;
+esac
+case "$dbname" in
+  ""|*:*|*@*) echo "restore: no database name in the target URL" >&2; exit 2 ;;
+  postgres|template0|template1) echo "restore: refusing to restore over the $dbname system database" >&2; exit 2 ;;
+esac
+admin_url="$prefix/postgres$params"
+
+# The whole database is dropped and recreated below, so require the caller to
+# name the database they intend to overwrite before anything is downloaded or
+# touched. This catches a copy-pasted or stale URL pointed at the wrong
+# database before it does any damage.
 if [ "${RESTORE_CONFIRM:-}" != "$dbname" ]; then
   echo "refusing to restore over $dbname: set RESTORE_CONFIRM=$dbname to confirm" >&2
   exit 2
@@ -18,8 +44,21 @@ fi
 scheme=https
 [ "${BUCKET_USE_SSL:-true}" = "false" ] && scheme=http
 mc alias set store "$scheme://$BUCKET_ENDPOINT" "$BUCKET_ACCESS_KEY" "$BUCKET_SECRET_KEY" >/dev/null
-tmp=/tmp/restore.dump
+tmp=$(mktemp /tmp/restore.XXXXXX)
 trap 'rm -f "$tmp"' EXIT
-mc cp --quiet "store/$BUCKET_NAME/$1" "$tmp"
-pg_restore --no-owner --clean --if-exists --exit-on-error --dbname="$2" "$tmp"
-echo "restore ok: $1 → target database"
+
+# Download and check the dump before touching the database.
+mc cp --quiet "store/$BUCKET_NAME/$key" "$tmp"
+[ -s "$tmp" ] || { echo "restore: downloaded dump $key is empty; database untouched" >&2; exit 1; }
+pg_restore --list "$tmp" >/dev/null || { echo "restore: $key is not a readable pg_dump archive; database untouched" >&2; exit 1; }
+
+# :"db" makes psql quote the name as an identifier. DROP/CREATE DATABASE
+# cannot run inside a transaction, so they run as two autocommit statements.
+psql "$admin_url" -X -q -v ON_ERROR_STOP=1 -v db="$dbname" <<'SQL'
+SET client_min_messages = warning;
+DROP DATABASE IF EXISTS :"db" WITH (FORCE);
+CREATE DATABASE :"db" TEMPLATE template0;
+SQL
+
+pg_restore --single-transaction --exit-on-error --no-owner --dbname="$target" "$tmp"
+echo "restore ok: $key → $dbname"

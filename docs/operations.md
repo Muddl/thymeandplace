@@ -115,53 +115,61 @@ Periodically (e.g. monthly, right after a successful backup) verify restores sti
 docker compose --profile tools run --rm --entrypoint restore-test.sh backup
 ```
 
-`restore-test.sh` restores the newest daily dump into a scratch database (`thymeandplace_restore_test`) on the same Postgres server, compares row counts of `ingredient`, `ingredient_pairing`, `seafood_region`, `catalog_history`, `dataset_versions`, `admin_passkey`, `admin_backup`, `climate_cell`, `ocean_ecoregion`, and `place` against the live database, prints a table of `live=`/`restored=` counts, and drops the scratch database afterwards even if the comparison fails (it's under a `trap ... EXIT`). It exits non-zero — "fail loudly" — on any count mismatch or if no daily backup is found. Because a backup taken mid-day can legitimately trail the live `catalog_history` count if edits happened since, run it immediately after a fresh `backup` run rather than at an arbitrary time.
+`restore-test.sh` restores the newest daily dump into a scratch database (`thymeandplace_restore_test`) on the same Postgres server by calling `restore.sh` on it (the exact drop/create/single-transaction path a real restore takes, see "Restoring from backup"), compares row counts of `ingredient`, `ingredient_pairing`, `seafood_region`, `catalog_history`, `dataset_versions`, `admin_passkey`, `admin_backup`, `climate_cell`, `ocean_ecoregion`, and `place` against the live database, prints a table of `live=`/`restored=` counts, and drops the scratch database afterwards even if the comparison fails (it's under a `trap ... EXIT`). It exits non-zero — "fail loudly" — on any count mismatch or if no daily backup is found. Because a backup taken mid-day can legitimately trail the live `catalog_history` count if edits happened since, run it immediately after a fresh `backup` run rather than at an arbitrary time.
 
 ### Verifying locally before relying on it
 
 The scripts were exercised end to end against a local S3-compatible container standing in for the production bucket, using the e2e stack seeded via `devseed` (which itself refuses to run without `DEVSEED_ALLOW=1` — dev/e2e only, never set in production).
 
-`minio/minio` and `minio/mc` are both pull-access-denied on Docker Hub and Quay as of this writing (MinIO gated them behind their commercial subscription), so this recipe uses `zenko/cloudserver` — a freely-pullable S3-compatible server — as the bucket stand-in, and drives it with the `mc` already baked into the `backup` image itself (sha256-pinned in `deploy/backup/Dockerfile`) instead of pulling a second `minio/mc` image. The commands below were run as written, in this order, in a Git Bash shell:
+`minio/minio` and `minio/mc` are both pull-access-denied on Docker Hub and Quay as of this writing (MinIO gated them behind their commercial subscription), so this recipe uses `zenko/cloudserver` — a freely-pullable S3-compatible server — as the bucket stand-in, and drives it with the `mc` already baked into the `backup` image itself (sha256-pinned in `deploy/backup/Dockerfile`) instead of pulling a second `minio/mc` image. The bucket container joins the e2e stack's network, so `backup`, `restore.sh` and `restore-test.sh` run through the same `docker compose ... run backup` commands as production, with the bucket settings passed as `-e` overrides. The commands below were run as written, in this order, in a Git Bash shell from the repo root:
 
 ```bash
-docker network create tp-backup-test
-docker run -d --rm --name tp-minio --network tp-backup-test \
-  -e ENDPOINT=tp-minio -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver:latest
-
-cd deploy && export TP_ENV_FILE=./e2e.env
-C="docker compose -f compose.yaml -f compose.e2e.yaml"
+cd deploy && export TP_ENV_FILE=./e2e.env MSYS_NO_PATHCONV=1
+C="docker compose -f compose.yaml -f compose.e2e.yaml"   # project thymeandplace-e2e
 $C up -d --build --wait db app
-MSYS_NO_PATHCONV=1 $C --profile tools run --rm --entrypoint /app/devseed ingest
-docker network connect tp-backup-test "$($C ps -q db)"
+$C --profile tools run --rm --entrypoint /app/devseed ingest
 
+docker run -d --name tp-minio -e ENDPOINT=tp-minio -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver:latest
+docker network connect thymeandplace-e2e_default tp-minio
 $C --profile tools build backup
-docker run --rm --network tp-backup-test --entrypoint sh thymeandplace-backup:latest -c \
-  "mc alias set m http://tp-minio:8000 accessKey1 verySecretKey1 && mc mb m/tp-backups"
+$C --profile tools run --rm --entrypoint sh backup -c   "mc alias set m http://tp-minio:8000 accessKey1 verySecretKey1 && mc mb m/tp-backups"
 
 BK="-e BUCKET_ENDPOINT=tp-minio:8000 -e BUCKET_NAME=tp-backups -e BUCKET_ACCESS_KEY=accessKey1 -e BUCKET_SECRET_KEY=verySecretKey1 -e BUCKET_USE_SSL=false"
-docker run --rm --network tp-backup-test --env-file e2e.env $BK \
-  -e DATABASE_URL="postgres://tp:tp-e2e-only@$($C ps -q db | cut -c1-12):5432/thymeandplace?sslmode=disable" \
-  thymeandplace-backup:latest
-docker run --rm --network tp-backup-test --env-file e2e.env $BK \
-  -e DATABASE_URL="postgres://tp:tp-e2e-only@$($C ps -q db | cut -c1-12):5432/thymeandplace?sslmode=disable" \
-  --entrypoint restore-test.sh thymeandplace-backup:latest
+$C --profile tools run --rm $BK backup
+$C --profile tools run --rm $BK --entrypoint restore-test.sh backup
 
-$C down -v; docker rm -f tp-minio; docker network rm tp-backup-test
+# Full restore over the (e2e) live database, exactly as in "Restoring from backup":
+$C stop app
+$C --profile tools run --rm $BK -e RESTORE_CONFIRM=thymeandplace --entrypoint restore.sh backup backups/daily/<date>.dump
+$C start app
+
+$C --profile tools down -v; docker rm -f tp-minio
 ```
 
 `compose.e2e.yaml` sets the project name `thymeandplace-e2e`, so this stack's containers and volumes (`thymeandplace-e2e_*`) are separate from production's (`thymeandplace_*`) and the final `down -v` (like the ones in `deploy/smoke.sh` and `e2e/run.sh`) cannot touch production data, even on the VPS. Always pass both `-f compose.yaml -f compose.e2e.yaml` for test stacks.
 
-Expected output: `backup ok: backups/daily/<date>.dump`, then a table of equal `live=`/`restored=` counts per table, then `restore-test ok (<date>.dump)`. `accessKey1`/`verySecretKey1` are `zenko/cloudserver`'s built-in defaults, used only for this throwaway local container — never real credentials.
+Expected output: `backup ok: backups/daily/<date>.dump`, then a table of equal `live=`/`restored=` counts per table, then `restore-test ok (<date>.dump)`, then `restore ok: backups/daily/<date>.dump → thymeandplace`. When this was verified, a table with a PostGIS `geography` column (plus a view on it) created after the backup was gone after the restore, and every catalog count matched the counts at backup time. `accessKey1`/`verySecretKey1` are `zenko/cloudserver`'s built-in defaults, used only for this throwaway local container — never real credentials.
 
-**Windows / Git Bash note:** Git Bash rewrites a leading `/` in arguments as a Windows path, which breaks `--entrypoint /app/devseed` and similar. Prefix those commands with `MSYS_NO_PATHCONV=1`, e.g. `MSYS_NO_PATHCONV=1 $C --profile tools run --rm --entrypoint /app/devseed ingest`.
+**Windows / Git Bash note:** Git Bash rewrites a leading `/` in arguments as a Windows path, which breaks `--entrypoint /app/devseed` and similar. `MSYS_NO_PATHCONV=1` (exported above) turns that off; it's a no-op on Linux.
 
 ## Restoring from backup
 
-`restore.sh` refuses to run unless `RESTORE_CONFIRM` is set to the exact database name parsed out of the target URL (the last path segment before any `?params`) — this stops a stale or copy-pasted `DATABASE_URL` from silently overwriting the wrong database, since `pg_restore --clean` drops every object in the target first.
+A restore **replaces the whole database** with the dump. `restore.sh <key> [target-url]` (the target defaults to the `backup` container's own `DATABASE_URL`, i.e. the live database from `app.env`):
 
-1. `docker compose stop app`
-2. `docker compose --profile tools run --rm -e RESTORE_CONFIRM=thymeandplace --entrypoint restore.sh backup backups/daily/<date>.dump "$DATABASE_URL"` (`thymeandplace` is `POSTGRES_DB` from `app.env`; if it refuses with "refusing to restore over ...", check that the name after `-e RESTORE_CONFIRM=` matches the database name in `$DATABASE_URL` exactly).
-3. `docker compose start app`
+1. refuses unless `RESTORE_CONFIRM` is set to the exact database name in the target URL (the last path segment before any `?params`), before anything is downloaded or touched — this stops a stale or copy-pasted URL from overwriting the wrong database;
+2. downloads the dump and checks it is non-empty and a readable `pg_dump` archive, so a missing, empty or corrupt backup exits non-zero with the database untouched;
+3. connects to the `postgres` maintenance database on the same server and runs `DROP DATABASE <db> WITH (FORCE)` then `CREATE DATABASE <db>` (the name is quoted as an identifier);
+4. runs `pg_restore --single-transaction --exit-on-error --no-owner` into the empty database. Nothing created after the backup survives (tables, views, PostGIS-dependent objects), and there is no object-by-object `--clean` that could fail halfway through the live data.
+
+Dumps live in the bucket at `backups/daily/<YYYY-MM-DD>.dump` (last 7 days) and `backups/weekly/<YYYY>-W<ww>.dump` (last 4 weeks). From `/opt/thymeandplace/deploy`:
+
+```bash
+docker compose stop app
+docker compose --profile tools run --rm -e RESTORE_CONFIRM=thymeandplace --entrypoint restore.sh backup backups/daily/<date>.dump
+docker compose start app
+```
+
+`thymeandplace` is `POSTGRES_DB` from `/etc/thymeandplace/app.env`; if it refuses with "refusing to restore over ...", the name after `-e RESTORE_CONFIRM=` doesn't match the database name in that file's `DATABASE_URL`. The app must be stopped first: `WITH (FORCE)` terminates its connections, and it must not write to the database mid-restore. After `start app`, check `curl -s https://thymeand.place/readyz` returns `ready`.
 
 ## Reverse proxy trust and logging
 

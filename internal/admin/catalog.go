@@ -15,7 +15,7 @@ func (a *Admin) registerCatalog() {
 	auth := func(f http.HandlerFunc) http.Handler { return a.requireAuth(f) }
 	m.Handle("GET /admin", auth(a.catalogList))
 	m.Handle("GET /admin/ingredients/new", auth(a.newForm))
-	m.Handle("GET /admin/ingredients/fields", auth(a.kindFields))
+	m.Handle("GET /admin/kind-fields", auth(a.kindFields))
 	m.Handle("GET /admin/ingredients/{slug}", auth(a.editForm))
 	m.Handle("POST /admin/ingredients/{slug}/preview", auth(a.formPreview))
 	m.Handle("POST /admin/ingredients/{slug}/delete/preview", auth(a.deletePreview))
@@ -72,7 +72,10 @@ func (a *Admin) catalogList(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(vm.Rows, func(i, j int) bool { return vm.Rows[i].Name < vm.Rows[j].Name })
 	vm.Total = len(vm.Rows)
-	if r.Header.Get("HX-Request") == "true" {
+	// A history-restore navigation (back/forward to a previous /admin?...
+	// state) still carries HX-Request from the original boosted link, but
+	// htmx needs the full page to restore into, not the #rows fragment.
+	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-History-Restore-Request") != "true" {
 		a.render(w, r, http.StatusOK, views.CatalogRows(vm))
 		return
 	}
@@ -87,7 +90,11 @@ func (a *Admin) formVM(r *http.Request, isNew bool, values map[string]string, er
 	}
 	action := "/admin/ingredients/new/preview"
 	if !isNew {
-		action = "/admin/ingredients/" + values["slug"] + "/preview"
+		// Built from the route's slug, not values["slug"] (the posted hidden
+		// field): on a re-render after an invalid submit, the action must
+		// stay pointed at the slug being edited even if that hidden field
+		// was tampered with or is otherwise out of sync.
+		action = "/admin/ingredients/" + r.PathValue("slug") + "/preview"
 	}
 	title := "Add ingredient"
 	if !isNew {
@@ -166,12 +173,25 @@ func (a *Admin) formPreview(w http.ResponseWriter, r *http.Request) {
 		ing.Slug = r.PathValue("slug") // slugs are stable keys; the edit form can't rename
 	}
 	if isNew {
-		if ing.Slug == "new" {
-			problems = append(problems, catalog.Problem{Slug: ing.Slug, Field: "slug", Message: "“new” is reserved; choose another slug"})
-		} else if snap, ok := a.loadSnap(w, r); !ok {
+		if snap, ok := a.loadSnap(w, r); !ok {
 			return
 		} else if _, exists := snap.Get(ing.Slug); exists {
 			problems = append(problems, catalog.Problem{Slug: ing.Slug, Field: "slug", Message: "already exists; edit it instead"})
+		}
+	} else {
+		snap, ok := a.loadSnap(w, r)
+		if !ok {
+			return
+		}
+		if _, exists := snap.Get(ing.Slug); !exists {
+			name := ing.Name
+			if name == "" {
+				name = ing.Slug
+			}
+			a.messagePage(w, r, http.StatusConflict,
+				name+" was deleted after this form was opened. Add it again from Add ingredient if you meant to.",
+				views.Link{Href: "/admin/ingredients/new", Label: "Add ingredient"})
+			return
 		}
 	}
 	// Parse problems win for their field; rule problems fill in the rest.

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"html"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -30,12 +31,20 @@ func TestCatalogListAndFilters(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "<html") || !strings.Contains(rec.Body.String(), "Kale") {
 		t.Fatal("HTMX list request should return rows only")
 	}
+	// A history-restore navigation (browser back/forward into a previous
+	// /admin?... URL) still carries HX-Request from the boosted link that
+	// got there, but htmx needs the whole page to restore into, not the
+	// #rows fragment it would otherwise get swapped into nothing.
+	rec = c.do("GET", "/admin?q=kale", nil, map[string]string{"HX-Request": "true", "HX-History-Restore-Request": "true"})
+	if !strings.Contains(rec.Body.String(), "<html") || !strings.Contains(rec.Body.String(), "Kale") {
+		t.Fatalf("history-restore request should return the full page:\n%s", rec.Body.String())
+	}
 }
 
 func TestEditFormPrefilledAndKindSwap(t *testing.T) {
 	_, c := catalogEnv(t)
 	b := c.get("/admin/ingredients/tomato").Body.String()
-	for _, want := range []string{`name="grow_temp_min_c" value="16"`, `name="grow_temp_max_c" value="30"`, `value="basil"`, `hx-get="/admin/ingredients/fields"`} {
+	for _, want := range []string{`name="grow_temp_min_c" value="16"`, `name="grow_temp_max_c" value="30"`, `value="basil"`, `hx-get="/admin/kind-fields"`, `hx-params="not csrf"`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("missing %q", want)
 		}
@@ -43,7 +52,7 @@ func TestEditFormPrefilledAndKindSwap(t *testing.T) {
 	if strings.Contains(b, `name="chill_months_min"`) {
 		t.Fatal("annual form must not show perennial fields")
 	}
-	part := c.do("GET", "/admin/ingredients/fields?kind=perennial_fruit&frost=hardy", nil, map[string]string{"HX-Request": "true"}).Body.String()
+	part := c.do("GET", "/admin/kind-fields?kind=perennial_fruit&frost=hardy", nil, map[string]string{"HX-Request": "true"}).Body.String()
 	if !strings.Contains(part, `name="chill_months_min"`) || strings.Contains(part, `name="grow_temp_min_c"`) || strings.Contains(part, "<html") {
 		t.Fatalf("kind partial:\n%s", part)
 	}
@@ -93,6 +102,52 @@ func TestNewWithExistingOrReservedSlug(t *testing.T) {
 	f.Set("slug", "new")
 	if rec := c.postForm("/admin/ingredients/new/preview", f); rec.Code != 422 || !strings.Contains(rec.Body.String(), "reserved") {
 		t.Fatalf("reserved slug: %d", rec.Code)
+	}
+}
+
+// Review Focus 5: a stale edit form. The ingredient is deleted in another
+// tab after the edit form was rendered; submitting that now-stale form must
+// not silently re-add it via FormChangeset's upsert.
+func TestStaleEditFormAfterDelete(t *testing.T) {
+	e, c := catalogEnv(t)
+	// Open the edit form (as the owner's other tab would have, before the
+	// delete below), then delete basil via the normal preview+apply path.
+	c.get("/admin/ingredients/basil")
+	id := pendingID(t, c.postForm("/admin/ingredients/basil/delete/preview", url.Values{}).Body.String())
+	if rec := c.postForm("/admin/changesets/"+id+"/apply", url.Values{"confirm_slug": {"basil"}}); rec.Code != 303 {
+		t.Fatalf("delete apply: %d", rec.Code)
+	}
+	if _, ok := e.snap(t).Get("basil"); ok {
+		t.Fatal("basil should be deleted")
+	}
+
+	var before int
+	_ = e.pool.QueryRow(t.Context(), `SELECT count(*) FROM pending_changeset`).Scan(&before)
+
+	// Now submit the stale edit form, as if it had just been posted from
+	// that other tab.
+	f := url.Values{
+		"slug": {"basil"}, "name": {"Basil"}, "category": {"herb"}, "kind": {"cultivated_year_round"},
+		"tip_choose": {"c"}, "tip_store": {"s"}, "pairings": {""},
+	}
+	rec := c.postForm("/admin/ingredients/basil/preview", f)
+	b := html.UnescapeString(rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("stale edit: %d\n%s", rec.Code, b)
+	}
+	for _, want := range []string{"was deleted after this form was opened", "Add ingredient", "/admin/ingredients/new"} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("missing %q:\n%s", want, b)
+		}
+	}
+	if _, ok := e.snap(t).Get("basil"); ok {
+		t.Fatal("stale edit form must not resurrect the deleted ingredient")
+	}
+
+	var after int
+	_ = e.pool.QueryRow(t.Context(), `SELECT count(*) FROM pending_changeset`).Scan(&after)
+	if after != before {
+		t.Fatalf("stale edit created a pending changeset: before=%d after=%d", before, after)
 	}
 }
 

@@ -28,8 +28,11 @@ thymeand.place {
 		health_timeout 2s
 	}
 	handle_errors 502 503 504 {
+		header Retry-After 30
 		root * /srv
 		rewrite * /maintenance.html
-		file_server
+		file_server {
+			status 503
+		}
 	}
 }

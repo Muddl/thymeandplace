@@ -1,0 +1,39 @@
+package views
+
+templ Location(label string) {
+	<header class="where"><h2>{ label }</h2></header>
+}
+
+templ Unsupported() {
+	<div class="panel">
+		<p>{ CopyUnsupported }</p>
+		<p><a href="/#q">{ CopySearchAnother }</a></p>
+	</div>
+}
+
+templ LoadError(label, retryURL string) {
+	if label != "" {
+		@Location(label)
+	}
+	<div class="panel warn" role="alert">
+		<p>{ CopyLoadError }</p>
+		<p><a href={ templ.SafeURL(retryURL) } hx-get={ retryURL } hx-target="#results">{ CopyTryAgain }</a></p>
+	</div>
+}
+
+templ NotFound() {
+	<div class="panel">
+		<p>{ CopyNotFound }</p>
+		<p><a href="/">Back to the start</a></p>
+	</div>
+}
+
+templ TooMany() {
+	<div class="panel"><p>{ CopyPaused }</p></div>
+}
+
+// PlacesPaused is a temporary stub for the /places rate-limit response.
+// It moves to places.templ in Task 4.
+templ PlacesPaused() {
+	<p class="hint">{ CopyPaused }</p>
+}

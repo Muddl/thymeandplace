@@ -34,11 +34,12 @@ func (w *Watcher) Current() string {
 	return s
 }
 
-// Refresh recomputes the version. On a change (and not the first call) it
-// runs onChange (e.g. reload the snapshot) BEFORE publishing, so readers
-// never see a new version paired with the old snapshot. If onChange
-// returns an error, the new version is NOT published and the error is
-// returned so the next NOTIFY or poll retries the reload.
+// Refresh recomputes the version. Whenever it differs from the published one
+// (including the very first publish) it runs onChange (e.g. load the
+// snapshot) BEFORE publishing, so readers never see a version paired with an
+// older snapshot, or a version with no snapshot at all. If onChange returns
+// an error, the version is NOT published and the error is returned, so the
+// next Refresh (NOTIFY, poll or a caller's retry) runs onChange again.
 func (w *Watcher) Refresh(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -50,7 +51,7 @@ func (w *Watcher) Refresh(ctx context.Context) error {
 	if v == old {
 		return nil
 	}
-	if old != "" && w.onChange != nil {
+	if w.onChange != nil {
 		if err := w.onChange(ctx, v); err != nil {
 			return err
 		}

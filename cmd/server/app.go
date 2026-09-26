@@ -70,19 +70,11 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	a.watcher = dataversion.NewWatcher(pool, 5*time.Minute, log, func(ctx context.Context, _ string) error {
 		return a.holder.Reload(ctx)
 	})
-	// Watcher.Refresh only runs onChange on a version CHANGE after its first
-	// call (there is no previous snapshot to protect on cold start, so the
-	// ordering guarantee onChange exists for doesn't apply yet); the first
-	// call just publishes the starting version. So the initial snapshot load
-	// is explicit here, AFTER that first Refresh: the snapshot is then never
-	// older than the published version (a write racing startup leaves the
-	// version behind, and the watcher's next Refresh sees the change and
-	// reloads). Errors from either are logged, not fatal -- start()'s retry
-	// loop and the watcher's own poll/LISTEN cover retries from here on.
+	// The first Refresh runs onChange (the initial catalog load) before it
+	// publishes the starting version, so the snapshot is never older than the
+	// published version. A failure is logged, not fatal: nothing is published,
+	// and start()'s retry loop and the watcher's own poll/LISTEN retry it.
 	if err := a.watcher.Refresh(ctx); err != nil {
-		log.Error("initial data version failed; will retry", "err", err)
-	}
-	if err := a.holder.Reload(ctx); err != nil {
 		log.Error("initial catalog load failed; will retry", "err", err)
 	}
 
@@ -123,13 +115,10 @@ func (a *app) start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-time.After(5 * time.Second):
-				// a.watcher.Refresh would not help here: it only reloads the
-				// catalog (via onChange) when the data version has CHANGED
-				// since it was last published, which it hasn't -- the DB is
-				// fine, this retries a snapshot that failed to load (or
-				// validate) the first time.
-				if err := a.holder.Reload(ctx); err != nil {
-					a.log.Warn("catalog reload retry failed", "err", err)
+				// A failed load leaves the version unpublished, so Refresh
+				// sees a difference and runs onChange (the reload) again.
+				if err := a.watcher.Refresh(ctx); err != nil {
+					a.log.Warn("catalog load retry failed", "err", err)
 				}
 			}
 		}

@@ -28,6 +28,14 @@ func TestWatcherNotifyAndPoll(t *testing.T) {
 	if first != dataversion.Compute(0, nil) {
 		t.Fatalf("initial = %q", first)
 	}
+	select { // onChange runs before the first publish too
+	case v := <-changes:
+		if v != first {
+			t.Fatalf("first onChange got %q, want %q", v, first)
+		}
+	default:
+		t.Fatal("onChange did not run before the first publish")
+	}
 	go w.Run(ctx)
 
 	// A catalog write sends NOTIFY.
@@ -63,13 +71,23 @@ func TestRefreshCallsOnChangeBeforePublishing(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)
 	var w *dataversion.Watcher
+	calls := 0
 	var seenDuringCallback string
 	w = dataversion.NewWatcher(pool, time.Minute, quiet(), func(_ context.Context, v string) error {
+		calls++
 		seenDuringCallback = w.Current()
 		return nil
 	})
-	_ = w.Refresh(ctx)
+	if err := w.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || seenDuringCallback != "" {
+		t.Fatalf("first Refresh: calls=%d saw %q; onChange must run before the first publish", calls, seenDuringCallback)
+	}
 	old := w.Current()
+	if old == "" {
+		t.Fatal("first version not published")
+	}
 	_, _ = pool.Exec(ctx, `UPDATE catalog_meta SET version = version + 1`)
 	_ = w.Refresh(ctx)
 	if seenDuringCallback != old {
@@ -78,12 +96,16 @@ func TestRefreshCallsOnChangeBeforePublishing(t *testing.T) {
 	if w.Current() == old {
 		t.Fatal("new version not published")
 	}
+	if _ = w.Refresh(ctx); calls != 2 {
+		t.Fatalf("onChange ran %d times; an unchanged version must not re-run it", calls)
+	}
 }
 
 // TestRefreshRetriesAfterOnChangeFailure verifies the controller ruling: if
-// onChange fails, the new version must NOT be published (so a later NOTIFY
-// or poll retries the reload), and Refresh must surface the error. Once
-// onChange succeeds, the version is published.
+// onChange fails, the new version must NOT be published (so a later NOTIFY,
+// poll or startup retry re-runs the reload), and Refresh must surface the
+// error. This holds for the first publish too. Once onChange succeeds, the
+// version is published.
 func TestRefreshRetriesAfterOnChangeFailure(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)
@@ -95,15 +117,26 @@ func TestRefreshRetriesAfterOnChangeFailure(t *testing.T) {
 		}
 		return nil
 	})
+	if err := w.Refresh(ctx); err == nil {
+		t.Fatal("expected the first Refresh to return the onChange error")
+	}
+	if w.Current() != "" {
+		t.Fatalf("Current() = %q; nothing may be published before onChange succeeds", w.Current())
+	}
+	fail = false
 	if err := w.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
 	old := w.Current()
+	if old == "" {
+		t.Fatal("first version not published after onChange succeeded")
+	}
 
 	if _, err := pool.Exec(ctx, `UPDATE catalog_meta SET version = version + 1`); err != nil {
 		t.Fatal(err)
 	}
 
+	fail = true
 	if err := w.Refresh(ctx); err == nil {
 		t.Fatal("expected Refresh to return the onChange error")
 	}

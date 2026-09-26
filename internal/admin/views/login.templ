@@ -1,0 +1,45 @@
+package views
+
+templ LoginPage(vm LoginVM) {
+	@Layout(vm.Layout) {
+		<h1>Sign in</h1>
+		if vm.Message != "" {
+			<p class="error">{ vm.Message }</p>
+		}
+		<button type="button" data-webauthn="login" data-begin="/admin/login/passkey/begin" data-finish="/admin/login/passkey/finish">Sign in with a passkey</button>
+		<p id="wa-status" class="error" role="status"></p>
+		if vm.BackupEnabled {
+			<p><a href="/admin/login/backup">Use backup login</a></p>
+		}
+	}
+}
+
+templ BackupPage(vm BackupVM) {
+	@Layout(vm.Layout) {
+		<h1>Backup login</h1>
+		if vm.Message != "" {
+			<p class="error">{ vm.Message }</p>
+		}
+		<form method="post" action="/admin/login/backup">
+			<input type="hidden" name="csrf" value={ vm.Layout.CSRF }/>
+			<label>Password <input type="password" name="password" autocomplete="current-password" required/></label>
+			<label>Authenticator code <input type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required/></label>
+			<button type="submit">Sign in</button>
+		</form>
+		<p><a href="/admin/login">Use a passkey instead</a></p>
+	}
+}
+
+templ EnrollPage(vm EnrollVM) {
+	@Layout(vm.Layout) {
+		<h1>Register a passkey</h1>
+		if vm.Valid {
+			<label>Name for this passkey <input id="pk-name" type="text" maxlength="60" placeholder="e.g. Phone"/></label>
+			<button type="button" data-webauthn="register" data-name-input="pk-name"
+				data-begin={ "/admin/enroll/begin?token=" + vm.Token } data-finish={ "/admin/enroll/finish?token=" + vm.Token }>Register passkey</button>
+			<p id="wa-status" class="error" role="status"></p>
+		} else {
+			<p class="error">This enrollment link is invalid or has expired. Run <code>admin enroll</code> again.</p>
+		}
+	}
+}

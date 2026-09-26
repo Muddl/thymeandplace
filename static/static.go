@@ -3,5 +3,5 @@ package static
 
 import "embed"
 
-//go:embed htmx.min.js app.css app.js
+//go:embed htmx.min.js app.css app.js admin.js admin.css
 var FS embed.FS

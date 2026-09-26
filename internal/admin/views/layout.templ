@@ -1,0 +1,48 @@
+package views
+
+import webviews "thymeandplace/internal/web/views"
+
+templ Layout(vm LayoutVM) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="robots" content="noindex"/>
+			<meta name="csrf-token" content={ vm.CSRF }/>
+			<meta name="htmx-config" content={ htmxConfig }/>
+			<title>{ vm.Title } · Thyme &amp; Place admin</title>
+			<link rel="stylesheet" href={ webviews.Asset("admin.css") }/>
+			<script src={ webviews.Asset("htmx.min.js") } defer></script>
+			<script src={ webviews.Asset("admin.js") } defer></script>
+		</head>
+		<body hx-headers={ csrfHeaders(vm.CSRF) }>
+			<header class="admin">
+				<strong>Thyme &amp; Place admin</strong>
+				if vm.SignedIn {
+					<nav>
+						<a href="/admin">Catalog</a>
+						<a href="/admin/import">Import</a>
+						<a href="/admin/export">Export</a>
+						<a href="/admin/history">History</a>
+						<a href="/admin/security">Security</a>
+					</nav>
+					<form method="post" action="/admin/logout">
+						<input type="hidden" name="csrf" value={ vm.CSRF }/>
+						<button type="submit">Sign out</button>
+					</form>
+				}
+			</header>
+			<main>
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
+
+templ Home(vm LayoutVM) {
+	@Layout(vm) {
+		<h1>Signed in</h1>
+		<p>The catalog screens arrive in the next plan.</p>
+	}
+}

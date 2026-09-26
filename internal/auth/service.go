@@ -103,4 +103,6 @@ var (
 
 type LockedError struct{ Until time.Time }
 
-func (e *LockedError) Error() string { return "backup login locked until " + e.Until.Format(time.RFC3339) }
+func (e *LockedError) Error() string {
+	return "backup login locked until " + e.Until.Format(time.RFC3339)
+}

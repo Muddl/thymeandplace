@@ -77,6 +77,12 @@ func TestImportErrors(t *testing.T) {
 		"too large":      {append([]byte(`{"format":"thymeandplace-catalog/v1","ingredients":[],"pad":"`), bytes.Repeat([]byte("x"), catalogjson.MaxBytes)...), 400, "larger than 5 MB"},
 		"invalid item": {[]byte(`{"format":"thymeandplace-catalog/v1","ingredients":[
 			{"slug":"chard","name":"","category":"vegetable","kind":"cultivated_year_round","tips":{"choose":"c","store":"s"},"pairings":[]}]}`), 422, "chard: name must be 1 to 80 characters"},
+		// Review Focus 2: "new" is reserved so it can't collide with the
+		// GET /admin/ingredients/new route; catalog.Validate rejects it for
+		// every changeset source, not just the form, so import can't create
+		// it either.
+		"reserved slug": {[]byte(`{"format":"thymeandplace-catalog/v1","ingredients":[
+			{"slug":"new","name":"New","category":"vegetable","kind":"cultivated_year_round","tips":{"choose":"c","store":"s"},"pairings":[]}]}`), 422, "reserved"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -51,6 +51,9 @@ func (ing Ingredient) Validate() []Problem {
 	if !slugRE.MatchString(ing.Slug) {
 		add("slug", "must be lowercase letters and digits, separated by single hyphens")
 	}
+	if ing.Slug == "new" {
+		add("slug", "“new” is reserved; choose another slug")
+	}
 	if n := utf8.RuneCountInString(ing.Name); n < 1 || n > 80 {
 		add("name", "must be 1 to 80 characters")
 	}

@@ -13,7 +13,7 @@
    docker compose --profile tools run --rm ingest places approve-license --version N --yes
    docker compose --profile tools run --rm ingest places all --version N
    ```
-   Climate needs the transform container once per version:
+   Climate needs the transform container once per version (all from `/opt/thymeandplace/deploy`):
    ```bash
    docker compose --profile tools run --rm ingest climate fetch
    docker compose --profile tools run --rm ingest climate transform --version N   # exits 3 and prints the next command
@@ -46,7 +46,7 @@ docker compose --profile tools run --rm ingest climate all --version N
 
 What to check:
 - `fetch` prints the license (CC0, citation requested) and the version number `N` — note it.
-- `transform` (step run through the `ingest` binary) exits `3` and prints the exact `docker compose --profile tools run --rm transform ...` command to run next; run that literally.
+- `transform` (step run through the `ingest` binary) exits `3` and prints the exact `docker compose --profile tools run --rm transform /work/climate/vN` command to run next; run that literally from `/opt/thymeandplace/deploy` (the `deploy/` directory, next to `compose.yaml`), where every `docker compose` command in this document runs.
 - The transform container's own log should finish without error and leave `out/climate.csv` under the shared `ingest_work` volume.
 - `ingest climate all --version N` runs load/validate/swap; validate compares interpolated values at twelve fixed reference cities (London, Moscow, Cairo, Singapore, …) against known climatology figures within a 4°C tolerance (`internal/ingest/climate.go`). If validate fails, do not approve the version — check the download completed and the transform didn't silently truncate.
 - Watch disk and memory on the VPS during this step; the raw NetCDF files plus the transform's intermediate arrays are the heaviest thing this system ever does in one step.

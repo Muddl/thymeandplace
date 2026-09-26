@@ -40,10 +40,12 @@ type Dataset interface {
 }
 
 // ExternalTransformError means the transform must run in another container.
+// Cmd is meant to be run from the deploy/ directory (next to compose.yaml),
+// where docs/operations.md runs every other `docker compose` step.
 type ExternalTransformError struct{ Cmd string }
 
 func (e *ExternalTransformError) Error() string {
-	return "transform output not found; run: " + e.Cmd + " — then run this step again"
+	return "transform output not found; run (from the deploy/ directory): " + e.Cmd + " — then run this step again"
 }
 
 // ValidationError lists every failed check. Live data is unchanged.

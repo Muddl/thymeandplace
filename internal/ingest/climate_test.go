@@ -52,6 +52,14 @@ func TestClimateExternalTransform(t *testing.T) {
 	if !errors.As(err, &ext) || !strings.Contains(ext.Cmd, fmt.Sprintf("/work/climate/v%d", v)) {
 		t.Fatalf("want external transform error, got %v", err)
 	}
+	// The printed command is run from deploy/ (docs/operations.md), next to
+	// compose.yaml, exactly like every other `docker compose` step there.
+	if want := fmt.Sprintf("docker compose --profile tools run --rm transform /work/climate/v%d", v); ext.Cmd != want {
+		t.Fatalf("Cmd = %q, want %q", ext.Cmd, want)
+	}
+	if !strings.Contains(err.Error(), "from the deploy/ directory") {
+		t.Fatalf("error must say where to run the command: %v", err)
+	}
 
 	// Once the container has written its output, transform uploads it.
 	out := filepath.Join(p.versionDir(v), "out")

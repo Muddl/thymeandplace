@@ -68,7 +68,7 @@ func (c *Climate) Sources() []Source { return c.SourceList }
 func (*Climate) Transform(_ context.Context, dir string, w io.Writer) error {
 	f, err := os.Open(filepath.Join(dir, "out", "climate.csv"))
 	if errors.Is(err, os.ErrNotExist) {
-		return &ExternalTransformError{Cmd: "docker compose -f deploy/compose.yaml run --rm transform /work/climate/" + filepath.Base(dir)}
+		return &ExternalTransformError{Cmd: "docker compose --profile tools run --rm transform /work/climate/" + filepath.Base(dir)}
 	}
 	if err != nil {
 		return err

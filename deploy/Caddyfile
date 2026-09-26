@@ -8,18 +8,17 @@ thymeand.place {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		-Server
 	}
-	# The enroll token lives in the query string (?token=...); strip it before
-	# it reaches the access log. reverse_proxy below also depends on Caddy's
-	# default of ignoring/overwriting any inbound X-Forwarded-For rather than
-	# trusting it, since no trusted_proxies is configured (Caddy is the first
-	# hop) - the backend always sees the real client IP, not a spoofed one.
-	log {
-		format filter {
-			request>uri query {
-				delete token
-			}
-		}
-	}
+	# No access log, on purpose: request URIs carry public coordinates and
+	# search text (and the admin enroll ?token=), headers carry Referer and
+	# Hx-Current-Url, and every line would record the client IP. Spec §14/§15
+	# allow logging only the cell_id, which the app itself logs per request.
+	# Caddy's own runtime/error log (stderr, on by default) is unaffected.
+	# Do not add a `log` directive here.
+	#
+	# reverse_proxy below depends on Caddy's default of ignoring/overwriting
+	# any inbound X-Forwarded-For rather than trusting it, since no
+	# trusted_proxies is configured (Caddy is the first hop) - the backend
+	# always sees the real client IP, not a spoofed one.
 	# Route on liveness. The app itself refuses to listen until its catalog
 	# snapshot loads and shows its own retry panel during DB outages.
 	reverse_proxy app:8080 {

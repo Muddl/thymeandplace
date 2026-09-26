@@ -1,15 +1,8 @@
 localhost {
 	tls internal
 	encode zstd gzip
-	# Same query-string redaction as the production Caddyfile, kept here so
-	# the local/e2e stack exercises identical logging behavior.
-	log {
-		format filter {
-			request>uri query {
-				delete token
-			}
-		}
-	}
+	# No access log, same as the production Caddyfile (see the comment there):
+	# only the app logs requests, and only with cell_id.
 	reverse_proxy app:8080 {
 		health_uri /healthz
 		health_interval 2s

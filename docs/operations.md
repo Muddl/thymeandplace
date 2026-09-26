@@ -166,7 +166,7 @@ Expected output: `backup ok: backups/daily/<date>.dump`, then a table of equal `
 ## Reverse proxy trust and logging
 
 - The app trusts `X-Forwarded-*` headers (`TRUST_PROXY_HEADERS=true`, set in `deploy/compose.yaml`) because Caddy is always the first hop in front of it. **Never publish the app's own port** (`8080`) alongside Caddy's 80/443 — if a client could reach the app directly, it could forge those headers and spoof its source IP past the admin login-attempt rate limiter. `deploy/compose.yaml` intentionally has no `ports:` entry under `app`; only `caddy` publishes ports.
-- The admin enrollment link carries its single-use token in the query string (`/admin/enroll?token=...`). Caddy's `Caddyfile` strips the `token` query parameter from its access log (`log { format filter { request>uri query { delete token } } }`) so it never ends up in `docker compose logs` or on disk in plaintext. Don't add other loggers (a CDN, an nginx in front of Caddy, etc.) without the same filter.
+- Caddy keeps **no access log** (there is no `log` directive in `deploy/Caddyfile` or `deploy/Caddyfile.local`). Request URIs carry public coordinates and search text, headers carry `Referer`/`Hx-Current-Url`, and every access-log line would record the client IP, while the spec (§14, §15) allows public requests to be logged only as `cell_id`, which the app already logs per request. The admin enrollment link's single-use `?token=` stays out of logs for the same reason. Caddy's own runtime and error log (certificate renewals, upstream health failures) still goes to `docker compose logs caddy`. Don't add an access log, or another logger in front of Caddy (a CDN, an nginx), without the same restriction.
 
 ## Test-only settings — never set in production
 

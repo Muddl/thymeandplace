@@ -144,3 +144,34 @@ func TestAttemptRateLimit(t *testing.T) {
 		t.Fatal("window did not slide (rate_limited rows must not count)")
 	}
 }
+
+// TestAttemptRateLimitCountsOnlyLoginFailures verifies controller ruling E:
+// the limit tracks failed login attempts (passkey/backup) only. Successful
+// logins and enrollment outcomes (any outcome, since enroll isn't a login
+// method) must not count, while AttemptLimit login failures still block.
+func TestAttemptRateLimitCountsOnlyLoginFailures(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestService(t, true)
+	ip := "203.0.113.20"
+
+	for i := 0; i < 10; i++ {
+		s.LogAttempt(ctx, ip, "passkey", "success")
+		s.LogAttempt(ctx, ip, "backup", "success")
+		s.LogAttempt(ctx, ip, "enroll", "success")
+		s.LogAttempt(ctx, ip, "enroll", "failure")
+	}
+	if ok, err := s.AllowAttempt(ctx, ip); err != nil || !ok {
+		t.Fatalf("successes and enroll outcomes must not count: ok=%v err=%v", ok, err)
+	}
+
+	for i := 0; i < AttemptLimit; i++ {
+		method := "passkey"
+		if i%2 == 1 {
+			method = "backup"
+		}
+		s.LogAttempt(ctx, ip, method, "failure")
+	}
+	if ok, err := s.AllowAttempt(ctx, ip); err != nil || ok {
+		t.Fatalf("%d login failures should block the next attempt: ok=%v err=%v", AttemptLimit, ok, err)
+	}
+}

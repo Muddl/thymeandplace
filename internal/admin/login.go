@@ -9,6 +9,7 @@ import (
 
 	"thymeandplace/internal/admin/views"
 	"thymeandplace/internal/auth"
+	"thymeandplace/internal/web"
 )
 
 const maxCeremonyBody = 64 << 10
@@ -30,7 +31,18 @@ func (a *Admin) loginPage(w http.ResponseWriter, r *http.Request) {
 	a.render(w, r, http.StatusOK, views.LoginPage(views.LoginVM{Layout: a.layout(r, "Sign in"), BackupEnabled: a.d.Auth.BackupEnabled()}))
 }
 
+// startSession issues a fresh session. If the request already carries a
+// __Host-tp_admin cookie (e.g. a repeat login, such as backup login while a
+// passkey session is still valid, or a stale/invalid leftover), that
+// server-side session is deleted first so it can never be left alive
+// alongside the new one; deleting an unknown or already-gone token is a
+// harmless no-op.
 func (a *Admin) startSession(w http.ResponseWriter, r *http.Request, method string) error {
+	if c, err := r.Cookie(auth.CookieName); err == nil {
+		if err := a.d.Auth.DeleteSession(r.Context(), c.Value); err != nil {
+			a.d.Log.Error("startSession: replacing existing session failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
+		}
+	}
 	raw, _, err := a.d.Auth.CreateSession(r.Context(), method)
 	if err != nil {
 		return err
@@ -78,6 +90,9 @@ func (a *Admin) passkeyFinish(w http.ResponseWriter, r *http.Request) {
 	// left around to be replayed or to linger stale in the browser.
 	auth.ClearStateCookie(w)
 	if ok, err := a.d.Auth.AllowAttempt(ctx, ip); err != nil || !ok {
+		if err != nil {
+			a.d.Log.Error("passkey rate limit check failed", "err", err, "request_id", web.RequestIDFrom(ctx))
+		}
 		a.d.Auth.LogAttempt(ctx, ip, "passkey", "rate_limited")
 		jsonError(w, http.StatusTooManyRequests, "Too many sign-in attempts. Wait 15 minutes and try again.")
 		return
@@ -96,7 +111,11 @@ func (a *Admin) passkeyFinish(w http.ResponseWriter, r *http.Request) {
 	}
 	a.d.Auth.LogAttempt(ctx, ip, "passkey", "success")
 	if s, ok := SessionFrom(ctx); ok { // re-auth from an existing session
-		_ = a.d.Auth.MarkReauthed(ctx, s)
+		if err := a.d.Auth.MarkReauthed(ctx, s); err != nil {
+			a.d.Log.Error("mark reauthed failed", "err", err, "request_id", web.RequestIDFrom(ctx))
+			jsonError(w, http.StatusInternalServerError, "Signed in, but couldn't refresh your session. Try again.")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"redirect": "/admin"})
 		return
 	}
@@ -129,6 +148,9 @@ func (a *Admin) backupSubmit(w http.ResponseWriter, r *http.Request) {
 		a.render(w, r, status, views.BackupPage(views.BackupVM{Layout: a.layout(r, "Backup login"), Message: msg}))
 	}
 	if ok, err := a.d.Auth.AllowAttempt(ctx, ip); err != nil || !ok {
+		if err != nil {
+			a.d.Log.Error("backup rate limit check failed", "err", err, "request_id", web.RequestIDFrom(ctx))
+		}
 		a.d.Auth.LogAttempt(ctx, ip, "backup", "rate_limited")
 		page(http.StatusTooManyRequests, "Too many sign-in attempts. Wait 15 minutes and try again.")
 		return
@@ -160,7 +182,9 @@ func (a *Admin) backupSubmit(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(auth.CookieName); err == nil {
-		_ = a.d.Auth.DeleteSession(r.Context(), c.Value)
+		if err := a.d.Auth.DeleteSession(r.Context(), c.Value); err != nil {
+			a.d.Log.Error("logout: session delete failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
+		}
 	}
 	auth.ClearSessionCookie(w)
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)

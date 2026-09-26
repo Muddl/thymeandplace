@@ -70,4 +70,5 @@ WHERE token_hash = @token_hash AND used_at IS NULL AND expires_at > @now;
 INSERT INTO admin_login_log (at, ip, method, outcome) VALUES (@at, @ip, @method, @outcome);
 
 -- name: CountRecentLoginAttempts :one
-SELECT count(*) FROM admin_login_log WHERE ip = @ip AND at > @since AND outcome <> 'rate_limited';
+SELECT count(*) FROM admin_login_log WHERE ip = @ip AND at > @since
+  AND method IN ('passkey', 'backup') AND outcome NOT IN ('success', 'rate_limited');

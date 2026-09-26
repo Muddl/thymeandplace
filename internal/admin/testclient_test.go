@@ -114,21 +114,23 @@ func newDevice() *device {
 	}
 }
 
-func (d *device) register(c *client, begin, finish string) *httptest.ResponseRecorder {
-	c.t.Helper()
+// register returns an error instead of calling t.Fatal so it is safe to call
+// from a goroutine (e.g. the enrollment race test): t.FailNow/t.Fatal must
+// only ever be called from the goroutine running the test itself.
+func (d *device) register(c *client, begin, finish string) (*httptest.ResponseRecorder, error) {
 	rec := c.postJSON(begin, "{}")
 	if rec.Code != 200 {
-		return rec
+		return rec, nil
 	}
 	opts, err := virtualwebauthn.ParseAttestationOptions(rec.Body.String())
 	if err != nil {
-		c.t.Fatal(err)
+		return nil, err
 	}
 	out := c.postJSON(finish, virtualwebauthn.CreateAttestationResponse(d.rp, d.auth, d.cred, *opts))
 	if out.Code == 200 {
 		d.auth.AddCredential(d.cred)
 	}
-	return out
+	return out, nil
 }
 
 func (d *device) login(c *client, begin, finish string) *httptest.ResponseRecorder {
@@ -156,7 +158,11 @@ func (e *env) enrolled(t *testing.T) (*client, *device) {
 		t.Fatalf("enroll page %d", rec.Code)
 	}
 	d := newDevice()
-	if rec := d.register(c, "/admin/enroll/begin?token="+tok, "/admin/enroll/finish?token="+tok+"&name=Phone"); rec.Code != 200 {
+	rec, err := d.register(c, "/admin/enroll/begin?token="+tok, "/admin/enroll/finish?token="+tok+"&name=Phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != 200 {
 		t.Fatalf("enroll finish %d %s", rec.Code, rec.Body.String())
 	}
 	c.get("/admin") // pick up the session CSRF token

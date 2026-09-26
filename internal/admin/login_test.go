@@ -8,15 +8,28 @@ import (
 	"time"
 
 	"github.com/pquerna/otp/totp"
+
+	"thymeandplace/internal/auth"
 )
 
 func TestSecurityHeaders(t *testing.T) {
 	e := newEnv(t, true)
 	rec := e.client(t).get("/admin/login")
 	h := rec.Header()
-	if !strings.Contains(h.Get("Content-Security-Policy"), "default-src 'self'") || h.Get("X-Frame-Options") != "DENY" ||
-		h.Get("Referrer-Policy") != "no-referrer" || h.Get("Cache-Control") != "no-store" || h.Get("X-Robots-Tag") != "noindex" {
-		t.Fatalf("headers = %v", h)
+	const wantCSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+	switch {
+	case h.Get("Content-Security-Policy") != wantCSP:
+		t.Fatalf("Content-Security-Policy = %q, want %q", h.Get("Content-Security-Policy"), wantCSP)
+	case h.Get("X-Frame-Options") != "DENY":
+		t.Fatalf("X-Frame-Options = %q", h.Get("X-Frame-Options"))
+	case h.Get("Referrer-Policy") != "no-referrer":
+		t.Fatalf("Referrer-Policy = %q", h.Get("Referrer-Policy"))
+	case h.Get("Cache-Control") != "no-store":
+		t.Fatalf("Cache-Control = %q", h.Get("Cache-Control"))
+	case h.Get("X-Robots-Tag") != "noindex":
+		t.Fatalf("X-Robots-Tag = %q", h.Get("X-Robots-Tag"))
+	case h.Get("X-Content-Type-Options") != "nosniff":
+		t.Fatalf("X-Content-Type-Options = %q", h.Get("X-Content-Type-Options"))
 	}
 }
 
@@ -47,16 +60,26 @@ func TestEnrollmentLinkSingleUseUnderRace(t *testing.T) {
 	tok, _, _ := e.auth.CreateEnrollmentToken(t.Context())
 	var wg sync.WaitGroup
 	codes := make([]int, 2)
+	errs := make([]error, 2)
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			c := e.client(t)
 			c.get("/admin/enroll?token=" + tok)
-			codes[i] = newDevice().register(c, "/admin/enroll/begin?token="+tok, "/admin/enroll/finish?token="+tok).Code
+			rec, err := newDevice().register(c, "/admin/enroll/begin?token="+tok, "/admin/enroll/finish?token="+tok)
+			errs[i] = err
+			if rec != nil {
+				codes[i] = rec.Code
+			}
 		}(i)
 	}
 	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("device %d: %v", i, err)
+		}
+	}
 	pks, _ := e.auth.Passkeys(t.Context())
 	if len(pks) != 1 || !((codes[0] == 200) != (codes[1] == 200)) {
 		t.Fatalf("codes=%v passkeys=%d", codes, len(pks))
@@ -177,6 +200,67 @@ func TestUnauthenticatedRedirects(t *testing.T) {
 	rec := c.do("GET", "/admin", nil, map[string]string{"HX-Request": "true"})
 	if rec.Header().Get("HX-Redirect") != "/admin/login" {
 		t.Fatalf("HX-Redirect missing: %v", rec.Header())
+	}
+}
+
+// Review Focus 3 (fix round 1): an HTMX POST whose session was deleted or
+// expired server-side must not have the plain-text CSRF-mismatch 403 swapped
+// into a page fragment; it gets HX-Redirect to the login page instead, same
+// as an anonymous HTMX request against requireAuth.
+func TestCSRFExpiredSessionHTMXRedirectsToLogin(t *testing.T) {
+	e := newEnv(t, true)
+	c, _ := e.enrolled(t)
+	oldSession := c.jar[auth.CookieName]
+	if oldSession == "" {
+		t.Fatal("no session cookie after enrollment")
+	}
+	if err := e.auth.DeleteSession(t.Context(), oldSession); err != nil {
+		t.Fatal(err)
+	}
+	// c still holds the old cookie and the old (now orphaned) CSRF token.
+	rec := c.do("POST", "/admin/logout", strings.NewReader(""), map[string]string{"HX-Request": "true"})
+	if rec.Code != 401 || rec.Header().Get("HX-Redirect") != "/admin/login" {
+		t.Fatalf("expired session HTMX POST: %d hx-redirect=%q", rec.Code, rec.Header().Get("HX-Redirect"))
+	}
+}
+
+// Fix round 1, item 4: a login that arrives with an existing __Host-tp_admin
+// cookie (still valid, e.g. backup login used while already signed in via
+// passkey) must not leave that old session alive alongside the new one.
+func TestStartSessionReplacesExistingSession(t *testing.T) {
+	e := newEnv(t, true)
+	uri, err := e.auth.SetBackup(t.Context(), "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(uri)
+	secret := u.Query().Get("secret")
+
+	c := e.client(t)
+	c.get("/admin/login/backup")
+	code1, _ := totp.GenerateCode(secret, e.clock.now())
+	if rec := c.postForm("/admin/login/backup", url.Values{"password": {"correct horse battery staple"}, "code": {code1}}); rec.Code != 303 {
+		t.Fatalf("first login: %d", rec.Code)
+	}
+	oldRaw := c.jar[auth.CookieName]
+	if oldRaw == "" {
+		t.Fatal("no session cookie set after first login")
+	}
+
+	// Second login while the still-valid session cookie from the first login
+	// is attached to the request.
+	c.get("/admin/login/backup")
+	e.clock.add(31 * time.Second) // advance past the last accepted TOTP step
+	code2, _ := totp.GenerateCode(secret, e.clock.now())
+	if rec := c.postForm("/admin/login/backup", url.Values{"password": {"correct horse battery staple"}, "code": {code2}}); rec.Code != 303 {
+		t.Fatalf("second login: %d %s", rec.Code, rec.Body.String())
+	}
+	newRaw := c.jar[auth.CookieName]
+	if newRaw == "" || newRaw == oldRaw {
+		t.Fatalf("expected a new session value, got old=%q new=%q", oldRaw, newRaw)
+	}
+	if _, ok, err := e.auth.LookupSession(t.Context(), oldRaw); err != nil || ok {
+		t.Fatalf("old session should no longer be valid: ok=%v err=%v", ok, err)
 	}
 }
 

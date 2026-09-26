@@ -19,9 +19,13 @@
       headers: { "X-CSRF-Token": csrf(), "Content-Type": "application/json" },
       body: JSON.stringify(body || {})
     });
+    // Read the body once as text, then try to parse it as JSON: r.json()
+    // consumes the body stream, so a fallback to r.text() after a failed
+    // r.json() would throw "body stream already read".
+    var text = await r.text();
     var j = {};
-    try { j = await r.json(); } catch (e) { /* non-JSON error */ }
-    if (!r.ok) throw new Error(j.error || "Something went wrong. Try again.");
+    try { j = text ? JSON.parse(text) : {}; } catch (e) { /* non-JSON body */ }
+    if (!r.ok) throw new Error(j.error || text || "Something went wrong. Try again.");
     return j;
   }
   async function login(begin, finish) {
@@ -56,9 +60,10 @@
   }
   document.addEventListener("click", async function (e) {
     var b = e.target.closest("[data-webauthn]");
-    if (!b) return;
+    if (!b || b.disabled) return;
     e.preventDefault();
     var status = document.getElementById("wa-status");
+    b.disabled = true; // stop double clicks from starting a second ceremony
     try {
       var finish = b.dataset.finish;
       if (b.dataset.nameInput) {
@@ -69,6 +74,8 @@
       location.assign(res.redirect || location.href);
     } catch (err) {
       if (status) status.textContent = err.message || String(err);
+    } finally {
+      b.disabled = false;
     }
   });
 })();

@@ -114,6 +114,8 @@ func (a *Admin) loadSession(next http.Handler) http.Handler {
 			sess, ok, err := a.d.Auth.LookupSession(ctx, c.Value)
 			if err != nil {
 				a.d.Log.Error("session lookup failed", "err", err, "request_id", web.RequestIDFrom(ctx))
+				http.Error(w, "Something went wrong. Try again.", http.StatusServiceUnavailable)
+				return
 			}
 			if ok {
 				ctx = context.WithValue(ctx, sessionKey, sess)
@@ -121,6 +123,9 @@ func (a *Admin) loadSession(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
+			// Lookup succeeded and found nothing (missing, expired, or
+			// already deleted): only then is it safe to tell the browser to
+			// stop presenting this cookie.
 			auth.ClearSessionCookie(w)
 		}
 		pre := ""
@@ -146,6 +151,15 @@ func (a *Admin) csrf(next http.Handler) http.Handler {
 			got = r.PostFormValue("csrf")
 		}
 		if want == "" || subtle.ConstantTimeCompare([]byte(want), []byte(got)) != 1 {
+			// A signed-out HTMX request whose CSRF token no longer matches
+			// (e.g. its session was deleted or expired server-side) must not
+			// have this plain-text 403 swapped into a page fragment; redirect
+			// it to the login page like requireAuth does for anonymous GETs.
+			if _, ok := SessionFrom(r.Context()); !ok && r.Header.Get("HX-Request") == "true" {
+				w.Header().Set("HX-Redirect", "/admin/login")
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
 			http.Error(w, "Your form expired. Reload the page and try again.", http.StatusForbidden)
 			return
 		}

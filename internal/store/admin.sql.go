@@ -41,7 +41,8 @@ func (q *Queries) CountPasskeys(ctx context.Context) (int64, error) {
 }
 
 const countRecentLoginAttempts = `-- name: CountRecentLoginAttempts :one
-SELECT count(*) FROM admin_login_log WHERE ip = $1 AND at > $2 AND outcome <> 'rate_limited'
+SELECT count(*) FROM admin_login_log WHERE ip = $1 AND at > $2
+  AND method IN ('passkey', 'backup') AND outcome NOT IN ('success', 'rate_limited')
 `
 
 type CountRecentLoginAttemptsParams struct {

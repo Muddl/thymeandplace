@@ -1,7 +1,10 @@
 // Package views holds the admin templ components.
 package views
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strconv"
+)
 
 const htmxConfig = `{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false}`
 
@@ -44,4 +47,50 @@ type SecurityVM struct {
 	RecentAuth    bool
 	BackupEnabled bool
 	Message       string
+}
+
+type Option struct {
+	Value, Label string
+	Selected     bool
+}
+
+type CatalogRow struct{ Slug, Name, Category, Kind string }
+
+type CatalogVM struct {
+	Layout            LayoutVM
+	Q, Category, Kind string
+	Categories, Kinds []Option
+	Rows              []CatalogRow
+	Total             int
+	Message           string
+}
+
+type FormVM struct {
+	Layout     LayoutVM
+	IsNew      bool
+	Action     string
+	Values     map[string]string
+	Errors     map[string][]string
+	Kind       string
+	Fields     []string // kind-specific fields to show
+	Categories []Option
+	Kinds      []Option
+	Message    string
+}
+
+func (vm FormVM) Has(field string) bool {
+	for _, f := range vm.Fields {
+		if f == field {
+			return true
+		}
+	}
+	return false
+}
+
+// plural formats a count with the given noun: "1 ingredient" / "2 ingredients".
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return strconv.Itoa(n) + " " + word + "s"
 }

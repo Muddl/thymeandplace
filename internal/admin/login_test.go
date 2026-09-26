@@ -36,7 +36,7 @@ func TestSecurityHeaders(t *testing.T) {
 func TestEnrollThenPasskeyLogin(t *testing.T) {
 	e := newEnv(t, true)
 	c, d := e.enrolled(t)
-	if rec := c.get("/admin"); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Signed in") {
+	if rec := c.get("/admin"); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Catalog") {
 		t.Fatalf("after enroll: %d", rec.Code)
 	}
 	if rec := c.postForm("/admin/logout", url.Values{}); rec.Code != 303 {
@@ -291,6 +291,34 @@ func TestCSRFOnEveryWriteRoute(t *testing.T) {
 				}
 				if rec.Code != 403 {
 					t.Fatalf("%s %s with token %q: %d", rt.Method, rt.Path, token, rec.Code)
+				}
+
+				// HTMX variant: a write route hit with HX-Request and no or
+				// the wrong CSRF token is rejected the same way (403 with a
+				// session), except an anonymous request gets HX-Redirect
+				// instead of a plain-text body it can't swap into a
+				// fragment (401, or 200 for logout: see (*Admin).logout).
+				hdrHX := map[string]string{"Content-Type": "application/x-www-form-urlencoded", "HX-Request": "true"}
+				if token != "" {
+					hdrHX["X-CSRF-Token"] = token
+				}
+				saved = c.csrf
+				c.csrf = ""
+				rec = c.do(rt.Method, rt.Path, strings.NewReader(""), hdrHX)
+				c.csrf = saved
+				switch {
+				case c == anon && rt.Path == "/admin/logout":
+					if rec.Code != 200 || rec.Header().Get("HX-Redirect") != "/admin/login" {
+						t.Fatalf("anonymous HTMX logout with token %q: %d hx-redirect=%q", token, rec.Code, rec.Header().Get("HX-Redirect"))
+					}
+				case c == anon:
+					if rec.Code != 401 || rec.Header().Get("HX-Redirect") != "/admin/login" {
+						t.Fatalf("anonymous HTMX %s %s with token %q: %d hx-redirect=%q", rt.Method, rt.Path, token, rec.Code, rec.Header().Get("HX-Redirect"))
+					}
+				default:
+					if rec.Code != 403 {
+						t.Fatalf("signed-in HTMX %s %s with token %q: %d", rt.Method, rt.Path, token, rec.Code)
+					}
 				}
 			}
 		}

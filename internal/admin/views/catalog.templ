@@ -1,0 +1,172 @@
+package views
+
+templ CatalogPage(vm CatalogVM) {
+	@Layout(vm.Layout) {
+		<h1>Catalog</h1>
+		if vm.Message != "" {
+			<p class="ok">{ vm.Message }</p>
+		}
+		<form method="get" action="/admin" hx-get="/admin" hx-target="#rows" hx-trigger="input changed delay:250ms from:#q, change" hx-push-url="true">
+			<input id="q" type="search" name="q" value={ vm.Q } placeholder="Search name or slug"/>
+			<select name="category">
+				<option value="">All categories</option>
+				for _, o := range vm.Categories {
+					<option value={ o.Value } selected?={ o.Selected }>{ o.Label }</option>
+				}
+			</select>
+			<select name="kind">
+				<option value="">All kinds</option>
+				for _, o := range vm.Kinds {
+					<option value={ o.Value } selected?={ o.Selected }>{ o.Label }</option>
+				}
+			</select>
+			<button type="submit">Filter</button>
+			<a href="/admin/ingredients/new">Add ingredient</a>
+		</form>
+		<div id="rows">
+			@CatalogRows(vm)
+		</div>
+	}
+}
+
+templ CatalogRows(vm CatalogVM) {
+	<p>{ plural(vm.Total, "ingredient") }</p>
+	<table>
+		<thead><tr><th>Name</th><th>Slug</th><th>Category</th><th>Kind</th></tr></thead>
+		<tbody>
+			for _, r := range vm.Rows {
+				<tr>
+					<td><a href={ templ.SafeURL("/admin/ingredients/" + r.Slug) }>{ r.Name }</a></td>
+					<td>{ r.Slug }</td>
+					<td>{ r.Category }</td>
+					<td>{ r.Kind }</td>
+				</tr>
+			}
+		</tbody>
+	</table>
+}
+
+templ fieldErrors(vm FormVM, field string) {
+	for _, msg := range vm.Errors[field] {
+		<span class="field-error">{ msg }</span>
+	}
+}
+
+templ textInput(vm FormVM, field, label string) {
+	<label>
+		{ label }
+		<input type="text" name={ field } value={ vm.Values[field] }/>
+		@fieldErrors(vm, field)
+	</label>
+}
+
+templ FormPage(vm FormVM) {
+	@Layout(vm.Layout) {
+		if vm.IsNew {
+			<h1>Add ingredient</h1>
+		} else {
+			<h1>Edit { vm.Values["name"] }</h1>
+		}
+		if vm.Message != "" {
+			<p class="error">{ vm.Message }</p>
+		}
+		@fieldErrors(vm, "")
+		<form method="post" action={ templ.SafeURL(vm.Action) }>
+			<input type="hidden" name="csrf" value={ vm.Layout.CSRF }/>
+			if vm.IsNew {
+				@textInput(vm, "slug", "Slug (lowercase, hyphens)")
+			} else {
+				<input type="hidden" name="slug" value={ vm.Values["slug"] }/>
+				<p>Slug: <code>{ vm.Values["slug"] }</code></p>
+			}
+			@textInput(vm, "name", "Name")
+			<label>
+				Category
+				<select name="category">
+					for _, o := range vm.Categories {
+						<option value={ o.Value } selected?={ o.Selected }>{ o.Label }</option>
+					}
+				</select>
+				@fieldErrors(vm, "category")
+			</label>
+			<label>
+				Kind
+				<select name="kind" hx-get="/admin/ingredients/fields" hx-target="#kind-fields" hx-include="closest form" hx-swap="outerHTML">
+					for _, o := range vm.Kinds {
+						<option value={ o.Value } selected?={ o.Selected }>{ o.Label }</option>
+					}
+				</select>
+				@fieldErrors(vm, "kind")
+			</label>
+			@KindFields(vm)
+			<label>
+				How to choose
+				<textarea name="tip_choose" rows="2">{ vm.Values["tip_choose"] }</textarea>
+				@fieldErrors(vm, "tip_choose")
+			</label>
+			<label>
+				How to store
+				<textarea name="tip_store" rows="2">{ vm.Values["tip_store"] }</textarea>
+				@fieldErrors(vm, "tip_store")
+			</label>
+			@textInput(vm, "pairings", "Pairs with (slugs, comma-separated)")
+			<label>
+				Note
+				<textarea name="note" rows="2">{ vm.Values["note"] }</textarea>
+			</label>
+			<button type="submit">Preview changes</button>
+		</form>
+		if !vm.IsNew {
+			<h2>Delete</h2>
+			<form method="post" action={ templ.SafeURL("/admin/ingredients/" + vm.Values["slug"] + "/delete/preview") }>
+				<input type="hidden" name="csrf" value={ vm.Layout.CSRF }/>
+				<button type="submit">Preview delete</button>
+			</form>
+		}
+	}
+}
+
+templ KindFields(vm FormVM) {
+	<fieldset id="kind-fields">
+		<legend>Season rules for { vm.Kind }</legend>
+		if vm.Has("frost") {
+			<label>
+				Frost tolerance
+				<select name="frost">
+					<option value="tender" selected?={ vm.Values["frost"] == "tender" }>tender</option>
+					<option value="hardy" selected?={ vm.Values["frost"] == "hardy" }>hardy</option>
+				</select>
+				@fieldErrors(vm, "frost")
+			</label>
+		}
+		if vm.Has("grow_temp_min_c") {
+			@textInput(vm, "grow_temp_min_c", "Minimum growing mean temperature (°C)")
+			@textInput(vm, "grow_temp_max_c", "Maximum growing mean temperature (°C)")
+			@textInput(vm, "months_to_harvest", "Months from planting to harvest")
+		}
+		if vm.Has("chill_months_min") {
+			@textInput(vm, "chill_months_min", "Minimum chill months (mean below 7 °C)")
+			@textInput(vm, "warmup_temp_c", "Spring warm-up temperature (°C)")
+			@textInput(vm, "months_bloom_to_harvest", "Months from warm-up to harvest")
+			@textInput(vm, "harvest_span_months", "Harvest length (months)")
+		}
+		if vm.Has("fruiting_temp_min_c") {
+			@textInput(vm, "fruiting_temp_min_c", "Minimum fruiting temperature (°C)")
+			@textInput(vm, "fruiting_temp_max_c", "Maximum fruiting temperature (°C)")
+			@textInput(vm, "min_precip_mm", "Minimum monthly rain (mm)")
+		}
+		if vm.Has("storage_months") {
+			@textInput(vm, "storage_months", "Months it keeps in storage (0–9)")
+		}
+		if vm.Has("regions") {
+			<label>
+				Regions (one per line: <code>25: 1,2,3,4 | peak 2,3</code>)
+				<textarea name="regions" rows="4">{ vm.Values["regions"] }</textarea>
+				@fieldErrors(vm, "regions")
+			</label>
+		}
+		if len(vm.Fields) == 0 {
+			<p>Year-round produce has no season rules.</p>
+		}
+	</fieldset>
+}

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"html"
 	"io"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"thymeandplace/internal/auth"
+	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/dbtest"
 	"thymeandplace/internal/web"
 )
@@ -75,7 +77,10 @@ func newEnvOn(t *testing.T, pool *pgxpool.Pool, backup bool) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := web.RequestID(New(Deps{Auth: svc, Log: log}))
+	h := web.RequestID(New(Deps{
+		Auth: svc, Log: log, Pool: pool,
+		Load: func(ctx context.Context) (*catalog.Snapshot, error) { return catalog.Load(ctx, pool) },
+	}))
 	return &env{h: h, auth: svc, clock: c, pool: pool, logs: logs}
 }
 

@@ -19,10 +19,6 @@ func (a *Admin) layout(r *http.Request, title string) views.LayoutVM {
 	return views.LayoutVM{Title: title, CSRF: CSRFToken(r.Context()), SignedIn: signedIn}
 }
 
-func (a *Admin) home(w http.ResponseWriter, r *http.Request) {
-	a.render(w, r, http.StatusOK, views.Home(a.layout(r, "Catalog")))
-}
-
 func (a *Admin) loginPage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := SessionFrom(r.Context()); ok {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)

@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"thymeandplace/internal/auth"
+	"thymeandplace/internal/catalog"
+	"thymeandplace/internal/changeset"
 	"thymeandplace/internal/web"
 )
 
@@ -25,6 +28,9 @@ type Deps struct {
 	Auth       *auth.Service
 	Log        *slog.Logger
 	TrustProxy bool
+	Changes    *changeset.Service
+	Load       func(context.Context) (*catalog.Snapshot, error)
+	Pool       *pgxpool.Pool
 }
 
 type Admin struct {
@@ -42,7 +48,8 @@ var writeRoutes = []route{
 	{"POST", "/admin/security/reauth/begin"}, {"POST", "/admin/security/reauth/finish"},
 	{"POST", "/admin/security/passkeys/begin"}, {"POST", "/admin/security/passkeys/finish"},
 	{"POST", "/admin/security/passkeys/AAAA/rename"}, {"POST", "/admin/security/passkeys/AAAA/remove"},
-	// Plan 7 adds the catalog write routes here.
+	{"POST", "/admin/ingredients/tomato/preview"}, {"POST", "/admin/ingredients/tomato/delete/preview"},
+	{"POST", "/admin/import"}, {"POST", "/admin/changesets/1/apply"},
 }
 
 type ctxKey int
@@ -75,10 +82,9 @@ func New(d Deps) http.Handler {
 	m.HandleFunc("POST /admin/enroll/begin", a.enrollBegin)
 	m.HandleFunc("POST /admin/enroll/finish", a.enrollFinish)
 
-	m.Handle("GET /admin", a.requireAuth(http.HandlerFunc(a.home)))
 	m.Handle("/admin/", a.requireAuth(http.NotFoundHandler()))
 	a.registerSecurity() // Task 7
-	a.registerCatalog()  // Plan 7; a no-op until then
+	a.registerCatalog()
 
 	var h http.Handler = m
 	h = a.csrf(h)
@@ -219,6 +225,3 @@ func jsonError(w http.ResponseWriter, status int, msg string) {
 }
 
 func (a *Admin) ip(r *http.Request) string { return web.ClientIP(r, a.d.TrustProxy) }
-
-// registerCatalog is replaced in Plan 7.
-func (a *Admin) registerCatalog() {}

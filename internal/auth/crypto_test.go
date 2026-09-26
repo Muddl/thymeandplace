@@ -73,3 +73,31 @@ func TestParseSecretKey(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyPasswordBoundParameters(t *testing.T) {
+	// Test cases: name, encoded hash, should error
+	tests := []struct {
+		name  string
+		hash  string
+		valid bool
+	}{
+		{"huge_m", "$argon2id$v=19$m=1000000,t=3,p=2$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16)) + "$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), false},
+		{"huge_t", "$argon2id$v=19$m=65536,t=100,p=2$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16)) + "$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), false},
+		{"p_zero", "$argon2id$v=19$m=65536,t=3,p=0$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16)) + "$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), false},
+		{"wrong_version", "$argon2id$v=99$m=65536,t=3,p=2$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16)) + "$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), false},
+		{"oversized_key", "$argon2id$v=19$m=65536,t=3,p=2$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16)) + "$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 100)), false},
+		{"valid", "$argon2id$v=19$m=65536,t=3,p=2$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16)) + "$" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := VerifyPassword(tc.hash, "test")
+			if tc.valid && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if !tc.valid && err == nil {
+				t.Fatalf("expected error, got none")
+			}
+		})
+	}
+}

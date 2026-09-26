@@ -34,25 +34,35 @@ func main() {
 		log.Error("startup", "err", err)
 		os.Exit(1)
 	}
-	defer a.close()
 	a.start(ctx)
 
 	srv := &http.Server{
 		Addr: cfg.Addr, Handler: a.handler,
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,
 		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second,
+		ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
+	// done closes once Shutdown has drained in-flight requests. ListenAndServe
+	// returns ErrServerClosed as soon as Shutdown begins, so main must wait
+	// on done before closing the pool those requests are still using.
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(sctx)
+		if err := srv.Shutdown(sctx); err != nil {
+			log.Warn("shutdown", "err", err)
+		}
 	}()
 	log.Info("listening", "addr", cfg.Addr)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		log.Error("server", "err", err)
+		a.close()
 		os.Exit(1)
 	}
+	<-done
+	a.close()
 }
 
 func runHealthcheck(url string) int {

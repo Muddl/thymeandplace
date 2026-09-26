@@ -55,6 +55,17 @@ What to check:
 
 `git pull && docker compose up -d --build app`. Migrations run at startup and must be backward-compatible with the previous version (add columns/tables; never drop or rename in the same release that stops using them).
 
+### The shared `ingest_work` volume and file ownership
+
+`ingest` (distroless `nonroot`) and `transform` both run as uid/gid `65532` and share the `ingest_work` volume at `/work`. Both images ship a `65532`-owned `/work`, and Docker seeds a new (or empty) named volume from the image directory it mounts over, ownership included, so a fresh volume is writable by both with no manual step.
+
+A volume that already holds files from before this was fixed (created root-owned, or with root-owned files left by an older `transform` image that ran as root) makes `ingest ... fetch` fail with `mkdir /work/<dataset>/incoming: permission denied`. Fix it once, from `/opt/thymeandplace/deploy`:
+
+```bash
+docker compose --profile tools build ingest transform
+docker compose --profile tools run --rm --user 0 --entrypoint chown transform -R 65532:65532 /work
+```
+
 ## Rolling back reference data
 
 `docker compose --profile tools run --rm ingest <dataset> rollback`. It takes one transaction and the site picks it up via `NOTIFY` within seconds.

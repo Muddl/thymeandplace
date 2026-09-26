@@ -5,9 +5,17 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ingest ./cmd/ingest \
- && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/devseed ./cmd/devseed
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/devseed ./cmd/devseed \
+ && mkdir -p /out/work
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/ingest /out/devseed /app/
+# /work is the ingest_work volume's mount point. Docker seeds a fresh named
+# volume from the image directory it mounts over, ownership included, so a
+# nonroot-owned (65532) /work makes a new volume writable by the nonroot
+# ingest process. Without it the volume is created root-owned and the first
+# fetch fails with "mkdir /work/<dataset>: permission denied". A volume
+# created before this fix needs a one-time chown (docs/operations.md).
+COPY --from=build --chown=nonroot:nonroot /out/work /work
 USER nonroot
 ENTRYPOINT ["/app/ingest"]

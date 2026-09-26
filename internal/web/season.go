@@ -163,7 +163,9 @@ func (s *Server) label(ctx context.Context, placeParam string, core seasonCore, 
 		pctx, cancel := context.WithTimeout(ctx, placeLookupTimeout)
 		p, ok, err := s.d.Places.ByID(pctx, int32(id))
 		cancel()
-		if err == nil && ok {
+		// Only a place near the requested point may label it (a crafted or
+		// mismatched URL must not call mid-ocean results "Lisbon").
+		if err == nil && ok && climate.DistanceKm(lat, lng, p.Lat, p.Lng) <= nearKm {
 			return p.Label()
 		}
 	}

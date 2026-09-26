@@ -190,3 +190,17 @@ func TestSeasonHungPlaceLookupFallsBack(t *testing.T) {
 		t.Fatalf("%d\n%q", code, body)
 	}
 }
+
+// Final review 6: a ?place= far from the requested point is ignored, so a
+// crafted URL can't label mid-Atlantic results "Lisbon".
+func TestSeasonIgnoresDistantPlaceLabel(t *testing.T) {
+	hs := newHarness(t)
+	_, body, _ := hs.get("/season?lat=45.00&lng=-30.00&place=1&date=2026-08-15", true)
+	if strings.Contains(body, "Lisbon") || !strings.Contains(body, "45.00°N, 30.00°W") {
+		t.Fatalf("distant place label must fall back to coordinates:\n%s", body)
+	}
+	_, body, _ = hs.get("/season?lat=38.80&lng=-9.10&place=1&date=2026-08-15", true)
+	if !strings.Contains(body, "<h2>Lisbon, PT</h2>") {
+		t.Fatalf("a nearby place keeps its own label:\n%s", body)
+	}
+}

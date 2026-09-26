@@ -67,5 +67,8 @@ func (NoopAdjuster) Adjust(_ context.Context, _ int, results []Result) []Result 
 const (
 	frostFreeTminC = 2.0
 	chillMeanC     = 7.0
-	seafoodBasis   = "general guidance; check local fishing rules"
+	// winterKillTminC: a tender perennial is not grown locally where the
+	// coldest month's mean minimum is below this (controller ruling G).
+	winterKillTminC = 0.0
+	seafoodBasis    = "general guidance; check local fishing rules"
 )

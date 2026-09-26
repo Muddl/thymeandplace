@@ -92,3 +92,52 @@ func mustSnapFrom(t *testing.T, items []catalog.Ingredient) *catalog.Snapshot {
 	}
 	return s
 }
+
+// Ruling G: for every synthetic climate shifted so its coldest tmin sits just
+// below, exactly at, and just above 0 °C, a tender perennial is local only
+// when that minimum is not below 0. The ingredient is tuned per climate so that
+// nothing else can rule it out: no chill needed, a warm-up threshold halfway
+// through the climate's range, and a 12-month harvest window (so some
+// frost-free month is always harvested). The tropical climate is skipped: its
+// 2 °C range leaves no frost-free month once the coldest tmin is near 0.
+func TestTenderPerennialWinterKillThreshold(t *testing.T) {
+	var tender []catalog.Ingredient
+	for _, i := range landItems() {
+		if i.Kind == catalog.KindPerennialFruit && i.Frost == catalog.FrostTender {
+			tender = append(tender, i)
+		}
+	}
+	if len(tender) == 0 {
+		t.Fatal("SmallCatalog has no tender perennial")
+	}
+	for name, base := range climatetest.All() {
+		if name == "tropical" {
+			continue
+		}
+		coldest, lo, hi := base.TminC[0], base.Mean(0), base.Mean(0)
+		for m := range base.TminC {
+			coldest = min(coldest, base.TminC[m])
+			lo, hi = min(lo, base.Mean(m)), max(hi, base.Mean(m))
+		}
+		for _, target := range []float64{-0.01, 0, 0.01} {
+			n := base
+			shift := target - coldest
+			for m := range n.TminC {
+				n.TminC[m] += shift
+				n.TmaxC[m] += shift
+			}
+			for _, ing := range tender {
+				ing.ChillMonthsMin = catalogtest.P(0)
+				ing.WarmupTempC = catalogtest.P((lo+hi)/2 + shift)
+				ing.MonthsBloomToHarvest, ing.HarvestSpanMonths = catalogtest.P(1), catalogtest.P(12)
+				_, _, ok := Year(Input{Normals: &n}, ing)
+				if target < 0 && ok {
+					t.Errorf("%s coldest tmin %v: %s must winter-kill", name, target, ing.Slug)
+				}
+				if target >= 0 && !ok {
+					t.Errorf("%s coldest tmin %v: %s must survive", name, target, ing.Slug)
+				}
+			}
+		}
+	}
+}

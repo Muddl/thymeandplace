@@ -45,6 +45,17 @@ func allYearRound() [12]Status {
 
 func frostFree(n *climate.MonthlyNormals, m int) bool { return n.TminC[m] > frostFreeTminC }
 
+// winterKills reports whether the coldest month's mean minimum is below
+// winterKillTminC, too cold for a tender perennial to survive the winter.
+func winterKills(n *climate.MonthlyNormals) bool {
+	for _, v := range n.TminC {
+		if v < winterKillTminC {
+			return true
+		}
+	}
+	return false
+}
+
 func annual(n *climate.MonthlyNormals, ing catalog.Ingredient) ([12]Status, string) {
 	lo, hi, toHarvest := *ing.GrowTempMinC, *ing.GrowTempMaxC, *ing.MonthsToHarvest
 	var grow [12]bool
@@ -78,6 +89,9 @@ func perennial(n *climate.MonthlyNormals, ing catalog.Ingredient) ([12]Status, s
 		}
 	}
 	if chill < *ing.ChillMonthsMin {
+		return [12]Status{}, ""
+	}
+	if ing.Frost == catalog.FrostTender && winterKills(n) {
 		return [12]Status{}, ""
 	}
 	warm := *ing.WarmupTempC

@@ -134,6 +134,43 @@ func TestPerennialTenderFrostFilter(t *testing.T) {
 	}
 }
 
+func smallOrange(t *testing.T) catalog.Ingredient {
+	t.Helper()
+	for _, i := range catalogtest.SmallCatalog() {
+		if i.Slug == "orange" {
+			return i
+		}
+	}
+	t.Fatal("orange missing from SmallCatalog")
+	return catalog.Ingredient{}
+}
+
+// Ruling G: a tender perennial is not grown where the coldest month's mean
+// minimum is below 0 °C (winter-kill), even if its harvest months are frost-free.
+func TestPerennialTenderWinterKill(t *testing.T) {
+	n := climatetest.Temperate()
+	n.TminC[0] = -0.5 // Jan mean 4.25: still a chill month; warm-up still Mar/May
+	orange := smallOrange(t)
+	if got, _, ok := Year(land(n), orange); ok {
+		t.Fatalf("tender perennial must winter-kill below 0 °C, got %v", got)
+	}
+	hardy := orange
+	hardy.Frost = catalog.FrostHardy
+	if _, _, ok := Year(land(n), hardy); !ok {
+		t.Fatal("winter-kill must apply only to tender perennials")
+	}
+}
+
+// Ruling G edge: a coldest-month tmin of exactly 0 °C is not winter-kill.
+func TestPerennialTenderWinterKillBoundary(t *testing.T) {
+	n := climatetest.Temperate()
+	n.TminC[0] = 0 // Jan is frosty (not > 2) but survivable
+	got := year(t, land(n), smallOrange(t))
+	if got != statuses(map[int]Status{2: Peak, 3: Peak}) {
+		t.Fatalf("tmin == 0 must not winter-kill: got %v", got)
+	}
+}
+
 // Review Focus 2: no warm-up transition → not local, no panic.
 func TestPerennialNoWarmupTransition(t *testing.T) {
 	ing := catalogtest.Perennial()

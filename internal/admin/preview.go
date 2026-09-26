@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"thymeandplace/internal/admin/views"
@@ -86,4 +88,44 @@ func (a *Admin) deletePreview(w http.ResponseWriter, r *http.Request) {
 	a.previewChangeset(w, r, changeset.DeleteChangeset(slug), func(errs map[string][]string) {
 		http.Error(w, "Can't delete "+slug+": it does not exist.", http.StatusNotFound)
 	})
+}
+
+func (a *Admin) apply(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	sess, _ := SessionFrom(r.Context())
+	opts := changeset.ApplyOptions{Override: r.PostFormValue("override") == "1", ConfirmSlug: strings.TrimSpace(r.PostFormValue("confirm_slug"))}
+	err = a.d.Changes.Apply(r.Context(), id, "owner ("+sess.Method+")", opts)
+	var inv *changeset.InvalidError
+	switch {
+	case err == nil:
+		http.Redirect(w, r, "/admin?applied=1", http.StatusSeeOther)
+	case errors.Is(err, changeset.ErrOverrideRequired), errors.Is(err, changeset.ErrConfirmMismatch):
+		p, pv, rerr := a.d.Changes.Reopen(r.Context(), id)
+		if rerr != nil {
+			a.messagePage(w, r, http.StatusConflict, changeset.UserMessage(rerr))
+			return
+		}
+		a.renderPreview(w, r, http.StatusUnprocessableEntity, p, pv, changeset.UserMessage(err))
+	case errors.Is(err, changeset.ErrStale):
+		a.messagePage(w, r, http.StatusConflict, changeset.UserMessage(err))
+	case errors.Is(err, changeset.ErrNotFound):
+		a.messagePage(w, r, http.StatusGone, changeset.UserMessage(err))
+	case errors.As(err, &inv):
+		msgs := []string{}
+		for _, p := range inv.Problems {
+			msgs = append(msgs, p.String())
+		}
+		a.messagePage(w, r, http.StatusConflict, "The change is no longer valid: "+strings.Join(msgs, "; ")+". Preview again.")
+	default:
+		a.d.Log.Error("apply failed", "err", err, "changeset", id)
+		a.messagePage(w, r, http.StatusInternalServerError, "Couldn't apply the change. Nothing was written. Try again.")
+	}
+}
+
+func (a *Admin) messagePage(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	a.render(w, r, status, views.MessagePage(a.layout(r, "Catalog"), msg))
 }

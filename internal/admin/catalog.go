@@ -193,11 +193,10 @@ func (a *Admin) formPreview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// importPage, importSubmit, apply, export and history are the full
-// write-side handlers; formPreview and deletePreview (preview.go) are done.
-// The rest are stubbed until Tasks 4-5.
+// importPage, importSubmit, export and history are the remaining write-side
+// handlers; formPreview, deletePreview and apply (preview.go) are done. The
+// rest are stubbed until Task 5.
 func (a *Admin) importPage(w http.ResponseWriter, r *http.Request)   { http.NotFound(w, r) }
 func (a *Admin) importSubmit(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }
-func (a *Admin) apply(w http.ResponseWriter, r *http.Request)        { http.NotFound(w, r) }
 func (a *Admin) export(w http.ResponseWriter, r *http.Request)       { http.NotFound(w, r) }
 func (a *Admin) history(w http.ResponseWriter, r *http.Request)      { http.NotFound(w, r) }

@@ -46,6 +46,13 @@ templ CatalogRows(vm CatalogVM) {
 	</table>
 }
 
+templ MessagePage(layout LayoutVM, msg string) {
+	@Layout(layout) {
+		<p class="error warn">{ msg }</p>
+		<p><a href="/admin">Back to the catalog</a> · <a href="/admin/import">Import</a></p>
+	}
+}
+
 templ fieldErrors(vm FormVM, field string) {
 	for _, msg := range vm.Errors[field] {
 		<span class="field-error">{ msg }</span>

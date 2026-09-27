@@ -9,21 +9,22 @@ calibration score is the judge. Temperatures are **monthly mean** temperatures
 | Kind | Field | Typical range | Notes |
 |---|---|---|---|
 | annual, warm-season (tomato, pepper, squash, basil, beans, corn) | frost | `tender` | |
-| | grow_temp_c | [13–18, 30–32] | lower bound is the key lever; 13–15 lets cool maritime summers (London, Hobart) harvest outdoor tomatoes, squash and beans |
-| | months_to_harvest | 2–4 | from planting (or transplant) to first harvest |
+| | grow_temp_c | [13–17, 30–35] | lower bound is the key lever; 13–14 lets cool maritime summers (London, Hobart) harvest outdoor tomatoes, peppers, squash and beans; 16–17 for heat lovers (okra, sweet potato, watermelon) |
+| | months_to_harvest | 2–3 | from transplant to first harvest; 4 or more starts the harvest later than the guides |
 | annual, cool-season (kale, cabbage, peas, lettuce, spinach, leeks) | frost | `hardy` | |
-| | grow_temp_c | [4–7, 18–22] | upper bound stops summer "bolting" months |
-| | months_to_harvest | 1–4 | |
-| cool-season, summer-picked (pea, broad bean, lettuce, radish) | grow_temp_c | [9, 20–22] | a lower bound above the mildest winters (Hobart's coldest month is 8.5 °C) keeps them from being year-round in maritime climates |
-| cool-season, winter-picked (Brussels sprouts, parsnip) | grow_temp_c | [2, 13] | the window is the picking season, so months_to_harvest is 1; the low upper bound keeps summer out |
+| | grow_temp_c | [4–6, 24–26] | an upper bound near 25 °C keeps hot continental summers (New York, Toronto, Minneapolis) in season, as the guides list them; 18–22 dropped those summers entirely |
+| | months_to_harvest | 1–4 | 1 for quick leaf crops (spinach), 2 for most brassicas and roots, 3–4 for cauliflower, celery, leek, onion |
+| cool-season, summer-picked (pea, broad bean, lettuce, radish) | grow_temp_c | [9–11, 20–25] | a lower bound above the mildest winters (Hobart's coldest month mean is about 8 °C) keeps them from being year-round in maritime climates |
+| cool-season, winter-picked (Brussels sprouts, parsnip) | grow_temp_c | [0, 15] | the window is the picking season, so months_to_harvest is 1; the low upper bound keeps summer out. A long-season model ([5, 25], 5 months) scores higher but is year-round in maritime climates and fails the content gate |
 | root/storage crops (potato, onion, carrot, squash) | storage_months | 3–8 | only if typically sold from storage |
 | perennial_fruit, temperate (apple, pear, plum, cherry) | chill_months_min | 0–1 | months with mean < 7 °C; monthly means undercount chill in mild maritime winters (Hobart has none), so leave this low |
-| | warmup_temp_c | 9–12 | spring warm-up; a climate with no month below it (the tropics, Sydney, Cape Town) never shows the fruit |
-| | months_bloom_to_harvest | 2 (cherry) – 6 (late apple) | |
-| | harvest_span_months | 1–3 | |
+| | warmup_temp_c | 11–12 | spring warm-up; a climate with no month below it (the tropics, Sydney, Cape Town) never shows the fruit |
+| | months_bloom_to_harvest | 1 (strawberry, raspberry) – 4 (apple, pear) | counted from the warm-up month, not from real bloom |
+| | harvest_span_months | 2–5 | |
 | perennial_fruit, subtropical (citrus, avocado) | frost | `tender` | frost months drop out of the harvest, and the tree winter-kills (not grown at all) where the coldest month's mean minimum is below 0 °C |
 | | chill_months_min | 0 | |
 | | warmup_temp_c | 19.5–20 | a hot-summer threshold; cool-summer climates never reach it |
+| | harvest_span_months | 6–8 | citrus and avocado hang on the tree for months; spans of 3–4 scored far below the guides (mandarin 0.24 against 0.47 with 7) |
 | cultivated_year_round | – | – | bananas, button mushrooms, greenhouse staples sold all year |
 | wild_mushroom | fruiting_temp_c | [8–12, 16–20] | |
 | | min_precip_mm | 40–45 | monthly; 60 or more rules out drier maritime climates such as London |
@@ -45,19 +46,19 @@ papaya) should be `cultivated_year_round`.
 
 ```json
 { "slug": "tomato", "name": "Tomato", "category": "vegetable", "kind": "annual",
-  "frost": "tender", "grow_temp_c": [14, 30], "months_to_harvest": 2, "storage_months": 0,
+  "frost": "tender", "grow_temp_c": [13, 30], "months_to_harvest": 2, "storage_months": 0,
   "tips": { "choose": "Heavy for its size, glossy, fragrant at the stem.",
             "store": "Stem-side down at room temperature; refrigerate only when fully ripe." },
   "pairings": ["basil", "garlic"], "note": "" }
 
 { "slug": "kale", "name": "Kale", "category": "vegetable", "kind": "annual",
-  "frost": "hardy", "grow_temp_c": [4, 20], "months_to_harvest": 2, "storage_months": 0,
+  "frost": "hardy", "grow_temp_c": [4, 25], "months_to_harvest": 2, "storage_months": 0,
   "tips": { "choose": "Crisp, deep-coloured leaves without yellowing.", "store": "Wrapped loosely in the fridge; use within 5 days." },
   "pairings": ["garlic", "lemon"], "note": "Sweeter after a frost." }
 
 { "slug": "apple", "name": "Apple", "category": "fruit", "kind": "perennial_fruit",
-  "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 10, "months_bloom_to_harvest": 5,
-  "harvest_span_months": 3, "storage_months": 5,
+  "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 12, "months_bloom_to_harvest": 4,
+  "harvest_span_months": 4, "storage_months": 5,
   "tips": { "choose": "Firm, no soft spots, smells like apple.", "store": "Cold and humid, away from leafy greens." },
   "pairings": ["pork", "cinnamon"], "note": "" }
 
@@ -141,21 +142,48 @@ a near-duplicate ingredient.
   (New York, Toronto, Chicago, Beijing). `globe-artichoke` is `tender` for
   the same reason.
 - `grape` is `hardy` (the vine survives hard winters), with a warm-up of
-  11.5 °C. With no chill requirement it can also show in cold-winter
+  12 °C. With no chill requirement it can also show in cold-winter
   climates such as Oslo, which the calibration fixtures should catch.
   `kiwifruit` is `tender` (controller amendment to ruling G: commercial
   kiwifruit is not grown in hard-winter zones), so winter-kill keeps it out
   of New York, Chicago, Toronto, Oslo, Stockholm and Beijing. Its harvest
   window comes from a 13 °C warm-up.
 - Temperate fruit, berries, `asparagus` and `rhubarb` need no chill months:
-  their `warmup_temp_c` (9–11.5 °C) keeps them out of climates whose coldest
-  month never drops below it.
+  their `warmup_temp_c` (8–12 °C; 11–12 for fruit and berries, 8 for
+  `rhubarb`, the earliest spring crop) keeps them out of climates whose coldest
+  month never drops below it. `fig` keeps 15 °C so it only shows where
+  summers are warm.
 - Perennial herbs (thyme, rosemary, sage, oregano, mint) are modelled as
   `annual`: they are picked whenever the plant is growing.
 - The rules use temperature only, so spring and autumn with the same mean
-  look alike. The [2, 13] window for `brussels-sprouts` and `parsnip` also
-  opens briefly in spring in continental climates: New York and Chicago show
-  them in April, Oslo and Stockholm in May. `morel` shows in spring and
+  look alike. The [0, 15] window for `brussels-sprouts` and `parsnip` also
+  opens in spring: New York shows sprouts from November to April, and
+  Toronto, Minneapolis and Oslo show them in spring as well as in late
+  autumn. `morel` shows in spring and
   again in autumn. `chanterelle` and `porcini` start in late spring as well
   as autumn (London: chanterelle May–Oct, porcini May–Jun and Sep–Nov).
   Tune them against the calibration fixtures.
+
+## Calibration tuning (2026-09-27)
+
+The numbers above were tuned against the 15 calibration fixtures on real
+TerraClimate normals (score 0.479 before, 0.673 after; see
+`docs/calibration-baseline.md`). Only catalog parameters changed; the
+fixtures are ground truth and were not edited. What moved, and why:
+
+- Warm-season annuals: lower bounds of 18–20 °C left peppers, eggplant,
+  chili, okra, sweet potato and watermelon out of most temperate cities.
+  13–17 °C with 2–3 months to harvest matches the guides.
+- Cool-season annuals: an upper bound of 18–22 °C removed the whole summer
+  in New York, Toronto and Minneapolis, where the guides list broccoli,
+  cabbage, carrots and beets from June or July. The bound is now 24–26 °C.
+- Temperate fruit and berries: a 12 °C warm-up (11 for cherry) with a
+  shorter bloom-to-harvest offset and a longer span matches the guides'
+  harvest windows better than a 10 °C warm-up with long offsets.
+- Citrus and avocado: longer harvest spans (6–8 months). The warm-up stays
+  at 19.5 °C, because lowering it would show citrus in cool-summer climates.
+- Parameters were kept within plausible growing ranges even where a sweep
+  found a higher score (for example frost-hardy sweet potato or potato, or
+  a fig that ripens four months after an 11 °C warm-up, which would put
+  figs in Oslo from October to February). The remaining low scorers
+  are listed with reasons in the baseline document.

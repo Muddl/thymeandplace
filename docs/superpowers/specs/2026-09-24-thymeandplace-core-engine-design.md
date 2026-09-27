@@ -548,6 +548,7 @@ The core ships `NoopAdjuster`.
 
 **perennial_fruit**
 1. If the count of months with `mean < 7` is less than `chill_months_min`, the fruit is not local and nothing is shown.
+   If `frost == tender` and the coldest month's mean tmin is below 0 °C, the tree does not survive the winter, and nothing is shown. Exactly 0 °C survives. (Ruling G)
 2. Warm-up month W is the first month with `mean ≥ warmup_temp_c` that directly follows a month below it.
 3. Harvest runs from `W + months_bloom_to_harvest` for `harvest_span_months` months, and must also be frost-free if `frost == tender`.
 4. Peak is the middle month or months, as for annuals.
@@ -656,6 +657,7 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Grid resolution | 0.25° |
 | Frost-free threshold | mean tmin > 2 °C |
 | Chill threshold | monthly mean < 7 °C |
+| Winter-kill threshold (tender perennial_fruit) | coldest-month mean tmin < 0 °C |
 | Seafood reach | 100 km from ecoregion |
 | Launch catalog | ≥ 60 land ingredients, ≥ 15 seafood species |
 | Cache size | 50,000 entries |

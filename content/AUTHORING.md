@@ -23,7 +23,7 @@ calibration score is the judge. Temperatures are **monthly mean** temperatures
 | | harvest_span_months | 2–5 | |
 | perennial_fruit, subtropical (citrus, avocado) | frost | `tender` | frost months drop out of the harvest, and the tree winter-kills (not grown at all) where the coldest month's mean minimum is below 0 °C |
 | | chill_months_min | 0 | |
-| | warmup_temp_c | 19.5–20 | a hot-summer threshold; cool-summer climates never reach it |
+| | warmup_temp_c | 19.5 | a hot-summer threshold; cool-summer climates never reach it |
 | | harvest_span_months | 6–8 | citrus and avocado hang on the tree for months; spans of 3–4 scored far below the guides (mandarin 0.24 against 0.47 with 7) |
 | cultivated_year_round | – | – | bananas, mangoes, button mushrooms, greenhouse staples sold all year |
 | wild_mushroom | fruiting_temp_c | [8–12, 16–20] | |
@@ -203,8 +203,10 @@ check that. After any admin edit or import:
 
 The numbers above were tuned against the 15 calibration fixtures on real
 TerraClimate normals (score 0.480 before, 0.671 after over 528 pairs; see
-`docs/calibration-baseline.md`). Only catalog parameters changed; the
-fixtures are ground truth and were not edited. What moved, and why:
+`docs/calibration-baseline.md`). Tuning changed only catalog parameters; fixture
+months were never edited to fit the catalog. The only fixture changes dropped
+non-local rows (greenhouse or wholesale supply) under the field-season principle in
+`calibration/fixtures/README.md`. What moved, and why:
 
 - Warm-season annuals: lower bounds of 18–20 °C left peppers, eggplant,
   chili, okra, sweet potato and watermelon out of most temperate cities.

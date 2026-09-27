@@ -9,7 +9,7 @@ calibration score is the judge. Temperatures are **monthly mean** temperatures
 | Kind | Field | Typical range | Notes |
 |---|---|---|---|
 | annual, warm-season (tomato, pepper, squash, basil, beans, corn) | frost | `tender` | |
-| | grow_temp_c | [13–17, 30–35] | lower bound is the key lever; 13–14 lets cool maritime summers (London, Hobart) harvest outdoor tomatoes, peppers, squash and beans; 16–17 for heat lovers (okra, sweet potato, watermelon) |
+| | grow_temp_c | [13–18, 30–35] | lower bound is the key lever; 13–14 lets cool maritime summers (London, Hobart) harvest outdoor tomatoes, squash and beans; 15 for peppers and eggplant and 16–18 for heat lovers (sweet potato 16, okra and watermelon 18) keeps them out of short cool summers (Oslo, Berlin), which the content gate checks |
 | | months_to_harvest | 2–3 | from transplant to first harvest; 4 or more starts the harvest later than the guides |
 | annual, cool-season (kale, cabbage, peas, lettuce, spinach, leeks) | frost | `hardy` | |
 | | grow_temp_c | [4–6, 24–26] | an upper bound near 25 °C keeps hot continental summers (New York, Toronto, Minneapolis) in season, as the guides list them; 18–22 dropped those summers entirely |
@@ -149,10 +149,15 @@ a near-duplicate ingredient.
   of New York, Chicago, Toronto, Oslo, Stockholm and Beijing. Its harvest
   window comes from a 13 °C warm-up.
 - Temperate fruit, berries, `asparagus` and `rhubarb` need no chill months:
-  their `warmup_temp_c` (8–12 °C; 11–12 for fruit and berries, 8 for
+  their `warmup_temp_c` (8–12 °C; 11–12 for fruit and berries, 8.2 for
   `rhubarb`, the earliest spring crop) keeps them out of climates whose coldest
-  month never drops below it. `fig` keeps 15 °C so it only shows where
-  summers are warm.
+  month never drops below it. `fig` uses a hot-summer warm-up of 17.65 °C
+  with a 1-month offset and a 4-month span: Oslo (warmest month 16.7 °C)
+  never reaches it, London gets figs August–November, Barcelona July–October.
+  The value sits in the middle of a narrow plateau: below about 17.5
+  Barcelona's May (17.5 °C) starts the season a month early, above about 17.8
+  San Francisco's June (17.8 °C) starts it a month late. It also opens a
+  spring warm-up in Hong Kong (March 18.7 °C), so figs show there April–July.
 - Perennial herbs (thyme, rosemary, sage, oregano, mint) are modelled as
   `annual`: they are picked whenever the plant is growing.
 - The rules use temperature only, so spring and autumn with the same mean
@@ -167,13 +172,17 @@ a near-duplicate ingredient.
 ## Calibration tuning (2026-09-27)
 
 The numbers above were tuned against the 15 calibration fixtures on real
-TerraClimate normals (score 0.479 before, 0.673 after; see
+TerraClimate normals (score 0.479 before, 0.667 after; see
 `docs/calibration-baseline.md`). Only catalog parameters changed; the
 fixtures are ground truth and were not edited. What moved, and why:
 
 - Warm-season annuals: lower bounds of 18–20 °C left peppers, eggplant,
   chili, okra, sweet potato and watermelon out of most temperate cities.
-  13–17 °C with 2–3 months to harvest matches the guides.
+  13–18 °C with 2–3 months to harvest matches the guides. The lower bounds
+  were first set to 13–17 °C, which showed okra and watermelon in Berlin,
+  Toronto and London and peppers and eggplant in Oslo, cities whose guides do
+  not list them (so the score could not see it). They were raised to 15 °C
+  (peppers, eggplant) and 18 °C (okra, watermelon), costing 0.006.
 - Cool-season annuals: an upper bound of 18–22 °C removed the whole summer
   in New York, Toronto and Minneapolis, where the guides list broccoli,
   cabbage, carrots and beets from June or July. The bound is now 24–26 °C.
@@ -185,5 +194,11 @@ fixtures are ground truth and were not edited. What moved, and why:
 - Parameters were kept within plausible growing ranges even where a sweep
   found a higher score (for example frost-hardy sweet potato or potato, or
   a fig that ripens four months after an 11 °C warm-up, which would put
-  figs in Oslo from October to February). The remaining low scorers
+  figs in Oslo from October to February).
+- Knife edges: a threshold within about 0.1 °C of a fixture city's monthly
+  mean flips on the next data version. `rhubarb` moved from 8 to 8.2 °C
+  (Hobart's coldest month is 7.98 °C, Minneapolis's April 8.3 °C). The
+  cool-season upper bound of 25 °C sits just above New York's July
+  (24.8 °C) and Barcelona's August (24.6 °C), so both show those crops all
+  summer. The remaining low scorers
   are listed with reasons in the baseline document.

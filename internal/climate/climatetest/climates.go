@@ -100,6 +100,15 @@ func MaritimeSouth() climate.MonthlyNormals {
 	)
 }
 
+// CoolSummer is a short, cool-summer climate like Oslo: the warmest month's
+// mean is 16.5 °C and winter means are below freezing, so heat-loving annuals
+// never get the warm run they need outdoors.
+func CoolSummer() climate.MonthlyNormals {
+	return FromMeans(
+		[12]float64{-3, -2.5, 0.5, 5.5, 10.5, 14.5, 16.5, 15.5, 11, 6, 1.5, -2}, 7, even(70),
+	)
+}
+
 // All returns every named synthetic climate. Each is unimodal, so rotation
 // properties hold for them.
 func All() map[string]climate.MonthlyNormals {
@@ -107,5 +116,6 @@ func All() map[string]climate.MonthlyNormals {
 		"tropical": Tropical(), "temperate-north": TemperateNorth(), "temperate-south": TemperateSouth(),
 		"alpine": Alpine(), "polar": Polar(), "mediterranean": Mediterranean(), "temperate": Temperate(),
 		"continental": Continental(), "maritime-north": MaritimeNorth(), "maritime-south": MaritimeSouth(),
+		"cool-summer": CoolSummer(),
 	}
 }

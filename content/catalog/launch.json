@@ -1,6 +1,6 @@
 {
   "format": "thymeandplace-catalog/v1",
-  "exported_at": "2026-09-26T00:00:00Z",
+  "exported_at": "2026-09-27T00:00:00Z",
   "ingredients": [
     { "slug": "tomato", "name": "Tomato", "category": "vegetable", "kind": "annual",
       "frost": "tender", "grow_temp_c": [13, 30], "months_to_harvest": 2, "storage_months": 0,
@@ -9,19 +9,19 @@
       "pairings": ["basil", "garlic", "oregano", "zucchini", "eggplant"], "note": "" },
 
     { "slug": "bell-pepper", "name": "Bell pepper", "category": "vegetable", "kind": "annual",
-      "frost": "tender", "grow_temp_c": [14, 30], "months_to_harvest": 2, "storage_months": 0,
+      "frost": "tender", "grow_temp_c": [15, 30], "months_to_harvest": 2, "storage_months": 0,
       "tips": { "choose": "Firm and glossy with taut skin and a fresh green stem.",
                 "store": "Unwashed in the fridge crisper; use within a week." },
       "pairings": ["tomato", "onion", "eggplant", "basil"], "note": "Green peppers are unripe; red, yellow and orange ones are left longer on the plant." },
 
     { "slug": "chili-pepper", "name": "Chili pepper", "category": "vegetable", "kind": "annual",
-      "frost": "tender", "grow_temp_c": [13, 32], "months_to_harvest": 2, "storage_months": 0,
+      "frost": "tender", "grow_temp_c": [15, 32], "months_to_harvest": 2, "storage_months": 0,
       "tips": { "choose": "Shiny, firm and unwrinkled; heat varies by variety, not by size.",
                 "store": "In a paper bag in the fridge for up to two weeks, or dry or freeze them." },
       "pairings": ["garlic", "ginger", "coriander", "tomato", "lemongrass"], "note": "" },
 
     { "slug": "eggplant", "name": "Eggplant", "category": "vegetable", "kind": "annual",
-      "frost": "tender", "grow_temp_c": [14, 32], "months_to_harvest": 2, "storage_months": 0,
+      "frost": "tender", "grow_temp_c": [15, 32], "months_to_harvest": 2, "storage_months": 0,
       "tips": { "choose": "Heavy, glossy skin that springs back when pressed; green cap.",
                 "store": "Cool room temperature and use within a few days; it dislikes the cold." },
       "pairings": ["tomato", "garlic", "basil", "mint", "bell-pepper"], "note": "" },
@@ -57,7 +57,7 @@
       "pairings": ["sage", "thyme", "onion", "ginger"], "note": "Pumpkin and butternut are winter squash." },
 
     { "slug": "okra", "name": "Okra", "category": "vegetable", "kind": "annual",
-      "frost": "tender", "grow_temp_c": [16, 35], "months_to_harvest": 2, "storage_months": 0,
+      "frost": "tender", "grow_temp_c": [18, 35], "months_to_harvest": 2, "storage_months": 0,
       "tips": { "choose": "Small pods under about 8 cm that snap rather than bend.",
                 "store": "Dry and unwashed in a paper bag in the fridge; use within 2 to 3 days." },
       "pairings": ["tomato", "onion", "chili-pepper", "sweet-corn"], "note": "" },
@@ -213,7 +213,7 @@
       "pairings": ["lemon", "chives", "morel", "pea"], "note": "A perennial crop: spears are cut for a few weeks each spring." },
 
     { "slug": "rhubarb", "name": "Rhubarb", "category": "vegetable", "kind": "perennial_fruit",
-      "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 8, "months_bloom_to_harvest": 1,
+      "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 8.2, "months_bloom_to_harvest": 1,
       "harvest_span_months": 3, "storage_months": 0,
       "tips": { "choose": "Crisp, glossy stalks that snap; the leaves are poisonous, so discard them.",
                 "store": "Leaves removed, wrapped in the fridge for up to a week." },
@@ -283,7 +283,7 @@
       "pairings": ["raspberry", "basil", "blueberry", "tomato"], "note": "Nectarines are smooth-skinned peaches." },
 
     { "slug": "fig", "name": "Fig", "category": "fruit", "kind": "perennial_fruit",
-      "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 15, "months_bloom_to_harvest": 2,
+      "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 17.65, "months_bloom_to_harvest": 1,
       "harvest_span_months": 4, "storage_months": 0,
       "tips": { "choose": "Soft, heavy and fragrant, with intact skin and a slightly bent neck.",
                 "store": "In a single layer in the fridge; eat within 2 days." },
@@ -374,7 +374,7 @@
       "pairings": ["lemon", "chili-pepper", "mint", "lemongrass"], "note": "" },
 
     { "slug": "watermelon", "name": "Watermelon", "category": "fruit", "kind": "annual",
-      "frost": "tender", "grow_temp_c": [17, 35], "months_to_harvest": 2, "storage_months": 0,
+      "frost": "tender", "grow_temp_c": [18, 35], "months_to_harvest": 2, "storage_months": 0,
       "tips": { "choose": "Heavy, with a creamy yellow patch where it rested on the ground.",
                 "store": "Whole at room temperature; cut pieces wrapped in the fridge." },
       "pairings": ["mint", "cucumber", "basil", "chili-pepper"], "note": "" },

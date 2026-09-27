@@ -163,6 +163,23 @@ func TestNoTemperateFruitInTropics(t *testing.T) {
 	}
 }
 
+// Heat-loving crops are not grown outdoors in a short, cool-summer climate
+// (Oslo-like, warmest month mean 16.5 °C). The calibration score cannot see
+// this, because the fixtures for such cities do not list these crops.
+func TestNoHeatCropsInCoolSummerClimate(t *testing.T) {
+	snap := launch(t)
+	for _, slug := range []string{"okra", "watermelon", "sweet-potato", "eggplant", "bell-pepper", "chili-pepper", "fig"} {
+		ing, ok := snap.Get(slug)
+		if !ok {
+			t.Errorf("%s is missing", slug)
+			continue
+		}
+		if m, ok := yearIn(climatetest.CoolSummer(), ing); ok {
+			t.Errorf("%s is in season in the Oslo-like cool-summer climate: %v", slug, m)
+		}
+	}
+}
+
 // Cool-season crops picked in summer (or winter) must not be year-round in
 // mild maritime climates.
 func TestCoolSeasonCropsNotYearRoundInMaritimeClimates(t *testing.T) {

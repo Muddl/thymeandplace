@@ -283,7 +283,7 @@
       "pairings": ["raspberry", "basil", "blueberry", "tomato"], "note": "Nectarines are smooth-skinned peaches." },
 
     { "slug": "fig", "name": "Fig", "category": "fruit", "kind": "perennial_fruit",
-      "frost": "hardy", "chill_months_min": 0, "warmup_temp_c": 17.65, "months_bloom_to_harvest": 1,
+      "frost": "tender", "chill_months_min": 0, "warmup_temp_c": 17.65, "months_bloom_to_harvest": 1,
       "harvest_span_months": 4, "storage_months": 0,
       "tips": { "choose": "Soft, heavy and fragrant, with intact skin and a slightly bent neck.",
                 "store": "In a single layer in the fridge; eat within 2 days." },
@@ -352,12 +352,10 @@
                 "store": "Ripen at room temperature; refrigerate once ripe for a few days." },
       "pairings": ["lemon", "tomato", "coriander", "chili-pepper"], "note": "Fruit ripens off the tree and can hang for months." },
 
-    { "slug": "mango", "name": "Mango", "category": "fruit", "kind": "perennial_fruit",
-      "frost": "tender", "chill_months_min": 0, "warmup_temp_c": 20, "months_bloom_to_harvest": 2,
-      "harvest_span_months": 3, "storage_months": 0,
+    { "slug": "mango", "name": "Mango", "category": "fruit", "kind": "cultivated_year_round",
       "tips": { "choose": "Fragrant at the stem end and yields slightly; colour varies by variety.",
                 "store": "Ripen at room temperature; refrigerate once ripe." },
-      "pairings": ["chili-pepper", "lemongrass", "coriander", "mint"], "note": "" },
+      "pairings": ["chili-pepper", "lemongrass", "coriander", "mint"], "note": "Sold all year from tropical growers; the local harvest season depends on where it was grown." },
 
     { "slug": "banana", "name": "Banana", "category": "fruit", "kind": "cultivated_year_round",
       "tips": { "choose": "Yellow with a few brown flecks for eating now.", "store": "Room temperature; refrigerate once ripe." },

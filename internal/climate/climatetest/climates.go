@@ -109,6 +109,15 @@ func CoolSummer() climate.MonthlyNormals {
 	)
 }
 
+// CentralEurope is a mild-summer, freezing-winter climate like Berlin: the
+// warmest month's mean is 19.5 °C and the coldest month's mean minimum is
+// -1.5 °C, so frost-tender perennials winter-kill.
+func CentralEurope() climate.MonthlyNormals {
+	return FromMeans(
+		[12]float64{1, 2, 5, 10, 14.5, 17.5, 19.5, 19, 15, 10, 5.5, 2}, 5, even(50),
+	)
+}
+
 // All returns every named synthetic climate. Each is unimodal, so rotation
 // properties hold for them.
 func All() map[string]climate.MonthlyNormals {
@@ -116,6 +125,6 @@ func All() map[string]climate.MonthlyNormals {
 		"tropical": Tropical(), "temperate-north": TemperateNorth(), "temperate-south": TemperateSouth(),
 		"alpine": Alpine(), "polar": Polar(), "mediterranean": Mediterranean(), "temperate": Temperate(),
 		"continental": Continental(), "maritime-north": MaritimeNorth(), "maritime-south": MaritimeSouth(),
-		"cool-summer": CoolSummer(),
+		"cool-summer": CoolSummer(), "central-europe": CentralEurope(),
 	}
 }

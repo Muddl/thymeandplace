@@ -131,7 +131,7 @@ func yearIn(n climate.MonthlyNormals, ing catalog.Ingredient) ([12]season.Status
 // frost settings, not just the engine rule.
 func TestNoFrostSensitivePerennialInContinentalClimate(t *testing.T) {
 	snap := launch(t)
-	for _, slug := range []string{"lemon", "orange", "mandarin", "avocado", "mango", "pomegranate", "globe-artichoke", "kiwifruit"} {
+	for _, slug := range []string{"lemon", "orange", "mandarin", "avocado", "pomegranate", "globe-artichoke", "kiwifruit", "fig"} {
 		ing, ok := snap.Get(slug)
 		if !ok {
 			t.Errorf("%s is missing", slug)
@@ -176,6 +176,31 @@ func TestNoHeatCropsInCoolSummerClimate(t *testing.T) {
 		}
 		if m, ok := yearIn(climatetest.CoolSummer(), ing); ok {
 			t.Errorf("%s is in season in the Oslo-like cool-summer climate: %v", slug, m)
+		}
+	}
+}
+
+// A Berlin-like climate (warmest month 19.5 °C, coldest-month mean minimum
+// -1.5 °C) has too short a warm run for okra and watermelon, and its winters
+// kill every frost-tender perennial (fig, citrus, avocado, kiwifruit, ...).
+// Like the cool-summer gate, this covers cities whose guides do not list
+// these crops, which the calibration score cannot see.
+func TestNoHeatCropsOrTenderFruitInCentralEurope(t *testing.T) {
+	snap := launch(t)
+	slugs := []string{"okra", "watermelon", "fig"}
+	for _, ing := range snap.All() {
+		if ing.Kind == catalog.KindPerennialFruit && ing.Frost == catalog.FrostTender {
+			slugs = append(slugs, ing.Slug)
+		}
+	}
+	for _, slug := range slugs {
+		ing, ok := snap.Get(slug)
+		if !ok {
+			t.Errorf("%s is missing", slug)
+			continue
+		}
+		if m, ok := yearIn(climatetest.CentralEurope(), ing); ok {
+			t.Errorf("%s is in season in the Berlin-like climate: %v", slug, m)
 		}
 	}
 }

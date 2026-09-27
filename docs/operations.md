@@ -30,7 +30,7 @@
    docker compose --profile tools run --rm transform /work/climate/vN
    docker compose --profile tools run --rm ingest climate all --version N
    ```
-7. Import the launch catalog in `/admin/import` (see Plan 9) and check the preview's calibration score.
+7. Import the launch catalog in `/admin/import` (see Plan 9) and check the preview's calibration score. After any later admin edit, export the catalog to `content/catalog/launch.json` and run `go test ./content/`: the calibration score can't see an ingredient in a city whose guide doesn't list it, and the content gates can (`content/AUTHORING.md`, "After editing in the admin").
 8. Backups: see "Nightly backups" below for the cron entry.
 9. **Before launch:** run `docker compose --profile tools run --rm backup` then `docker compose --profile tools run --rm --entrypoint restore-test.sh backup`. It must print `restore-test ok`.
 

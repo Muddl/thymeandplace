@@ -25,22 +25,29 @@ calibration score is the judge. Temperatures are **monthly mean** temperatures
 | | chill_months_min | 0 | |
 | | warmup_temp_c | 19.5–20 | a hot-summer threshold; cool-summer climates never reach it |
 | | harvest_span_months | 6–8 | citrus and avocado hang on the tree for months; spans of 3–4 scored far below the guides (mandarin 0.24 against 0.47 with 7) |
-| cultivated_year_round | – | – | bananas, button mushrooms, greenhouse staples sold all year |
+| cultivated_year_round | – | – | bananas, mangoes, button mushrooms, greenhouse staples sold all year |
 | wild_mushroom | fruiting_temp_c | [8–12, 16–20] | |
 | | min_precip_mm | 40–45 | monthly; 60 or more rules out drier maritime climates such as London |
 | seafood | regions | MEOW ecoregions | months from fisheries guidance, peak where clear |
 
-Winter-kill (controller ruling G, beyond spec §12.3): a `perennial_fruit` with
+Winter-kill (ruling G, spec §12.3): a `perennial_fruit` with
 `frost: tender` is not grown locally where the coldest month's mean minimum
 temperature is below 0 °C. Exactly 0 °C still counts as survivable. Use
-`tender` only for trees that cannot survive a hard frost (citrus, avocado,
-mango); winter-hardy vines and trees stay `hardy` even when their fruit is
-picked before the first frost.
+`tender` for fruit that is not grown commercially where winters freeze:
+citrus, avocado, pomegranate, fig, kiwifruit and the perennial
+`globe-artichoke`. Fruit that is grown in hard-winter regions (apple, pear,
+plum, cherry, grape, berries) stays `hardy`, even when it is picked before
+the first frost.
+
+The 0 °C test only catches freezing winters. A mild winter that is still too
+cool for a crop (Paris and Toulouse, coldest-month mean minimum about 2 °C)
+passes, so citrus and avocado show there. A per-ingredient winter-minimum
+field is a follow-up spec item; see `docs/calibration-baseline.md`.
 
 Known limitation (spec §12.3): a `perennial_fruit` needs one clear month when
 the mean crosses `warmup_temp_c`. In climates that never cross it (the humid
 tropics) it shows nowhere. Tropical fruit sold all year (banana, pineapple,
-papaya) should be `cultivated_year_round`.
+papaya, mango) should be `cultivated_year_round`.
 
 ## Worked examples (copy the shape; tune the numbers)
 
@@ -134,20 +141,26 @@ a near-duplicate ingredient.
 
 - Perennial vegetables (`asparagus`, `rhubarb`, `globe-artichoke`) use the
   `perennial_fruit` kind: the warm-up month starts the cutting season.
-- Subtropical fruit that needs a hot summer (citrus, `avocado`, `mango`,
-  `pomegranate`) uses a high `warmup_temp_c` (19.5–20). Cool-summer climates
-  never reach it, so these fruit do not show where they cannot ripen; the
-  bloom-to-harvest offset is counted from that later month. They are also
-  `tender`, so the winter-kill rule keeps them out of hard-winter climates
-  (New York, Toronto, Chicago, Beijing). `globe-artichoke` is `tender` for
-  the same reason.
+- Subtropical fruit that needs a hot summer (citrus, `avocado`,
+  `pomegranate`) uses a high `warmup_temp_c` (19.5). Cool-summer climates
+  (London, Oslo, San Francisco) never reach it; the bloom-to-harvest offset
+  is counted from that later month. They are also `tender`, so the
+  winter-kill rule keeps them out of hard-winter climates (New York,
+  Toronto, Chicago, Beijing). `globe-artichoke` is `tender` for the same
+  reason. Climates with a warm summer and a mild but cool winter (Paris,
+  Toulouse) pass both tests, so citrus and avocado show there even though
+  they are not grown commercially: a known limitation.
+- `mango` is `cultivated_year_round`: the warm-up rule never showed it in
+  the humid tropics (Mumbai, Bangkok, Singapore) but did in Tokyo, Madrid,
+  Rome and Barcelona. It is sold all year from tropical growers.
 - `grape` is `hardy` (the vine survives hard winters), with a warm-up of
-  12 °C. With no chill requirement it can also show in cold-winter
-  climates such as Oslo, which the calibration fixtures should catch.
-  `kiwifruit` is `tender` (controller amendment to ruling G: commercial
-  kiwifruit is not grown in hard-winter zones), so winter-kill keeps it out
-  of New York, Chicago, Toronto, Oslo, Stockholm and Beijing. Its harvest
-  window comes from a 13 °C warm-up.
+  12 °C. With no chill requirement it also shows in Oslo and Stockholm
+  (September–November), as do `peach` and `apricot` (from August), although none of them
+  is grown commercially there. The Oslo fixture does not list them, so the
+  calibration score cannot see this: a known limitation.
+  `kiwifruit` is `tender` (commercial kiwifruit is not grown in hard-winter
+  zones), so winter-kill keeps it out of New York, Chicago, Toronto, Oslo,
+  Stockholm and Beijing. Its harvest window comes from a 13 °C warm-up.
 - Temperate fruit, berries, `asparagus` and `rhubarb` need no chill months:
   their `warmup_temp_c` (8–12 °C; 11–12 for fruit and berries, 8.2 for
   `rhubarb`, the earliest spring crop) keeps them out of climates whose coldest
@@ -158,6 +171,10 @@ a near-duplicate ingredient.
   Barcelona's May (17.5 °C) starts the season a month early, above about 17.8
   San Francisco's June (17.8 °C) starts it a month late. It also opens a
   spring warm-up in Hong Kong (March 18.7 °C), so figs show there April–July.
+  `fig` is `tender`, so winter-kill keeps it out of hard-winter cities
+  (Minneapolis, New York, Toronto, Chicago, Berlin, Moscow, Seoul,
+  Beijing); mild-winter London, Paris and Seattle keep their late-summer
+  figs.
 - Perennial herbs (thyme, rosemary, sage, oregano, mint) are modelled as
   `annual`: they are picked whenever the plant is growing.
 - The rules use temperature only, so spring and autumn with the same mean
@@ -169,10 +186,23 @@ a near-duplicate ingredient.
   as autumn (London: chanterelle May–Oct, porcini May–Jun and Sep–Nov).
   Tune them against the calibration fixtures.
 
+## After editing in the admin
+
+The admin preview scores only the pairs a fixture lists, so it cannot see an
+ingredient appearing in a city whose guide doesn't list it (figs in Oslo,
+okra in Berlin). The negative content gates in `content/content_test.go`
+check that. After any admin edit or import:
+
+1. Export the catalog from `/admin/export` and save it over
+   `content/catalog/launch.json`, so the repo matches what's live.
+2. Run `go test ./content/ -count=1`. If a gate fails, fix the parameters
+   in the admin (or the file, then import it again) until it passes.
+3. Commit the file.
+
 ## Calibration tuning (2026-09-27)
 
 The numbers above were tuned against the 15 calibration fixtures on real
-TerraClimate normals (score 0.479 before, 0.667 after; see
+TerraClimate normals (score 0.480 before, 0.671 after over 528 pairs; see
 `docs/calibration-baseline.md`). Only catalog parameters changed; the
 fixtures are ground truth and were not edited. What moved, and why:
 

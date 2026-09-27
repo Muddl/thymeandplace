@@ -1,0 +1,28 @@
+{
+  "id": "hong-kong-hk",
+  "name": "Hong Kong",
+  "lat": 22.3193,
+  "lng": 114.1694,
+  "source": "Seasonal calendar of vegetables and fruits from Hong Kong (香港時令農作物收成表), Slow Food Hong Kong / Slow Food Youth Network (data from Plant Right Now), https://slowfood.com.hk/wp-content/uploads/2021/08/Seasonal-Calendar-Poster-White-12.pdf, accessed 2026-09-26",
+  "months": {
+    "bean-sprouts": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    "bok-choy": [1, 2, 3, 4, 5, 6, 9, 10, 11, 12],
+    "broccoli": [1, 2, 3, 4, 12],
+    "cauliflower": [1, 2, 3, 4, 12],
+    "celery": [1, 2, 3, 4, 12],
+    "cucumber": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    "eggplant": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    "ginger": [1, 2, 11, 12],
+    "green-bean": [1, 2, 3, 4, 9, 10, 11, 12],
+    "lemongrass": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    "lettuce": [1, 2, 3, 4, 10, 11, 12],
+    "mandarin": [1, 2, 12],
+    "orange": [1, 2, 11, 12],
+    "papaya": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    "pea": [1, 2, 3, 12],
+    "sweet-corn": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    "tomato": [1, 2, 3, 4, 5, 11, 12],
+    "watercress": [1, 2, 3, 11, 12],
+    "watermelon": [5, 6, 7, 8, 9]
+  }
+}

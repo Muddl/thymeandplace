@@ -1,0 +1,26 @@
+{
+  "id": "hobart-au",
+  "name": "Hobart, Tasmania, Australia",
+  "lat": -42.8821,
+  "lng": 147.3272,
+  "source": "Tasmanian Seasonal Produce Guide 2023/24 (harvest and availability calendar), Fruit Growers Tasmania, https://www.fruitgrowerstas.org.au/assets/Seasonal_Produce_Guide_2023-24_Final_Web.pdf, accessed 2026-09-26",
+  "months": {
+    "apple": [3, 4, 5, 6, 7, 8, 9, 10, 11],
+    "apricot": [1, 2, 12],
+    "avocado": [1, 2, 3, 4, 5, 6, 7, 8],
+    "bell-pepper": [1, 2, 3, 4, 5, 12],
+    "blackberry": [1, 2, 3, 4, 5, 12],
+    "blueberry": [1, 2, 3, 4],
+    "broccoli": [1, 2, 3, 4, 5, 9, 10, 11, 12],
+    "brussels-sprouts": [5, 6, 7, 8],
+    "carrot": [1, 2, 3, 4, 5, 6],
+    "cherry": [1, 2, 12],
+    "garlic": [1, 2, 11, 12],
+    "green-bean": [1, 2, 3, 4],
+    "pear": [3, 4, 5, 6, 7, 8, 9, 10, 11],
+    "plum": [1, 12],
+    "potato": [1, 2, 3, 4, 5, 6, 7, 10, 11, 12],
+    "raspberry": [1, 2, 3, 4, 5, 11, 12],
+    "strawberry": [1, 2, 3, 4, 5, 10, 11, 12]
+  }
+}

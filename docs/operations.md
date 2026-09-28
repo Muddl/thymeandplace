@@ -4,7 +4,7 @@
 
 ## First deploy (one VPS)
 
-1. Install Docker Engine + Compose v2 (≥ 2.24). Point `thymeand.place` and `www.thymeand.place` A/AAAA records at the VPS.
+1. Install Docker Engine + Compose v2 (≥ 2.24). Point `thymeand.place` and `www.thymeand.place` A/AAAA records at the VPS. (On Hetzner Cloud, `docs/hosting-hetzner.md` covers the server, firewall, DNS, host hardening and buckets.)
 2. `git clone` the repo to `/opt/thymeandplace`.
 3. Create the six env files from the templates in `deploy/env/`:
    ```bash

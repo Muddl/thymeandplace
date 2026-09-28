@@ -45,6 +45,25 @@ func estimatesIntro(seafood bool) string {
 	return lead + " We look up 1991–2020 monthly climate normals for the 0.25° grid cell (about 28 km across) around your location, then apply simple rules per ingredient:"
 }
 
+// SiteDescription is the meta description for pages without their own.
+func SiteDescription(seafood bool) string {
+	covers := "fruit, vegetables, herbs and mushrooms"
+	if seafood {
+		covers = "fruit, vegetables, herbs, mushrooms and seafood"
+	}
+	return "Find out which " + covers + " are in season where you live, with tips on choosing, storing and pairing them."
+}
+
+const AboutDescription = "How Thyme & Place estimates what's in season: climate data, simple rules per ingredient, sources, licenses and privacy."
+
+func SeasonDescription(label, month string) string {
+	return "What's in season near " + label + " in " + month + ", estimated from the local climate, with tips on choosing, storing and pairing each ingredient."
+}
+
+func IngredientDescription(name string) string {
+	return name + ": when it's in season near you, how to choose and store it, and what it goes with."
+}
+
 // AssetVersion is a short content hash of the static files, appended to asset
 // URLs so a deploy busts browser caches. web.New sets it once at startup.
 var AssetVersion string
@@ -58,10 +77,11 @@ func Asset(name string) string {
 }
 
 type PageVM struct {
-	Title   string
-	Query   string
-	Places  templ.Component
-	Results templ.Component
+	Title       string
+	Description string // the meta description search results show
+	Query       string
+	Places      templ.Component
+	Results     templ.Component
 }
 
 type PlaceItem struct{ Label, URL string }

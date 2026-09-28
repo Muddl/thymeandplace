@@ -36,7 +36,7 @@ func withSeafoodPairing(t *testing.T, hs *harness) {
 // With seafood off (the launch setup), no public page mentions seafood, no
 // seafood item or pairing is reachable, and no ocean lookup runs.
 func TestSeafoodOffIsLandOnly(t *testing.T) {
-	hs := newHarness(t, seafoodOff)
+	hs := newHarness(t, seafoodOff, discovery)
 	withSeafoodPairing(t, hs)
 	southern := climate.CellID(-60, -20) // no land normals, but ecoregions in reach (west of 0°)
 	pages := []string{
@@ -46,6 +46,7 @@ func TestSeafoodOffIsLandOnly(t *testing.T) {
 		fmt.Sprintf("/ingredient/tomato?cell=%d", lisbonCell),
 		fmt.Sprintf("/ingredient/tomato?cell=%d", southern),
 		"/places?q=lis",
+		"/llms.txt", "/sitemap.xml", "/robots.txt",
 	}
 	for _, p := range pages {
 		for _, hx := range []bool{false, true} {

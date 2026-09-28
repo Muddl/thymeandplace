@@ -73,6 +73,11 @@ func TestAppServesAndReloadsWithoutRestart(t *testing.T) {
 			t.Fatalf("missing %q (%d)\n%s", want, code, body)
 		}
 	}
+	// The sitemap links a season page for each calibration city (get
+	// unescapes the body, so the XML's &amp; reads as &).
+	if code, body := get(t, srv.URL+"/sitemap.xml"); code != 200 || !strings.Contains(body, "<loc>https://thymeand.place/season?lat=51.5074&lng=-0.1278</loc>") {
+		t.Fatalf("sitemap.xml (%d) has no London season page:\n%s", code, body)
+	}
 
 	if _, err := pool.Exec(ctx, `UPDATE ingredient SET name = 'Plantain' WHERE slug = 'banana'`); err != nil {
 		t.Fatal(err)
@@ -389,6 +394,35 @@ func TestLoadConfigSeafood(t *testing.T) {
 		}, discard)
 		if (err == nil) != tc.wantOK || c.Seafood != tc.want {
 			t.Fatalf("FEATURE_SEAFOOD=%q: got %v, err %v", tc.v, c.Seafood, err)
+		}
+	}
+}
+
+// PUBLIC_BASE_URL defaults to the admin origin (as the admin CLI's enroll
+// links do) and must be a bare origin.
+func TestLoadConfigBaseURL(t *testing.T) {
+	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, tc := range []struct {
+		env  map[string]string
+		want string
+		ok   bool
+	}{
+		{map[string]string{}, "https://thymeand.place", true},
+		{map[string]string{"ADMIN_RP_ID": "localhost"}, "https://localhost", true},
+		{map[string]string{"PUBLIC_BASE_URL": "https://example.test/"}, "https://example.test", true},
+		{map[string]string{"PUBLIC_BASE_URL": "http://localhost:8080"}, "http://localhost:8080", true},
+		{map[string]string{"PUBLIC_BASE_URL": "thymeand.place"}, "", false},
+		{map[string]string{"PUBLIC_BASE_URL": "https://example.test/site"}, "", false},
+		{map[string]string{"PUBLIC_BASE_URL": "ftp://example.test"}, "", false},
+	} {
+		c, err := loadConfig(func(k string) string {
+			if k == "DATABASE_URL" {
+				return "postgres://x"
+			}
+			return tc.env[k]
+		}, discard)
+		if (err == nil) != tc.ok || (tc.ok && c.BaseURL != tc.want) {
+			t.Fatalf("%v: got %q, err %v", tc.env, c.BaseURL, err)
 		}
 	}
 }

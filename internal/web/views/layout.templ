@@ -8,6 +8,8 @@ templ Page(p PageVM) {
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<meta name="htmx-config" content={ htmxConfig }/>
 			<title>{ p.Title } · Thyme &amp; Place</title>
+			<meta name="description" content={ p.Description }/>
+			<link rel="icon" type="image/svg+xml" href={ Asset("favicon.svg") }/>
 			<link rel="stylesheet" href={ Asset("app.css") }/>
 			<script src={ Asset("htmx.min.js") } defer></script>
 			<script src={ Asset("app.js") } defer></script>

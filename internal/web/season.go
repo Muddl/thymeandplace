@@ -142,7 +142,7 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vm := s.seasonVM(ctx, core, snap, month, q.Get("place"), lat, lng, s.validDate(q.Get("date")))
-	s.render(w, r, http.StatusOK, vm.Label, "", nil, views.Season(vm))
+	s.renderPage(w, r, http.StatusOK, vm.Label, views.SeasonDescription(vm.Label, vm.MonthName), "", nil, views.Season(vm))
 }
 
 func (s *Server) compute(ctx context.Context, lat, lng float64, month time.Month, snap *catalog.Snapshot) (seasonCore, error) {

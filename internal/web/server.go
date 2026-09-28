@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,6 +60,14 @@ type Deps struct {
 	// pairings, and no seafood wording or marine data credits. It needs a
 	// live ocean dataset with a confirmed license (docs/reference-data-licenses.md).
 	Seafood bool
+	// BaseURL is the public origin (PUBLIC_BASE_URL, no trailing slash) for
+	// the absolute URLs in robots.txt, sitemap.xml and llms.txt; empty →
+	// DefaultBaseURL.
+	BaseURL string
+	// Featured are the places sitemap.xml and llms.txt link a season page
+	// for: the calibration cities, whose estimates are checked against
+	// published guides.
+	Featured []Featured
 
 	timeout time.Duration // per-request deadline; 0 → defaultTimeout (tests shorten it)
 }
@@ -105,6 +114,10 @@ func New(d Deps) http.Handler {
 	if d.DBSlots <= 0 {
 		d.DBSlots = DefaultDBSlots
 	}
+	d.BaseURL = strings.TrimRight(d.BaseURL, "/")
+	if d.BaseURL == "" {
+		d.BaseURL = DefaultBaseURL
+	}
 	s := &Server{
 		d:     d,
 		cache: cache.New[cache.Key, seasonCore](cache.DefaultSize),
@@ -121,6 +134,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /about/data", s.about)
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
+	mux.HandleFunc("GET /robots.txt", s.robots)
+	mux.HandleFunc("GET /sitemap.xml", s.sitemap)
+	mux.HandleFunc("GET /llms.txt", s.llmsTxt)
+	mux.HandleFunc("GET /favicon.ico", s.favicon)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", s.staticFiles()))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusNotFound, "Not found", "", nil, views.NotFound())
@@ -172,15 +189,22 @@ func hashFS(fsys fs.FS) string {
 }
 
 // staticFiles serves the embedded assets. Directory paths get the 404 page
-// rather than a listing.
+// rather than a listing. A URL carrying the current asset version (as
+// views.Asset builds them) names these exact bytes, so browsers may keep it
+// for a year; any other URL is cached for a day.
 func (s *Server) staticFiles() http.Handler {
-	files := cacheFor(24*time.Hour, http.FileServerFS(static.FS))
+	files := http.FileServerFS(static.FS)
+	daily, versioned := cacheFor(24*time.Hour, files), immutable(files)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if fi, err := fs.Stat(static.FS, r.URL.Path); err != nil || fi.IsDir() {
 			s.render(w, r, http.StatusNotFound, "Not found", "", nil, views.NotFound())
 			return
 		}
-		files.ServeHTTP(w, r)
+		if v := r.URL.Query().Get("v"); v != "" && v == views.AssetVersion {
+			versioned.ServeHTTP(w, r)
+			return
+		}
+		daily.ServeHTTP(w, r)
 	})
 }
 
@@ -191,6 +215,19 @@ func cacheFor(d time.Duration, h http.Handler) http.Handler {
 	})
 }
 
+func immutable(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		h.ServeHTTP(w, r)
+	})
+}
+
+// favicon sends clients that ask for /favicon.ico (rather than reading the
+// page's <link rel="icon">) to the SVG icon.
+func (s *Server) favicon(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, views.Asset("favicon.svg"), http.StatusFound)
+}
+
 // partial reports whether to send a fragment rather than a full page.
 func partial(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-History-Restore-Request") != "true"
@@ -199,6 +236,15 @@ func partial(r *http.Request) bool {
 // render writes either the fragment (for HTMX) or the full page with the
 // fragment in the right slot. placesSlot is used only by /places.
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, title, query string, placesSlot, results templ.Component) {
+	s.renderPage(w, r, status, title, "", query, placesSlot, results)
+}
+
+// renderPage is render with the page's own meta description; "" → the
+// site-wide one.
+func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, title, description, query string, placesSlot, results templ.Component) {
+	if description == "" {
+		description = views.SiteDescription(s.d.Seafood)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Add("Vary", "HX-Request")
 	w.WriteHeader(status)
@@ -209,7 +255,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, titl
 	case partial(r):
 		c = results
 	default:
-		c = views.Page(views.PageVM{Title: title, Query: query, Places: placesSlot, Results: results})
+		c = views.Page(views.PageVM{Title: title, Description: description, Query: query, Places: placesSlot, Results: results})
 	}
 	if c == nil { // an HTMX request for a page with no fragment (e.g. GET / with HX-Request)
 		c = templ.NopComponent
@@ -227,7 +273,7 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) about(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, http.StatusOK, "About the data", "", nil, views.About(s.d.Seafood))
+	s.renderPage(w, r, http.StatusOK, "About the data", views.AboutDescription, "", nil, views.About(s.d.Seafood))
 }
 
 // visible reports whether the public site shows ing: seafood only with the

@@ -114,5 +114,5 @@ func (s *Server) ingredient(w http.ResponseWriter, r *http.Request) {
 			vm.Pairings = append(vm.Pairings, views.Link{Name: other.Name, URL: ingredientURL(p, cell, date)})
 		}
 	}
-	s.render(w, r, http.StatusOK, ing.Name, "", nil, views.Ingredient(vm))
+	s.renderPage(w, r, http.StatusOK, ing.Name, views.IngredientDescription(ing.Name), "", nil, views.Ingredient(vm))
 }

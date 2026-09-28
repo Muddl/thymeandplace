@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -49,8 +50,41 @@ func TestStaticAndNotFound(t *testing.T) {
 	if code != 200 || !strings.Contains(hdr.Get("Cache-Control"), "max-age=86400") {
 		t.Fatalf("static: %d %v", code, hdr)
 	}
+	// The current version names these exact bytes; an old one may not.
+	if _, _, hdr := hs.get(views.Asset("app.js"), false); hdr.Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("versioned static: %v", hdr)
+	}
+	if _, _, hdr := hs.get("/static/app.js?v=old", false); !strings.Contains(hdr.Get("Cache-Control"), "max-age=86400") {
+		t.Fatalf("stale version: %v", hdr)
+	}
+	if code, _, hdr := hs.get("/favicon.ico", false); code != 302 || hdr.Get("Location") != views.Asset("favicon.svg") {
+		t.Fatalf("favicon.ico: %d %v", code, hdr)
+	}
+	if code, _, hdr := hs.get(views.Asset("favicon.svg"), false); code != 200 || hdr.Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("favicon.svg: %d %v", code, hdr)
+	}
 	if code, body, _ := hs.get("/nope", false); code != 404 || !strings.Contains(body, views.CopyNotFound) {
 		t.Fatalf("404: %d", code)
+	}
+}
+
+// Every full page has a meta description (search results show it) and the icon.
+func TestPagesHaveDescriptions(t *testing.T) {
+	hs := newHarness(t)
+	for path, want := range map[string]string{
+		"/":                          views.SiteDescription(true),
+		"/about/data":                views.AboutDescription,
+		lisbonQ + "&date=2026-08-15": views.SeasonDescription("Lisbon, PT", "August"),
+		fmt.Sprintf("/ingredient/tomato?cell=%d", lisbonCell): views.IngredientDescription("Tomato"),
+		"/nope": views.SiteDescription(true),
+	} {
+		_, body, _ := hs.get(path, false)
+		if !strings.Contains(body, `<meta name="description" content="`+want+`">`) {
+			t.Errorf("%s: no meta description %q", path, want)
+		}
+		if !strings.Contains(body, `<link rel="icon" type="image/svg+xml" href="`+views.Asset("favicon.svg")+`">`) {
+			t.Errorf("%s: no icon link", path)
+		}
 	}
 }
 

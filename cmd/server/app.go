@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -32,8 +33,9 @@ type config struct {
 	DatabaseURL string
 	Addr        string
 	TrustProxy  bool
-	DBMaxConns  int32 // DB_MAX_CONNS; 0 → db.ServerPool's default
-	Seafood     bool  // FEATURE_SEAFOOD=on; off (the default) serves a land-only site
+	DBMaxConns  int32  // DB_MAX_CONNS; 0 → db.ServerPool's default
+	Seafood     bool   // FEATURE_SEAFOOD=on; off (the default) serves a land-only site
+	BaseURL     string // PUBLIC_BASE_URL, for robots.txt, sitemap.xml and llms.txt; defaults to AdminOrigin
 
 	AdminSecretKey []byte
 	AdminRPID      string
@@ -85,6 +87,15 @@ func loadConfig(getenv func(string) string, log *slog.Logger) (config, error) {
 	// A browser's Origin never ends in "/", so neither may the WebAuthn
 	// origin (nor the enrollment links built from it).
 	c.AdminOrigin = strings.TrimRight(c.AdminOrigin, "/")
+	// Same default as the admin CLI's enroll links: the public site and the
+	// admin share an origin unless PUBLIC_BASE_URL says otherwise.
+	c.BaseURL = strings.TrimRight(getenv("PUBLIC_BASE_URL"), "/")
+	if c.BaseURL == "" {
+		c.BaseURL = c.AdminOrigin
+	}
+	if u, err := url.Parse(c.BaseURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.Path != "" || u.RawQuery != "" {
+		return c, fmt.Errorf("PUBLIC_BASE_URL must be an origin like https://thymeand.place, got %q", c.BaseURL)
+	}
 	c.AdminBackup = getenv("ADMIN_BACKUP_LOGIN") != "off"
 	// TP_PUBLIC_TODAY pins the public site's "today" to a fixed calendar
 	// date, keeping the current time of day. Test use only (e2e needs a
@@ -163,11 +174,18 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	}
 	a.drift = &calibrun.Drift{Pool: pool, Snapshot: a.holder.Current, Cases: a.cases, DataVersion: a.watcher.Current, Log: log}
 
+	// The calibration cities double as the sitemap's season pages: they're
+	// the places whose estimates are checked against published guides.
+	featured := make([]web.Featured, len(fixtures))
+	for i, f := range fixtures {
+		featured[i] = web.Featured{Name: f.Name, Lat: f.Lat, Lng: f.Lng}
+	}
 	public := web.New(web.Deps{
 		Climate: a.climate, Ocean: a.ocean, Places: places.NewService(pool),
 		Snapshot: a.holder.Current, DataVersion: a.watcher.Current, Adjuster: season.NoopAdjuster{},
 		Ping: pool.Ping, Now: cfg.now, Log: log, TrustProxy: cfg.TrustProxy,
 		DBSlots: publicDBSlots(pool.Config().MaxConns), Seafood: cfg.Seafood,
+		BaseURL: cfg.BaseURL, Featured: featured,
 	})
 	log.Info("seafood feature", "enabled", cfg.Seafood)
 	a.mux = http.NewServeMux()

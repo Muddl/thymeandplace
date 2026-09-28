@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (finding F12)
-- **Related issues:** TBD
+- **Related issues:** [#12](https://github.com/Muddl/thymeandplace/issues/12) (F12)
 - **Amends:** core spec §14 (Backups: encrypted before upload; bucket-side protection against deletion), §16 (new row: backup encryption)
 
 ---

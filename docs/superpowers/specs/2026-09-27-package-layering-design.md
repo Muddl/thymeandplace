@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (findings F16, F17, F18, F19, F20)
-- **Related issues:** TBD
+- **Related issues:** [#16](https://github.com/Muddl/thymeandplace/issues/16) (F16), [#17](https://github.com/Muddl/thymeandplace/issues/17) (F17), [#18](https://github.com/Muddl/thymeandplace/issues/18) (F18), [#19](https://github.com/Muddl/thymeandplace/issues/19) (F19), [#20](https://github.com/Muddl/thymeandplace/issues/20) (F20)
 - **Amends:** core spec §4.2 (repository layout: `internal/httpx`, `internal/config`), §4.3 (package responsibilities and the dependency rule that replaces "store exposes narrow interfaces")
 
 ---

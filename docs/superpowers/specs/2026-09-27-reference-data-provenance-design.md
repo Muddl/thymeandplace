@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (findings F05, F11)
-- **Related issues:** TBD
+- **Related issues:** [#5](https://github.com/Muddl/thymeandplace/issues/5) (F05), [#11](https://github.com/Muddl/thymeandplace/issues/11) (F11)
 - **Amends:** core spec §5 (the MEOW row is filled in from the license register; a Natural Earth row is added; a version whose license is marked unresolved can't be approved), §7 (fetch checks source pins and transport; transform checks raw files; a review carries over only for identical bytes), §13.6 (new pipeline tests), §16 (new rows for source pins and plain HTTP). §2 and the §16 "Launch catalog" row change only if the no-seafood fallback (§4.3) is used.
 
 This spec has two parts. Part A (F05) must ship before launch, and most of it is a task for the owner, not code. Part B (F11) comes after launch.

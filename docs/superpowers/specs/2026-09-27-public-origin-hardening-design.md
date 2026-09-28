@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (findings F03, F15)
-- **Related issues:** TBD
+- **Related issues:** [#3](https://github.com/Muddl/thymeandplace/issues/3) (F03), [#15](https://github.com/Muddl/thymeandplace/issues/15) (F15)
 - **Amends:** core spec §10.4 ("Headers on `/admin`" becomes site-wide headers plus admin additions), §11.5 (HTMX runs with eval and script tags disabled), §13.8 (header tests)
 
 ---

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (finding F01)
-- **Related issues:** TBD
+- **Related issues:** [#1](https://github.com/Muddl/thymeandplace/issues/1) (F01)
 - **Amends:** core spec §11.2 (lookups go through a shared DB gate), §11.3 (per-cell input cache), §11.4 (load shedding), §11.6 (new "overloaded" row), §14 (connection budget), §16 (new rows: pool size, public DB slots, gate wait, input cache size)
 
 ---

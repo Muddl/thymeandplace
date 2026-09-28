@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (finding F07)
-- **Related issues:** TBD
+- **Related issues:** [#7](https://github.com/Muddl/thymeandplace/issues/7) (F07)
 - **Amends:** core spec §10.4 (audit bullet), §11.4 (access log), §13.2 (production drift check), §14 (Backups, Health and Logs bullets; new Monitoring bullet), §15 (monitoring payloads), §16 (new values)
 
 ---

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (finding F06)
-- **Related issues:** TBD
+- **Related issues:** [#6](https://github.com/Muddl/thymeandplace/issues/6) (F06)
 - **Amends:** core spec §4.2, §4.3, §6.1, §6.2, §11.1, §11.2, §11.3, §11.6, §13.2, §13.7 (text only; no §16 value changes)
 
 ---

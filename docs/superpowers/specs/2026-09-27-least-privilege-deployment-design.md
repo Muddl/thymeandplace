@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (finding F02)
-- **Related issues:** TBD
+- **Related issues:** [#2](https://github.com/Muddl/thymeandplace/issues/2) (F02)
 - **Amends:** core spec §4.1 (a one-shot `migrate` service), §10.5 (audit tables are append-only for the app), §13.3 and §13.5 (privilege tests), §14 (secrets are per service; migrations run as a separate step and role; database roles)
 
 ---

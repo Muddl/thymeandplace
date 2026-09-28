@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (findings F08, F22)
-- **Related issues:** TBD
+- **Related issues:** [#8](https://github.com/Muddl/thymeandplace/issues/8) (F08), [#22](https://github.com/Muddl/thymeandplace/issues/22) (F22)
 - **Amends:** core spec §4.1 (the scaling claim is qualified), §13.10 (CI adds vulnerability scanning, lint and the race detector; release images are built only after CI passes on `main`), §14 (images come from a registry and are deployed by commit SHA; base images are pinned)
 
 ---

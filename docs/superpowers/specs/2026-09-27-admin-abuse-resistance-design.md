@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (findings F04, F09, F10)
-- **Related issues:** TBD
+- **Related issues:** [#4](https://github.com/Muddl/thymeandplace/issues/4) (F04), [#9](https://github.com/Muddl/thymeandplace/issues/9) (F09), [#10](https://github.com/Muddl/thymeandplace/issues/10) (F10)
 - **Amends:** core spec §10.4 (login rate limit, audit, new admin request limit), §13.4 (auth tests), §14 (client IP rule, automatic pruning), §15 (login log retention), §16 (login rate limit row; new rows for admin request limits and login log retention)
 
 ---

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
+    <!-- The database from deploy/compose.dev.yaml. Sign in as tp_owner/tp_owner
+         (schema owner) or tp_app/tp_app (what the app can see). The IDE keeps the
+         user name and password in dataSources.local.xml, which is not committed. -->
+    <data-source source="LOCAL" name="thymeandplace (dev compose)" uuid="5b0f6d2e-8c1a-4f7e-9a3d-2e6c4b8f1a70">
+      <driver-ref>postgresql</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.postgresql.Driver</jdbc-driver>
+      <jdbc-url>jdbc:postgresql://localhost:55432/thymeandplace</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
+  </component>
+</project>

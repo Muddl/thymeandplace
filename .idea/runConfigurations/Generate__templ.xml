@@ -1,0 +1,12 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="templ generate" type="GoApplicationRunConfiguration" factoryName="Go Application" folderName="Generate">
+    <module name="thymeandplace" />
+    <working_directory value="$PROJECT_DIR$" />
+    <parameters value="generate" />
+    <kind value="PACKAGE" />
+    <package value="github.com/a-h/templ/cmd/templ" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>

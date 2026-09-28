@@ -1,0 +1,15 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="devseed" type="GoApplicationRunConfiguration" factoryName="Go Application" folderName="Dev">
+    <module name="thymeandplace" />
+    <working_directory value="$PROJECT_DIR$" />
+    <envs>
+      <env name="DEVSEED_ALLOW" value="1" />
+      <env name="DATABASE_URL" value="postgres://tp_owner:tp_owner@localhost:55432/thymeandplace?sslmode=disable" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="thymeandplace/cmd/devseed" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/cmd/devseed/main.go" />
+    <method v="2" />
+  </configuration>
+</component>

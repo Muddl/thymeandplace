@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="Generated" pattern="file:*_templ.go||file:internal/store/*.sql.go||file:internal/store/models.go||file:internal/store/db.go" />
+</component>

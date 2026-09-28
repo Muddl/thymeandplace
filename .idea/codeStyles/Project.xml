@@ -1,0 +1,15 @@
+<component name="ProjectCodeStyleConfiguration">
+  <code_scheme name="Project" version="173">
+    <!-- Imports in three groups, as the code already has them:
+         stdlib, third-party, then thymeandplace/... -->
+    <GoCodeStyleSettings>
+      <option name="IMPORT_SORTING" value="GOIMPORTS" />
+      <option name="GROUP_STDLIB_IMPORTS" value="true" />
+      <option name="MOVE_ALL_STDLIB_IMPORTS_IN_ONE_GROUP" value="true" />
+      <option name="CREATE_LOCAL_GROUP" value="true" />
+      <option name="GROUP_CURRENT_PROJECT_IMPORTS" value="true" />
+      <option name="LOCAL_GROUP_MODE" value="PROJECT" />
+      <option name="RUN_GO_FMT_ON_REFORMAT" value="true" />
+    </GoCodeStyleSettings>
+  </code_scheme>
+</component>

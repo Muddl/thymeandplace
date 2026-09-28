@@ -8,3 +8,4 @@ pipeline/.venv
 .work
 **/*.env
 .superpowers
+.idea

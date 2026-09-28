@@ -1,0 +1,12 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="go test season (engine)" type="GoTestRunConfiguration" factoryName="Go Test" folderName="Test">
+    <module name="thymeandplace" />
+    <working_directory value="$PROJECT_DIR$/internal/season" />
+    <kind value="PACKAGE" />
+    <package value="thymeandplace/internal/season" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$" />
+    <framework value="gotest" />
+    <method v="2" />
+  </configuration>
+</component>

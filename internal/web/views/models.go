@@ -27,8 +27,10 @@ const (
 
 // HTMX config: swap 4xx/5xx so error partials render (§11.5), and keep no
 // history snapshots in localStorage (they would hold place labels); history
-// restores refetch the full page instead.
-const htmxConfig = `{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false,"historyCacheSize":0}`
+// restores refetch the full page instead. Eval (trigger filters, hx-on, js:
+// values) and script tags in swapped content are off, and requests stay on
+// this origin; the CSP would block the first two anyway.
+const htmxConfig = `{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false,"historyCacheSize":0,"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true}`
 
 // AssetVersion is a short content hash of the static files, appended to asset
 // URLs so a deploy busts browser caches. web.New sets it once at startup.

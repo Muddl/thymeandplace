@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"thymeandplace/internal/store"
@@ -19,13 +20,22 @@ type Watcher struct {
 	poll     time.Duration
 	log      *slog.Logger
 	onChange func(ctx context.Context, version string) error
+	// connect opens the LISTEN session's connection. It is a dedicated
+	// connection outside the pool, so the listener never takes a pooled
+	// connection away from requests and pool.Close() never waits on it.
+	connect func(ctx context.Context) (*pgx.Conn, error)
 
 	mu      sync.Mutex // serialises Refresh
 	current sync.Map   // "v" → string
 }
 
+// NewWatcher returns a watcher that refreshes through pool and listens on
+// its own connection, built from a copy of pool's connection config.
 func NewWatcher(pool *pgxpool.Pool, poll time.Duration, log *slog.Logger, onChange func(ctx context.Context, version string) error) *Watcher {
-	return &Watcher{pool: pool, poll: poll, log: log, onChange: onChange}
+	return &Watcher{pool: pool, poll: poll, log: log, onChange: onChange,
+		connect: func(ctx context.Context) (*pgx.Conn, error) {
+			return pgx.ConnectConfig(ctx, pool.Config().ConnConfig.Copy())
+		}}
 }
 
 func (w *Watcher) Current() string {
@@ -100,14 +110,19 @@ func (w *Watcher) Run(ctx context.Context) {
 	}
 }
 
-// session holds one LISTEN connection until an error. listened reports
-// whether it got as far as LISTEN (i.e. the database was reachable).
+// session holds one dedicated LISTEN connection until an error, and closes
+// it on return. listened reports whether it got as far as LISTEN (i.e. the
+// database was reachable).
 func (w *Watcher) session(ctx context.Context) (listened bool, err error) {
-	conn, err := w.pool.Acquire(ctx)
+	conn, err := w.connect(ctx)
 	if err != nil {
 		return false, err
 	}
-	defer conn.Release()
+	defer func() {
+		cctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = conn.Close(cctx)
+	}()
 	if _, err := conn.Exec(ctx, "LISTEN data_version_changed"); err != nil {
 		return false, err
 	}
@@ -116,7 +131,7 @@ func (w *Watcher) session(ctx context.Context) (listened bool, err error) {
 	}
 	for {
 		wctx, cancel := context.WithTimeout(ctx, w.poll)
-		_, err := conn.Conn().WaitForNotification(wctx)
+		_, err := conn.WaitForNotification(wctx)
 		cancel()
 		if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 			return true, err

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"thymeandplace/internal/cache"
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/climate"
+	"thymeandplace/internal/places"
 	"thymeandplace/internal/season"
 	"thymeandplace/internal/web/views"
 )
@@ -117,8 +119,16 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 	key := cache.Key{CellID: queryCell, Month: month, DataVersion: version}
 	core, hit := s.cache.Get(key)
 	if !hit {
-		var err error
-		core, err = s.compute(ctx, lat, lng, month, snap)
+		// One slot covers compute's sequential queries.
+		err := s.withDB(ctx, func(ctx context.Context) error {
+			var err error
+			core, err = s.compute(ctx, lat, lng, month, snap)
+			return err
+		})
+		if errors.Is(err, errBusy) {
+			s.overloaded(w, r, "Seasons", coords(lat, lng), r.URL.RequestURI())
+			return
+		}
 		if err != nil {
 			s.d.Log.Warn("season lookup failed", "err", err, "request_id", RequestIDFrom(ctx), "cell_id", queryCell)
 			s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), r.URL.RequestURI()))
@@ -161,7 +171,15 @@ const placeLookupTimeout = 300 * time.Millisecond
 func (s *Server) label(ctx context.Context, placeParam string, core seasonCore, lat, lng float64) string {
 	if id, err := strconv.ParseInt(placeParam, 10, 32); err == nil {
 		pctx, cancel := context.WithTimeout(ctx, placeLookupTimeout)
-		p, ok, err := s.d.Places.ByID(pctx, int32(id))
+		var p places.Place
+		var ok bool
+		// A full DB gate (errBusy) just falls back, like any lookup failure:
+		// the label never fails the request.
+		err := s.withDB(pctx, func(ctx context.Context) error {
+			var err error
+			p, ok, err = s.d.Places.ByID(ctx, int32(id))
+			return err
+		})
 		cancel()
 		// Only a place near the requested point may label it (a crafted or
 		// mismatched URL must not call mid-ocean results "Lisbon").

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/catalog/catalogtest"
 	"thymeandplace/internal/dataversion"
+	"thymeandplace/internal/db"
 	"thymeandplace/internal/dbtest"
 	"thymeandplace/internal/store"
 )
@@ -47,8 +49,9 @@ func TestAppServesAndReloadsWithoutRestart(t *testing.T) {
 	_ = tx.Commit(ctx)
 
 	// The server ignores a date more than a day from its own UTC date, so pin
-	// its clock to the date the season URL below asks for.
-	cfg := config{DatabaseURL: pool.Config().ConnString(), Addr: ":0",
+	// its clock to the date the season URL below asks for. It connects as the
+	// least-privilege runtime role, as in production.
+	cfg := config{DatabaseURL: dbtest.URLAs(pool, dbtest.App), Addr: ":0",
 		now: func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) }}
 	a, err := newApp(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -104,7 +107,7 @@ func TestAdminMountedWithCatalogDeps(t *testing.T) {
 
 	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	cfg, err := loadConfig(func(k string) string {
-		return map[string]string{"DATABASE_URL": pool.Config().ConnString(), "ADMIN_SECRET_KEY": key}[k]
+		return map[string]string{"DATABASE_URL": dbtest.URLAs(pool, dbtest.App), "ADMIN_SECRET_KEY": key}[k]
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -137,6 +140,102 @@ func TestAdminMountedWithCatalogDeps(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(string(body), "Catalog") {
 		t.Fatalf("GET /admin = %d (want 200 with the catalog page; a nil Changes/Load/Pool dep would 500)\n%s", resp.StatusCode, body)
 	}
+}
+
+// With admin enabled, start() prunes expired admin rows right away, and
+// cancelling the context stops the loop.
+func TestStartPrunesAdminTables(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool := dbtest.New(t)
+	if _, err := pool.Exec(ctx, `INSERT INTO admin_session (token_hash, csrf_token, method, created_at, last_seen_at, auth_at)
+		VALUES ('\x0102', 'c', 'passkey', now() - interval '13 hours', now() - interval '13 hours', now() - interval '13 hours')`); err != nil {
+		t.Fatal(err)
+	}
+	var logBuf syncBuffer
+	log := slog.New(slog.NewTextHandler(&logBuf, nil))
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	cfg, err := loadConfig(func(k string) string {
+		return map[string]string{"DATABASE_URL": dbtest.URLAs(pool, dbtest.App), "ADMIN_SECRET_KEY": key}[k]
+	}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := newApp(ctx, cfg, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.close()
+	a.start(ctx)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var n int
+		_ = pool.QueryRow(ctx, `SELECT count(*) FROM admin_session`).Scan(&n)
+		if n == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expired session not pruned at start (rows=%d):\n%s", n, logBuf.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if strings.Contains(logBuf.String(), "admin prune failed") {
+		t.Fatalf("prune logged a failure:\n%s", logBuf.String())
+	}
+
+	done := make(chan struct{})
+	stop, cancelLoop := context.WithCancel(ctx)
+	go func() { a.pruneLoop(stop, time.Hour); close(done) }()
+	cancelLoop()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pruneLoop did not stop when its context was cancelled")
+	}
+}
+
+// The app role can't migrate, so the app refuses a database that is behind.
+func TestNewAppRefusesPendingMigrations(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	if _, err := pool.Exec(ctx, `DELETE FROM goose_db_version WHERE version_id = (SELECT max(version_id) FROM goose_db_version)`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := newApp(ctx, config{DatabaseURL: dbtest.URLAs(pool, dbtest.App)}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if !errors.Is(err, db.ErrPendingMigrations) {
+		t.Fatalf("newApp with a pending migration: %v, want ErrPendingMigrations", err)
+	}
+}
+
+func TestMigrateOnly(t *testing.T) {
+	ctx := context.Background()
+	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pool := dbtest.New(t)
+	owner := dbtest.URLAs(pool, dbtest.Owner)
+	if code := runMigrate(ctx, func(k string) string { return map[string]string{"DATABASE_URL": owner}[k] }, discard); code != 0 {
+		t.Fatalf("-migrate-only on a migrated database: exit %d", code)
+	}
+	if code := runMigrate(ctx, func(string) string { return "" }, discard); code != 1 {
+		t.Fatalf("-migrate-only without DATABASE_URL: exit %d", code)
+	}
+}
+
+// syncBuffer is a bytes.Buffer safe for the app's concurrent log writes.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 // Review Focus 1: an empty database still gives a working site.
@@ -253,6 +352,25 @@ func TestLoadConfig(t *testing.T) {
 		if err != nil || c.AdminOrigin != tc.want {
 			t.Fatalf("rp=%q origin=%q: AdminOrigin=%q want %q (%v)", tc.rpID, tc.origin, c.AdminOrigin, tc.want, err)
 		}
+	}
+}
+
+func TestLoadConfigDBMaxConns(t *testing.T) {
+	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, tc := range []struct {
+		v    string
+		want int32
+		ok   bool
+	}{{"", 0, true}, {"10", 10, true}, {"1", 0, false}, {"lots", 0, false}, {"-4", 0, false}} {
+		c, err := loadConfig(func(k string) string {
+			return map[string]string{"DATABASE_URL": "postgres://x", "DB_MAX_CONNS": tc.v}[k]
+		}, discard)
+		if (err == nil) != tc.ok || c.DBMaxConns != tc.want {
+			t.Fatalf("DB_MAX_CONNS=%q: got %d, err %v", tc.v, c.DBMaxConns, err)
+		}
+	}
+	if publicDBSlots(16) != 12 || publicDBSlots(10) != 7 || publicDBSlots(1) != 1 {
+		t.Fatalf("public DB slots: 16→%d 10→%d 1→%d", publicDBSlots(16), publicDBSlots(10), publicDBSlots(1))
 	}
 }
 

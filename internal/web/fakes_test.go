@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,21 +23,34 @@ import (
 var errDown = errors.New("database unavailable")
 
 // fakeClimate: temperate normals north of -50°, polar north of 65°, none south of -50°.
+// Its fields are set before requests run; calls is safe for concurrent requests.
 type fakeClimate struct {
-	down  bool
-	panic bool
-	block bool // hang until the request context ends
-	calls int
+	down    bool
+	panic   bool
+	block   bool          // hang until the request context ends
+	hold    chan struct{} // when set, wait until it is closed (or the context ends)
+	entered chan struct{} // when set, receives once per call that starts waiting on hold
+	calls   atomic.Int32
 }
 
 func (f *fakeClimate) Normals(ctx context.Context, lat, lng float64) (climate.Lookup, error) {
-	f.calls++
+	f.calls.Add(1)
 	if f.panic {
 		panic("climate exploded")
 	}
 	if f.block {
 		<-ctx.Done()
 		return climate.Lookup{}, ctx.Err()
+	}
+	if f.hold != nil {
+		if f.entered != nil {
+			f.entered <- struct{}{}
+		}
+		select {
+		case <-f.hold:
+		case <-ctx.Done():
+			return climate.Lookup{}, ctx.Err()
+		}
 	}
 	if f.down {
 		return climate.Lookup{}, errDown
@@ -60,9 +74,13 @@ func (f *fakeClimate) ForCell(ctx context.Context, id int) (*climate.MonthlyNorm
 }
 
 // fakeOcean: ecoregions 25 and 30 west of the prime meridian.
-type fakeOcean struct{ down bool }
+type fakeOcean struct {
+	down  bool
+	calls atomic.Int32
+}
 
 func (f *fakeOcean) Nearby(_ context.Context, _, lng float64) ([]ocean.EcoregionID, error) {
+	f.calls.Add(1)
 	if f.down {
 		return nil, errDown
 	}

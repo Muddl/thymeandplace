@@ -30,6 +30,7 @@ RUN apt-get update \
  && chmod +x /usr/local/bin/mc
 
 COPY backup.sh restore.sh restore-test.sh /usr/local/bin/
+COPY own-objects.sql /usr/local/share/thymeandplace/
 RUN chmod +x /usr/local/bin/*.sh
 
 ENTRYPOINT ["/usr/local/bin/backup.sh"]

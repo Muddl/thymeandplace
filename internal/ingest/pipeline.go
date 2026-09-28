@@ -24,12 +24,22 @@ import (
 
 type Source struct{ URL, File string }
 
+// LicenseUnresolved marks a License() whose terms nobody has confirmed yet.
+// A version whose recorded license contains it can't be approved and never
+// passes validation, even if license_reviewed is set by hand
+// (docs/reference-data-licenses.md).
+const LicenseUnresolved = "UNRESOLVED:"
+
 // Dataset is one reference source.
 type Dataset interface {
 	Name() string   // "climate" | "ocean" | "places"
 	View() string   // live view, e.g. "place"
 	Prefix() string // versioned table prefix, e.g. "place_v"
 	License() string
+	// Attribution lists the plain-text credit lines the About the data page
+	// must carry for this dataset (internal/web/views/about.templ; a test
+	// ties the two together).
+	Attribution() []string
 	Sources() []Source
 	// Transform reads versionDir/raw and writes load-ready CSV to w.
 	Transform(ctx context.Context, versionDir string, w io.Writer) error
@@ -259,6 +269,9 @@ func (p *Pipeline) ApproveLicense(ctx context.Context, v int64) (store.DatasetVe
 	if strings.TrimSpace(dv.License) == "" {
 		return dv, errors.New("no license recorded")
 	}
+	if strings.Contains(dv.License, LicenseUnresolved) {
+		return dv, errors.New("license terms not confirmed; see docs/reference-data-licenses.md")
+	}
 	return dv, p.q().ApproveDatasetLicense(ctx, v)
 }
 
@@ -274,6 +287,8 @@ func (p *Pipeline) Validate(ctx context.Context, v int64) error {
 	var fails []string
 	if strings.TrimSpace(dv.License) == "" {
 		fails = append(fails, "no license recorded")
+	} else if strings.Contains(dv.License, LicenseUnresolved) {
+		fails = append(fails, "license unresolved (terms not confirmed; see docs/reference-data-licenses.md)")
 	} else if !dv.LicenseReviewed {
 		fails = append(fails, fmt.Sprintf("license not reviewed (run: ingest %s approve-license --version %d --yes)", p.DS.Name(), v))
 	}

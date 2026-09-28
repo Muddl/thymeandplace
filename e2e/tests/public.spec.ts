@@ -1,5 +1,4 @@
-import { test, expect } from "@playwright/test";
-import { compose, waitReady } from "../helpers";
+import { compose, expect, test, waitReady, watchCSP } from "../helpers";
 
 test("1. search → select → results render", async ({ page }) => {
   await page.goto("/");
@@ -29,10 +28,28 @@ test("warm /season responds within 1 s", async ({ request }) => {
 test("2. geolocation denied → search fallback", async ({ browser }) => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, permissions: [] });
   const page = await context.newPage();
+  const csp = watchCSP(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Use my location" }).click();
   await expect(page.getByText("Location access is off, so search for your town instead.")).toBeVisible();
   await expect(page.getByLabel("Find your town")).toBeFocused();
+  expect(csp).toEqual([]);
+  await context.close();
+});
+
+// Permissions-Policy allows geolocation for this origin only; this checks
+// that "Use my location" still works under it and the CSP.
+test("geolocation allowed → results for the position", async ({ browser }) => {
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true, permissions: ["geolocation"], geolocation: { latitude: 38.7167, longitude: -9.1333 },
+  });
+  const page = await context.newPage();
+  const csp = watchCSP(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Use my location" }).click();
+  await expect(page).toHaveURL(/\/season\?lat=38\.72&lng=-9\.13$/);
+  await expect(page.locator("#results h3").first()).toBeVisible();
+  expect(csp).toEqual([]);
   await context.close();
 });
 

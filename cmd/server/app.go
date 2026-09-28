@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ type config struct {
 	DatabaseURL string
 	Addr        string
 	TrustProxy  bool
+	DBMaxConns  int32 // DB_MAX_CONNS; 0 → db.ServerPool's default
 
 	AdminSecretKey []byte
 	AdminRPID      string
@@ -47,6 +49,13 @@ func loadConfig(getenv func(string) string, log *slog.Logger) (config, error) {
 	}
 	if c.DatabaseURL == "" {
 		return c, errors.New("DATABASE_URL is required")
+	}
+	if v := getenv("DB_MAX_CONNS"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil || n < 2 {
+			return c, fmt.Errorf("DB_MAX_CONNS must be a whole number of at least 2, got %q", v)
+		}
+		c.DBMaxConns = int32(n)
 	}
 	if k := getenv("ADMIN_SECRET_KEY"); k != "" {
 		key, err := auth.ParseSecretKey(k)
@@ -105,11 +114,18 @@ type app struct {
 	cancel  context.CancelFunc // stops start()'s background work; set by start
 }
 
+// newApp refuses to start on a database with pending migrations: the app
+// role can't run DDL, so migrations run first as a separate step (the
+// migrate service, `server -migrate-only`, as tp_owner).
 func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
-	if err := db.Migrate(ctx, cfg.DatabaseURL); err != nil {
+	if err := db.RequireMigrated(ctx, cfg.DatabaseURL); err != nil {
 		return nil, err
 	}
-	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	poolOpts := db.ServerPool
+	if cfg.DBMaxConns > 0 {
+		poolOpts.MaxConns = cfg.DBMaxConns
+	}
+	pool, err := db.Open(ctx, cfg.DatabaseURL, poolOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +157,7 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 		Climate: a.climate, Ocean: a.ocean, Places: places.NewService(pool),
 		Snapshot: a.holder.Current, DataVersion: a.watcher.Current, Adjuster: season.NoopAdjuster{},
 		Ping: pool.Ping, Now: cfg.now, Log: log, TrustProxy: cfg.TrustProxy,
+		DBSlots: publicDBSlots(pool.Config().MaxConns),
 	})
 	a.mux = http.NewServeMux()
 	a.mux.Handle("/", public)
@@ -170,17 +187,53 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	return a, nil
 }
 
+// publicDBSlots is how many of the pool's connections public requests may
+// hold at once: three quarters (12 of 16, 7 of 10), leaving the rest for
+// admin, the drift check, catalog reloads and Apply's second connection.
+func publicDBSlots(poolSize int32) int {
+	return max(1, int(poolSize)*3/4)
+}
+
 // start launches background work: the data-version listener and the daily
 // drift check. It derives its own cancelable context so close() can stop
-// that work before closing the pool: the watcher holds a dedicated LISTEN
-// connection checked out of the pool for as long as it runs, and
-// pool.Close() blocks until every checked-out connection is released, so
-// shutdown must cancel the background work first.
+// that work before closing the pool. The watcher's LISTEN session uses its
+// own connection outside the pool, so pool.Close() no longer waits on it,
+// but cancelling first still stops the drift check and any Refresh cleanly.
 func (a *app) start(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	a.cancel = cancel
 	go a.watcher.Run(ctx)
 	go a.drift.Loop(ctx, 24*time.Hour)
+	if a.auth != nil {
+		go a.pruneLoop(ctx, 24*time.Hour)
+	}
+}
+
+// pruneLoop prunes the admin audit, session and enrollment-token tables once
+// right away, then every `every`, until ctx ends. A failed run is logged and
+// retried at the next tick; nothing depends on prompt pruning.
+func (a *app) pruneLoop(ctx context.Context, every time.Duration) {
+	run := func() {
+		r, err := a.auth.Prune(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				a.log.Error("admin prune failed", "err", err)
+			}
+			return
+		}
+		a.log.Info("admin prune", "login_log", r.LoginLog, "sessions", r.Sessions, "enrollment_tokens", r.EnrollmentTokens)
+	}
+	run()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			run()
+		}
+	}
 }
 
 // waitForSnapshot blocks until a catalog snapshot is loaded, retrying every

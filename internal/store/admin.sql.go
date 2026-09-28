@@ -29,6 +29,17 @@ func (q *Queries) ConsumeEnrollmentToken(ctx context.Context, arg ConsumeEnrollm
 	return result.RowsAffected(), nil
 }
 
+const countLoginLogSince = `-- name: CountLoginLogSince :one
+SELECT count(*) FROM admin_login_log WHERE at > $1
+`
+
+func (q *Queries) CountLoginLogSince(ctx context.Context, since pgtype.Timestamptz) (int64, error) {
+	row := q.db.QueryRow(ctx, countLoginLogSince, since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countPasskeys = `-- name: CountPasskeys :one
 SELECT count(*) FROM admin_passkey
 `
@@ -41,17 +52,18 @@ func (q *Queries) CountPasskeys(ctx context.Context) (int64, error) {
 }
 
 const countRecentLoginAttempts = `-- name: CountRecentLoginAttempts :one
-SELECT count(*) FROM admin_login_log WHERE ip = $1 AND at > $2
-  AND method IN ('passkey', 'backup') AND outcome NOT IN ('success', 'rate_limited')
+SELECT count(*) FROM admin_login_log WHERE ip_key = $1 AND at > $2
+  AND method = ANY($3::text[]) AND outcome NOT IN ('success', 'rate_limited')
 `
 
 type CountRecentLoginAttemptsParams struct {
-	Ip    string
-	Since pgtype.Timestamptz
+	IpKey   string
+	Since   pgtype.Timestamptz
+	Methods []string
 }
 
 func (q *Queries) CountRecentLoginAttempts(ctx context.Context, arg CountRecentLoginAttemptsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countRecentLoginAttempts, arg.Ip, arg.Since)
+	row := q.db.QueryRow(ctx, countRecentLoginAttempts, arg.IpKey, arg.Since, arg.Methods)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -192,12 +204,13 @@ func (q *Queries) InsertEnrollmentToken(ctx context.Context, arg InsertEnrollmen
 }
 
 const insertLoginAttempt = `-- name: InsertLoginAttempt :exec
-INSERT INTO admin_login_log (at, ip, method, outcome) VALUES ($1, $2, $3, $4)
+INSERT INTO admin_login_log (at, ip, ip_key, method, outcome) VALUES ($1, $2, $3, $4, $5)
 `
 
 type InsertLoginAttemptParams struct {
 	At      pgtype.Timestamptz
 	Ip      string
+	IpKey   string
 	Method  string
 	Outcome string
 }
@@ -206,6 +219,7 @@ func (q *Queries) InsertLoginAttempt(ctx context.Context, arg InsertLoginAttempt
 	_, err := q.db.Exec(ctx, insertLoginAttempt,
 		arg.At,
 		arg.Ip,
+		arg.IpKey,
 		arg.Method,
 		arg.Outcome,
 	)
@@ -236,6 +250,39 @@ func (q *Queries) InsertPasskey(ctx context.Context, arg InsertPasskeyParams) er
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const insertRefusalOnce = `-- name: InsertRefusalOnce :execrows
+INSERT INTO admin_login_log (at, ip, ip_key, method, outcome)
+SELECT $1::timestamptz, $2::text, $3::text, $4::text, 'rate_limited'
+WHERE NOT EXISTS (
+  SELECT 1 FROM admin_login_log
+  WHERE ip_key = $3::text AND method = ANY($5::text[]) AND outcome = 'rate_limited' AND at > $6::timestamptz
+)
+`
+
+type InsertRefusalOnceParams struct {
+	At      pgtype.Timestamptz
+	Ip      string
+	IpKey   string
+	Method  string
+	Methods []string
+	Since   pgtype.Timestamptz
+}
+
+func (q *Queries) InsertRefusalOnce(ctx context.Context, arg InsertRefusalOnceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertRefusalOnce,
+		arg.At,
+		arg.Ip,
+		arg.IpKey,
+		arg.Method,
+		arg.Methods,
+		arg.Since,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const insertSession = `-- name: InsertSession :exec
@@ -290,6 +337,48 @@ func (q *Queries) ListPasskeys(ctx context.Context) ([]AdminPasskey, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const pruneEnrollmentTokens = `-- name: PruneEnrollmentTokens :execrows
+DELETE FROM admin_enrollment_token WHERE used_at IS NOT NULL OR expires_at <= $1
+`
+
+func (q *Queries) PruneEnrollmentTokens(ctx context.Context, now pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneEnrollmentTokens, now)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const pruneLoginLog = `-- name: PruneLoginLog :one
+SELECT prune_admin_login_log($1::interval)
+`
+
+// The app role can't DELETE from admin_login_log; this SECURITY DEFINER
+// function (migrations/00008_privileges.sql) refuses a retention under 30 days.
+func (q *Queries) PruneLoginLog(ctx context.Context, retention pgtype.Interval) (int64, error) {
+	row := q.db.QueryRow(ctx, pruneLoginLog, retention)
+	var prune_admin_login_log int64
+	err := row.Scan(&prune_admin_login_log)
+	return prune_admin_login_log, err
+}
+
+const pruneSessions = `-- name: PruneSessions :execrows
+DELETE FROM admin_session WHERE last_seen_at < $1 OR created_at < $2
+`
+
+type PruneSessionsParams struct {
+	IdleBefore    pgtype.Timestamptz
+	CreatedBefore pgtype.Timestamptz
+}
+
+func (q *Queries) PruneSessions(ctx context.Context, arg PruneSessionsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneSessions, arg.IdleBefore, arg.CreatedBefore)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const renamePasskey = `-- name: RenamePasskey :execrows

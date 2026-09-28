@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"thymeandplace/internal/db"
@@ -90,7 +91,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, da
 		return 1
 	}
 
-	pool, err := db.Open(ctx, getenv("DATABASE_URL"))
+	pool, err := db.Open(ctx, getenv("DATABASE_URL"), db.CLIPool)
 	if err != nil {
 		return fail(err)
 	}
@@ -125,7 +126,11 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, da
 			for _, src := range p.DS.Sources() {
 				fmt.Fprintf(stdout, "source: %s\n", src.URL)
 			}
-			fmt.Fprintf(stdout, "read the license above before running: ingest %s approve-license --version %d --yes\n", name, v)
+			if strings.Contains(p.DS.License(), ingest.LicenseUnresolved) {
+				fmt.Fprintf(stdout, "this license is unresolved: approve-license refuses %s until its terms are confirmed (docs/reference-data-licenses.md)\n", name)
+			} else {
+				fmt.Fprintf(stdout, "read the license above before running: ingest %s approve-license --version %d --yes\n", name, v)
+			}
 		}
 	case "transform":
 		err = p.Transform(ctx, v)

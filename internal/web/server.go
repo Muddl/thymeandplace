@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -49,15 +50,39 @@ type Deps struct {
 	Now         func() time.Time
 	Log         *slog.Logger
 	TrustProxy  bool
+	// DBSlots is how many public requests may use the database at once
+	// (§11.4); 0 → DefaultDBSlots. Keep it below the pool size so admin,
+	// background work and Apply always have connections left.
+	DBSlots int
 
 	timeout time.Duration // per-request deadline; 0 → defaultTimeout (tests shorten it)
 }
 
-const defaultTimeout = 2 * time.Second
+const (
+	defaultTimeout = 2 * time.Second
+	// DefaultDBSlots leaves 4 of the server's 16 pooled connections for
+	// admin, the drift check, catalog reloads and Apply's second connection.
+	DefaultDBSlots = 12
+	// gateWait is how long a public request waits for a DB slot before it
+	// is shed with a 503; it smooths small bursts.
+	gateWait = 250 * time.Millisecond
+	// shedRetryAfter is the Retry-After (seconds) on a shed request.
+	shedRetryAfter = "5"
+)
+
+// errBusy means every public DB slot was taken for gateWait: the request is
+// shed without touching the database.
+var errBusy = errors.New("public DB gate full")
 
 type Server struct {
 	d     Deps
-	cache *cache.Cache[seasonCore]
+	cache *cache.Cache[cache.Key, seasonCore]
+	cells *cache.Cache[cache.CellKey, cellInputs]
+	gate  chan struct{} // one token per public DB slot
+
+	shedMu   sync.Mutex
+	shedN    int       // requests shed since the last log line
+	shedLast time.Time // when the last "public DB gate full" line went out
 }
 
 // New returns the public handler with its own middleware (§11.4):
@@ -72,7 +97,15 @@ func New(d Deps) http.Handler {
 	if d.timeout == 0 {
 		d.timeout = defaultTimeout
 	}
-	s := &Server{d: d, cache: cache.New[seasonCore](cache.DefaultSize)}
+	if d.DBSlots <= 0 {
+		d.DBSlots = DefaultDBSlots
+	}
+	s := &Server{
+		d:     d,
+		cache: cache.New[cache.Key, seasonCore](cache.DefaultSize),
+		cells: cache.New[cache.CellKey, cellInputs](cache.CellSize),
+		gate:  make(chan struct{}, d.DBSlots),
+	}
 	assetVersionOnce.Do(func() { views.AssetVersion = hashFS(static.FS) })
 
 	mux := http.NewServeMux()
@@ -98,13 +131,14 @@ func New(d Deps) http.Handler {
 }
 
 // Common wraps the whole site (public and admin): request ID → access log →
-// last-resort recovery.
+// security headers → last-resort recovery. The headers are set before any
+// handler runs, so a panic's 500 carries them too.
 func Common(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		plain := Recover(log, func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		})(next)
-		return RequestID(AccessLog(log)(plain))
+		return RequestID(AccessLog(log)(SecurityHeaders(plain)))
 	}
 }
 
@@ -198,6 +232,48 @@ func (s *Server) tooMany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, http.StatusTooManyRequests, "Please wait", "", nil, views.TooMany())
+}
+
+// withDB runs f while holding a public DB slot. It waits at most gateWait
+// (or until ctx ends) for a slot, then returns errBusy without calling f.
+// Cache hits, health checks, static files and /admin never go through it.
+func (s *Server) withDB(ctx context.Context, f func(context.Context) error) error {
+	select {
+	case s.gate <- struct{}{}:
+	default:
+		t := time.NewTimer(gateWait)
+		defer t.Stop()
+		select {
+		case s.gate <- struct{}{}:
+		case <-t.C:
+			s.shed()
+			return errBusy
+		case <-ctx.Done():
+			s.shed()
+			return errBusy
+		}
+	}
+	defer func() { <-s.gate }()
+	return f(ctx)
+}
+
+// shed counts a shed request and logs at most one line a minute with the
+// count, so an overload never floods the log.
+func (s *Server) shed() {
+	s.shedMu.Lock()
+	defer s.shedMu.Unlock()
+	s.shedN++
+	if now := time.Now(); now.Sub(s.shedLast) >= time.Minute {
+		s.d.Log.Info("public DB gate full", "shed", s.shedN, "slots", cap(s.gate))
+		s.shedN, s.shedLast = 0, now
+	}
+}
+
+// overloaded answers a shed request: the retry panel with 503 and a
+// Retry-After long enough for a burst to pass.
+func (s *Server) overloaded(w http.ResponseWriter, r *http.Request, title, label, retryURL string) {
+	w.Header().Set("Retry-After", shedRetryAfter)
+	s.render(w, r, http.StatusServiceUnavailable, title, "", nil, views.LoadError(label, retryURL))
 }
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {

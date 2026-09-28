@@ -44,6 +44,9 @@ func (*Places) Prefix() string { return "place_v" }
 func (*Places) License() string {
 	return "CC BY 4.0 — GeoNames (https://www.geonames.org); attribution required"
 }
+func (*Places) Attribution() []string {
+	return []string{"GeoNames, licensed under CC BY 4.0"}
+}
 func (p *Places) Sources() []Source { return p.SourceList }
 
 func (*Places) Transform(_ context.Context, dir string, w io.Writer) error {

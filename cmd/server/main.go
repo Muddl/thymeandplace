@@ -11,16 +11,22 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"thymeandplace/internal/db"
 )
 
 func main() {
 	healthcheck := flag.String("healthcheck", "", "GET this URL and exit 0 on HTTP 200 (container health checks)")
+	migrateOnly := flag.Bool("migrate-only", false, "apply pending migrations to DATABASE_URL and exit (the migrate service, as tp_owner)")
 	flag.Parse()
 	if *healthcheck != "" {
 		os.Exit(runHealthcheck(*healthcheck))
 	}
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	if *migrateOnly {
+		os.Exit(runMigrate(context.Background(), os.Getenv, log))
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -69,6 +75,21 @@ func main() {
 	}
 	<-done
 	a.close()
+}
+
+// runMigrate applies every pending migration and reports 0 on success.
+func runMigrate(ctx context.Context, getenv func(string) string, log *slog.Logger) int {
+	url := getenv("DATABASE_URL")
+	if url == "" {
+		log.Error("migrate", "err", "DATABASE_URL is required")
+		return 1
+	}
+	if err := db.Migrate(ctx, url); err != nil {
+		log.Error("migrate", "err", err)
+		return 1
+	}
+	log.Info("migrations applied")
+	return 0
 }
 
 func runHealthcheck(url string) int {

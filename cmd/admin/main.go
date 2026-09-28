@@ -52,7 +52,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, _ io.Re
 	if err != nil {
 		return fail(err)
 	}
-	pool, err := db.Open(ctx, getenv("DATABASE_URL"))
+	pool, err := db.Open(ctx, getenv("DATABASE_URL"), db.CLIPool)
 	if err != nil {
 		return fail(err)
 	}

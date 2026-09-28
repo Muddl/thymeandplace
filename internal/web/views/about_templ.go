@@ -8,7 +8,10 @@ package views
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-func About() templ.Component {
+// About is the About the data page. Everything about seafood (the method,
+// the marine regions and the coastline data used to trim them) appears only
+// with the seafood feature on.
+func About(seafood bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -29,20 +32,53 @@ func About() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<article class=\"about\"><h2>About the data</h2><h3 id=\"estimates\">How estimates work</h3><p>Every land result is an estimate. We look up 1991–2020 monthly climate normals for the 0.25° grid cell (about 28 km across) around your location, then apply simple rules per ingredient:</p><ul><li>Annual crops are in season after enough warm, frost-free months to grow them.</li><li>Fruit ripens a set time after spring warms up. Temperate fruit needs a cool winter, and frost-tender trees such as citrus and avocado aren't grown where winters freeze.</li><li>Some produce is grown year-round under cover; some keeps for months in storage after harvest.</li><li>Wild mushrooms appear in months that are both mild and wet enough.</li></ul><p>Seafood is different: it depends on spawning seasons and fishing rules, so we use hand-curated months for marine regions within 100 km of the coast. Treat it as general guidance and check local fishing rules.</p><p>Estimates are checked against published seasonal guides for about fifteen places around the world. They won't match every market; local growers, greenhouses and imports all make a difference.</p><h3>Wild mushrooms</h3><p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<article class=\"about\"><h2>About the data</h2><h3 id=\"estimates\">How estimates work</h3><p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
-		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(WildMushroomDisclaimer)
+		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(estimatesIntro(seafood))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/about.templ`, Line: 17, Col: 29}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/about.templ`, Line: 10, Col: 30}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</p><h3>Sources and licenses</h3><ul><li>Climate: TerraClimate (Abatzoglou, J.T., Dobrowski, S.Z., Parks, S.A., Hegewisch, K.C., 2018, Scientific Data), CC0. 1991–2020 normals.</li><li>Marine regions: Marine Ecoregions of the World (Spalding, M.D. et al., 2007, BioScience).</li><li>Coastlines: Natural Earth 1:50m land polygons (public domain), used to trim the marine regions to water.</li><li>Places: <a href=\"https://www.geonames.org/\">GeoNames</a>, licensed under <a href=\"https://creativecommons.org/licenses/by/4.0/\">CC BY 4.0</a>.</li></ul><h3>Privacy</h3><p>There are no accounts and no cookies on the public site. We do not store the locations you look up. Our logs record only the roughly 28 km grid cell of a request, never your coordinates or IP address. Our single administrator's sign-in log keeps IP addresses for security, for 90 days.</p></article>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</p><ul><li>Annual crops are in season after enough warm, frost-free months to grow them.</li><li>Fruit ripens a set time after spring warms up. Temperate fruit needs a cool winter, and frost-tender trees such as citrus and avocado aren't grown where winters freeze.</li><li>Some produce is grown year-round under cover; some keeps for months in storage after harvest.</li><li>Wild mushrooms appear in months that are both mild and wet enough.</li></ul>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if seafood {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p>Seafood is different: it depends on spawning seasons and fishing rules, so we use hand-curated months for marine regions within 100 km of the coast. Treat it as general guidance and check local fishing rules.</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<p>Estimates are checked against published seasonal guides for about fifteen places around the world. They won't match every market; local growers, greenhouses and imports all make a difference.</p><h3>Wild mushrooms</h3><p>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var3 string
+		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(WildMushroomDisclaimer)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/about.templ`, Line: 22, Col: 29}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</p><h3>Sources and licenses</h3><ul><li>Climate: TerraClimate (Abatzoglou, J.T., Dobrowski, S.Z., Parks, S.A., Hegewisch, K.C., 2018, Scientific Data), CC0. 1991–2020 normals.</li>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if seafood {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<li>Marine regions: Marine Ecoregions of the World (Spalding, M.D. et al., 2007, BioScience).</li><li>Coastlines: Natural Earth 1:50m land polygons (public domain), used to trim the marine regions to water.</li>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<li>Places: <a href=\"https://www.geonames.org/\">GeoNames</a>, licensed under <a href=\"https://creativecommons.org/licenses/by/4.0/\">CC BY 4.0</a>.</li></ul><h3>Privacy</h3><p>There are no accounts and no cookies on the public site. We do not store the locations you look up. Our logs record only the roughly 28 km grid cell of a request, never your coordinates or IP address. Our single administrator's sign-in log keeps IP addresses for security, for 90 days.</p></article>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

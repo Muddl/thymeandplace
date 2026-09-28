@@ -54,6 +54,11 @@ type Deps struct {
 	// (§11.4); 0 → DefaultDBSlots. Keep it below the pool size so admin,
 	// background work and Apply always have connections left.
 	DBSlots int
+	// Seafood turns on the seafood feature (FEATURE_SEAFOOD). Off, the
+	// public site is land-only: no ocean lookups, no seafood items, pages or
+	// pairings, and no seafood wording or marine data credits. It needs a
+	// live ocean dataset with a confirmed license (docs/reference-data-licenses.md).
+	Seafood bool
 
 	timeout time.Duration // per-request deadline; 0 → defaultTimeout (tests shorten it)
 }
@@ -222,8 +227,17 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) about(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, http.StatusOK, "About the data", "", nil, views.About())
+	s.render(w, r, http.StatusOK, "About the data", "", nil, views.About(s.d.Seafood))
 }
+
+// visible reports whether the public site shows ing: seafood only with the
+// seafood feature on.
+func (s *Server) visible(ing catalog.Ingredient) bool {
+	return s.d.Seafood || ing.Kind != catalog.KindSeafood
+}
+
+// unsupported is the "can't estimate here" panel, worded for what the site covers.
+func (s *Server) unsupported() templ.Component { return views.Unsupported(s.d.Seafood) }
 
 func (s *Server) tooMany(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Retry-After", "1")

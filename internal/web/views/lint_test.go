@@ -57,7 +57,8 @@ func TestTemplatesFitCSP(t *testing.T) {
 		"Page":              Page(PageVM{Title: "t", Query: "lis", Places: places, Results: Season(seasonVM)}),
 		"Page empty":        Page(PageVM{Title: "t"}),
 		"Location":          Location("Lisbon"),
-		"Unsupported":       Unsupported(),
+		"Unsupported":       Unsupported(true),
+		"Unsupported land":  Unsupported(false),
 		"LoadError":         LoadError("Lisbon", "/season?lat=1&lng=2"),
 		"NotFound":          NotFound(),
 		"TooMany":           TooMany(),
@@ -68,7 +69,8 @@ func TestTemplatesFitCSP(t *testing.T) {
 		"PlacesNoMatch":     PlacesNoMatch("zzz"),
 		"PlacesPaused":      PlacesPaused(),
 		"PlacesUnavailable": PlacesUnavailable(),
-		"About":             About(),
+		"About":             About(true),
+		"About land":        About(false),
 	}
 	for name, c := range components {
 		var buf bytes.Buffer

@@ -28,3 +28,9 @@ The procedure is in `docs/superpowers/specs/2026-09-27-reference-data-provenance
 6. In production: `ingest ocean fetch`, read the printed license, then `approve-license --version N --yes`, then `all --version N`.
 
 If the terms forbid our use, or there's no answer by the launch deadline, launch without seafood instead (`docs/operations.md`, "Launching without seafood"), and record here that the fallback was chosen.
+
+## Launch decision
+
+**2026-09-28: launch without seafood.** The MEOW terms aren't confirmed, so the site launches with `FEATURE_SEAFOOD` off: no ocean lookups, no seafood on any public page, and no marine credits on the About page, because no marine data is shown. The ocean pipeline, the seafood items in `content/catalog/launch.json`, and the seafood engine code all stay in place. MEOW stays `UNRESOLVED` above. To bring seafood back, resolve MEOW as above, then follow "Turning seafood on" in `docs/operations.md`.
+
+If the confirmed terms are non-commercial, check them against any planned donation link before turning seafood on, and if in doubt, ask the licensor for written permission.

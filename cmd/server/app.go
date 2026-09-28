@@ -33,6 +33,7 @@ type config struct {
 	Addr        string
 	TrustProxy  bool
 	DBMaxConns  int32 // DB_MAX_CONNS; 0 → db.ServerPool's default
+	Seafood     bool  // FEATURE_SEAFOOD=on; off (the default) serves a land-only site
 
 	AdminSecretKey []byte
 	AdminRPID      string
@@ -56,6 +57,15 @@ func loadConfig(getenv func(string) string, log *slog.Logger) (config, error) {
 			return c, fmt.Errorf("DB_MAX_CONNS must be a whole number of at least 2, got %q", v)
 		}
 		c.DBMaxConns = int32(n)
+	}
+	// Seafood stays off until the ocean dataset's license is confirmed
+	// (docs/reference-data-licenses.md); a typo must not silently change it.
+	switch v := getenv("FEATURE_SEAFOOD"); v {
+	case "", "off":
+	case "on":
+		c.Seafood = true
+	default:
+		return c, fmt.Errorf(`FEATURE_SEAFOOD must be "on" or "off", got %q`, v)
 	}
 	if k := getenv("ADMIN_SECRET_KEY"); k != "" {
 		key, err := auth.ParseSecretKey(k)
@@ -157,8 +167,9 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 		Climate: a.climate, Ocean: a.ocean, Places: places.NewService(pool),
 		Snapshot: a.holder.Current, DataVersion: a.watcher.Current, Adjuster: season.NoopAdjuster{},
 		Ping: pool.Ping, Now: cfg.now, Log: log, TrustProxy: cfg.TrustProxy,
-		DBSlots: publicDBSlots(pool.Config().MaxConns),
+		DBSlots: publicDBSlots(pool.Config().MaxConns), Seafood: cfg.Seafood,
 	})
+	log.Info("seafood feature", "enabled", cfg.Seafood)
 	a.mux = http.NewServeMux()
 	a.mux.Handle("/", public)
 

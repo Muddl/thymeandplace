@@ -36,10 +36,12 @@ func (s *Server) inputsFor(ctx context.Context, cell int, version string) (cellI
 		if err != nil {
 			return err
 		}
-		lat, lng := climate.CellCenter(cell)
-		eco, err := s.d.Ocean.Nearby(ctx, lat, lng)
-		if err != nil {
-			return err
+		var eco []ocean.EcoregionID
+		if s.d.Seafood { // no ocean lookup with seafood off
+			lat, lng := climate.CellCenter(cell)
+			if eco, err = s.d.Ocean.Nearby(ctx, lat, lng); err != nil {
+				return err
+			}
 		}
 		in = cellInputs{Normals: normals, Ecoregions: eco}
 		return nil
@@ -63,14 +65,14 @@ func (s *Server) ingredient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ing, ok := snap.Get(r.PathValue("slug"))
-	if !ok {
+	if !ok || !s.visible(ing) { // a seafood item with seafood off doesn't exist publicly
 		s.render(w, r, http.StatusNotFound, "Not found", "", nil, views.NotFound())
 		return
 	}
 	q := r.URL.Query()
 	cell, err := strconv.Atoi(q.Get("cell"))
 	if err != nil || !climate.ValidCellID(cell) {
-		s.render(w, r, http.StatusBadRequest, ing.Name, "", nil, views.Unsupported())
+		s.render(w, r, http.StatusBadRequest, ing.Name, "", nil, s.unsupported())
 		return
 	}
 	SetCellID(ctx, cell)
@@ -95,7 +97,11 @@ func (s *Server) ingredient(w http.ResponseWriter, r *http.Request) {
 		WildMushroom: ing.Kind == catalog.KindWildMushroom,
 		Bars:         views.MonthBars(months, month),
 		TipChoose:    ing.TipChoose, TipStore: ing.TipStore, Note: ing.Note,
-		BackURL: fmt.Sprintf("/season?lat=%.4f&lng=%.4f", lat, lng),
+		BackURL:  fmt.Sprintf("/season?lat=%.4f&lng=%.4f", lat, lng),
+		NotLocal: views.CopyNotGrown,
+	}
+	if s.d.Seafood {
+		vm.NotLocal = views.CopyNotLocal
 	}
 	if date != "" {
 		vm.BackURL += "&date=" + date
@@ -104,7 +110,7 @@ func (s *Server) ingredient(w http.ResponseWriter, r *http.Request) {
 		vm.EstimateNote = views.CopyLandEstimate
 	}
 	for _, p := range ing.Pairings {
-		if other, ok := snap.Get(p); ok {
+		if other, ok := snap.Get(p); ok && s.visible(other) {
 			vm.Pairings = append(vm.Pairings, views.Link{Name: other.Name, URL: ingredientURL(p, cell, date)})
 		}
 	}

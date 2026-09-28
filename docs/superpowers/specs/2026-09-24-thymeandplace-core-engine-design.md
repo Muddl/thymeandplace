@@ -131,7 +131,7 @@ thymeandplace/
 | Dataset | Use | License | Obligation |
 |---|---|---|---|
 | TerraClimate (Abatzoglou et al., 2018) | Monthly tmin, tmax, precipitation → 1991–2020 normals | CC0 | Cite (courtesy) |
-| Marine Ecoregions of the World (Spalding et al., 2007) | Ocean regions for seafood | **Unresolved** (`docs/reference-data-licenses.md`) | Citation only until the terms are confirmed |
+| Marine Ecoregions of the World (Spalding et al., 2007) | Ocean regions for seafood | **Unresolved** (`docs/reference-data-licenses.md`) | Not used while seafood is off (§11.7); citation only until the terms are confirmed |
 | Natural Earth 1:50m land | Clipping ocean regions to water | Public domain (as recorded) | None; credited as a courtesy |
 | GeoNames cities | City search and reverse lookup | CC BY 4.0 | Attribution on About the data page |
 
@@ -499,7 +499,7 @@ Principle: the surrounding page stays usable, and every message says what happen
 |---|---|---|
 | No city match | 200 | Under the search box: "No places match '…'. Try a nearby larger town or city." |
 | Geolocation denied or unavailable | — (client) | Muted hint: "Location access is off, so search for your town instead." Search box focused. No error styling. |
-| No land cell after fallback and no ecoregion in reach | 200 | "We can't estimate seasons here yet. Estimates cover land and coastal waters." + "Search another place" |
+| No land cell after fallback and no ecoregion in reach | 200 | "We can't estimate seasons here yet. Estimates cover land and coastal waters." + "Search another place". With seafood off (§11.7): no land cell, and the copy is "Estimates cover land areas only." |
 | Inland | 200 | Seafood group omitted, with no message |
 | Harsh climate, little in season | 200 | "Not much grows locally this time of year. Here's what's still around." + year-round, storage, and seafood items |
 | Invalid lat/lng/date | 400 | Same panel as the unsupported spot |
@@ -511,6 +511,16 @@ Principle: the surrounding page stays usable, and every message says what happen
 | Ingestion validation failure | — | Pipeline exits non-zero naming dataset and step. Live data unchanged. |
 
 Admin errors follow the same style: validation errors appear inline next to their fields, and a stale changeset shows "The catalog changed since this preview. Preview again."
+
+### 11.7 Seafood feature flag
+
+`FEATURE_SEAFOOD` (`on` or `off`, default `off`; any other value is a startup error) switches seafood on the public site (`web.Deps.Seafood`). It exists because the MEOW license (§5) wasn't confirmed by launch, and the site launched with seafood off (`docs/reference-data-licenses.md`, "Launch decision"). With it off:
+
+- `/season` and `/ingredient` make no `ocean.Nearby` call, so no seafood item is ever in season and there's no seafood group;
+- seafood items are left out of `/season`, `/ingredient/{slug}` answers 404 for them, and pairings pointing at them are dropped;
+- the unsupported panel says estimates cover land areas only, and `/about/data` leaves out the seafood paragraph and the marine credits (MEOW, and Natural Earth as used for ocean clipping).
+
+The admin UI, the ingest pipeline, the calibration drift check and the engine are unaffected. Tests (§13.8) cover both states and check that no public page mentions seafood while it's off.
 
 ## 12. Season engine
 

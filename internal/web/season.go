@@ -14,6 +14,7 @@ import (
 	"thymeandplace/internal/cache"
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/climate"
+	"thymeandplace/internal/ocean"
 	"thymeandplace/internal/places"
 	"thymeandplace/internal/season"
 	"thymeandplace/internal/web/views"
@@ -99,7 +100,7 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	lat, lng, ok := parseLatLng(q.Get("lat"), q.Get("lng"))
 	if !ok {
-		s.render(w, r, http.StatusBadRequest, "Seasons", "", nil, views.Unsupported())
+		s.render(w, r, http.StatusBadRequest, "Seasons", "", nil, s.unsupported())
 		return
 	}
 	ctx := r.Context()
@@ -137,7 +138,7 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 		s.cache.Add(key, core)
 	}
 	if !core.Supported {
-		s.render(w, r, http.StatusOK, "Seasons", "", nil, views.Unsupported())
+		s.render(w, r, http.StatusOK, "Seasons", "", nil, s.unsupported())
 		return
 	}
 	vm := s.seasonVM(ctx, core, snap, month, q.Get("place"), lat, lng, s.validDate(q.Get("date")))
@@ -149,9 +150,13 @@ func (s *Server) compute(ctx context.Context, lat, lng float64, month time.Month
 	if err != nil {
 		return seasonCore{}, err
 	}
-	eco, err := s.d.Ocean.Nearby(ctx, lat, lng)
-	if err != nil {
-		return seasonCore{}, err
+	// With seafood off there is no ocean lookup: no ecoregion is ever in
+	// reach, so only land cells are supported.
+	var eco []ocean.EcoregionID
+	if s.d.Seafood {
+		if eco, err = s.d.Ocean.Nearby(ctx, lat, lng); err != nil {
+			return seasonCore{}, err
+		}
 	}
 	in := season.Input{Normals: l.Normals, Ecoregions: eco, Month: month}
 	results := s.d.Adjuster.Adjust(ctx, l.Cell, season.Estimate(in, snap))
@@ -207,7 +212,7 @@ func (s *Server) seasonVM(ctx context.Context, core seasonCore, snap *catalog.Sn
 	growing := 0
 	for _, res := range core.Results {
 		ing, ok := snap.Get(res.Slug)
-		if !ok {
+		if !ok || !s.visible(ing) {
 			continue
 		}
 		it := views.Item{

@@ -19,7 +19,7 @@
    Hex passwords, because base64's `/` and `+` would break the `DATABASE_URL`s. All four go in `db.env`; each also goes in the `DATABASE_URL` of the files that connect as that role: `POSTGRES_PASSWORD` → `restore.env`, `TP_OWNER_PASSWORD` → `migrate.env` and `ingest.env`, `TP_APP_PASSWORD` → `app.env`, `TP_BACKUP_PASSWORD` → `backup.env`. Put the dataset bucket's keys in `ingest.env` and the backup bucket's in `backup.env` and `restore.env`. Check with `sudo stat -c '%a %U %n' /etc/thymeandplace /etc/thymeandplace/*.env` → `700 root` for the directory and `600 root` for every file.
 4. `cd /opt/thymeandplace/deploy && sudo docker compose up -d --build`. On the empty volume, `db` runs `deploy/db/initdb/20-roles.sh` once to create the roles; then the one-shot `migrate` service applies the migrations as `tp_owner` and exits, and `app` starts as `tp_app`. Caddy obtains certificates automatically.
 5. Owner access: `docker compose exec app /app/admin enroll`. Open the link on your phone, register a passkey, repeat for a second device. Then `docker compose exec app /app/admin set-backup` and scan the QR code.
-6. Reference data, per dataset (`places`, `ocean`, `climate`). Before approving any license, check its row in `docs/reference-data-licenses.md`. **Ocean can't be approved yet:** its MEOW terms are unresolved, so `approve-license` refuses it (see "Ocean dataset" below). Either resolve the terms first, or skip ocean and follow "Launching without seafood".
+6. Reference data, per dataset (`places`, `ocean`, `climate`). Before approving any license, check its row in `docs/reference-data-licenses.md`. **Skip ocean for launch:** its MEOW terms are unresolved, so `approve-license` refuses it (see "Ocean dataset" below), and the site launches with seafood off ("Launching without seafood").
    ```bash
    docker compose --profile tools run --rm ingest places fetch        # note the version N and read the license it prints
    docker compose --profile tools run --rm ingest places approve-license --version N --yes
@@ -32,14 +32,14 @@
    docker compose --profile tools run --rm transform /work/climate/vN
    docker compose --profile tools run --rm ingest climate all --version N
    ```
-7. Import the launch catalog in `/admin/import` (see Plan 9; without a live ocean version, import the no-seafood file from "Launching without seafood" instead) and check the preview's calibration score. After any later admin edit, export the catalog to `content/catalog/launch.json` and run `go test ./content/`: the calibration score can't see an ingredient in a city whose guide doesn't list it, and the content gates can (`content/AUTHORING.md`, "After editing in the admin").
+7. Import the launch catalog in `/admin/import` (see Plan 9; without a live ocean version, import the no-seafood file from "Launching without seafood") and check the preview's calibration score. After any later admin edit, export the catalog to `content/catalog/launch.json` and run `go test ./content/`: the calibration score can't see an ingredient in a city whose guide doesn't list it, and the content gates can (`content/AUTHORING.md`, "After editing in the admin").
 8. Backups: see "Nightly backups" below for the cron entry.
 9. **Before launch:** run `docker compose --profile tools run --rm backup` then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore`. It must print `restore-test ok`.
 
 ### Pre-launch checklist
 
 - [ ] `restore-test ok` (step 9).
-- [ ] The MEOW row in `docs/reference-data-licenses.md` is confirmed and an ocean version is live, **or** the no-seafood fallback is in place (below) and the About page says seafood isn't covered yet.
+- [ ] Seafood is off: `FEATURE_SEAFOOD` is unset or `off` in `app.env`, `docker compose logs app | grep 'seafood feature'` shows `enabled=false`, and `/about/data` doesn't mention seafood or marine data. (Only once the MEOW row in `docs/reference-data-licenses.md` is confirmed and an ocean version is live may it be `on`; see "Turning seafood on".)
 - [ ] `SELECT id, license, license_reviewed, is_live, promoted_at FROM dataset_versions WHERE dataset = 'ocean'` shows no approved or promoted row whose license starts with `UNRESOLVED:`. If one exists, withdraw it ("Withdrawing a dataset").
 
 ### Ocean dataset: two sources, two licenses
@@ -53,7 +53,15 @@ Both licenses are printed together by `ingest ocean fetch`. Once the terms are r
 
 ### Launching without seafood
 
-If MEOW isn't resolved in time, launch without ocean data. The `ocean_ecoregion` view stays on the empty `ocean_ecoregion_v0` table, so every seafood item is out of season everywhere and the seafood group simply doesn't show. No code change is needed, but the catalog is: import checks every seafood region against the live ecoregions, so `content/catalog/launch.json` would be rejected. Import a derived file instead, which drops the seafood items and any pairing that points at one:
+The site launches with seafood off, because the MEOW terms aren't confirmed (`docs/reference-data-licenses.md`, "Launch decision"). The switch is `FEATURE_SEAFOOD` in `app.env`: unset or `off` (the default) serves a land-only site, `on` serves seafood. Any other value stops the app at startup. With seafood off, the public site:
+
+- makes no ocean lookups;
+- leaves seafood items out of `/season`, answers `/ingredient/{slug}` for them with 404, and drops pairings that point at them;
+- says estimates cover land areas only, and leaves the seafood paragraph and marine credits off `/about/data`.
+
+The admin UI is unchanged: seafood items can still be edited there, and they stay hidden until the flag is on.
+
+The catalog still needs one change: import checks every seafood region against the live ecoregions, so without ocean data `content/catalog/launch.json` is rejected. Import a derived file instead, which drops the seafood items and any pairing that points at one:
 
 ```bash
 jq '([.ingredients[] | select(.kind == "seafood") | .slug]) as $sea
@@ -61,7 +69,16 @@ jq '([.ingredients[] | select(.kind == "seafood") | .slug]) as $sea
   content/catalog/launch.json > /tmp/launch-no-seafood.json
 ```
 
-Then change the seafood paragraph in `internal/web/views/about.templ` to one line saying seafood isn't covered yet (keep the MEOW citation in the sources list), and record in `docs/reference-data-licenses.md` that the fallback was chosen. To turn seafood on later: resolve the license, ingest ocean, then import `launch.json` (import only upserts, so this adds the seafood items and pairings back).
+Keep the seafood items in `content/catalog/launch.json`; they're what gets imported when seafood comes back.
+
+### Turning seafood on
+
+1. Resolve MEOW ("Resolving MEOW" in `docs/reference-data-licenses.md`; that commit also updates the About page's marine credits).
+2. Ingest ocean: `fetch`, read the license, `approve-license --version N --yes`, `all --version N`.
+3. Import `content/catalog/launch.json` in `/admin/import`. Import only upserts, so this adds the seafood items and pairings back.
+4. Set `FEATURE_SEAFOOD=on` in `/etc/thymeandplace/app.env` and run `sudo docker compose up -d app` (the flag is read at startup). The log should show `seafood feature enabled=true`.
+
+To turn it off again, set it back to `off` and restart `app`; nothing else changes. If the terms are withdrawn, also follow "Withdrawing a dataset".
 
 ### Withdrawing a dataset
 

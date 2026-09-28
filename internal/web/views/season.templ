@@ -4,9 +4,13 @@ templ Location(label string) {
 	<header class="where"><h2>{ label }</h2></header>
 }
 
-templ Unsupported() {
+templ Unsupported(seafood bool) {
 	<div class="panel">
-		<p>{ CopyUnsupported }</p>
+		if seafood {
+			<p>{ CopyUnsupported }</p>
+		} else {
+			<p>{ CopyUnsupportedLand }</p>
+		}
 		<p><a href="/#q">{ CopySearchAnother }</a></p>
 	</div>
 }

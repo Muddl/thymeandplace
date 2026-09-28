@@ -155,6 +155,8 @@ func newHarness(t *testing.T, opts ...func(*Deps)) *harness {
 		Ping:        func(context.Context) error { return hs.pingErr },
 		Now:         func() time.Time { return hs.now },
 		Log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		// Most tests cover the full site; seafoodOff gives the launch setup.
+		Seafood: true,
 	}
 	for _, o := range opts {
 		o(&d)
@@ -162,6 +164,9 @@ func newHarness(t *testing.T, opts ...func(*Deps)) *harness {
 	hs.h = New(d)
 	return hs
 }
+
+// seafoodOff turns the seafood feature off, as at launch (FEATURE_SEAFOOD unset).
+func seafoodOff(d *Deps) { d.Seafood = false }
 
 // shortTimeout shrinks the per-request deadline so timeout tests stay fast.
 func shortTimeout(d *Deps) { d.timeout = 100 * time.Millisecond }

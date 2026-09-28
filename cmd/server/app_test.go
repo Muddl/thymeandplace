@@ -50,8 +50,9 @@ func TestAppServesAndReloadsWithoutRestart(t *testing.T) {
 
 	// The server ignores a date more than a day from its own UTC date, so pin
 	// its clock to the date the season URL below asks for. It connects as the
-	// least-privilege runtime role, as in production.
-	cfg := config{DatabaseURL: dbtest.URLAs(pool, dbtest.App), Addr: ":0",
+	// least-privilege runtime role, as in production. Seafood is on so the
+	// ocean lookups run against the real reference data too.
+	cfg := config{DatabaseURL: dbtest.URLAs(pool, dbtest.App), Addr: ":0", Seafood: true,
 		now: func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) }}
 	a, err := newApp(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -371,6 +372,24 @@ func TestLoadConfigDBMaxConns(t *testing.T) {
 	}
 	if publicDBSlots(16) != 12 || publicDBSlots(10) != 7 || publicDBSlots(1) != 1 {
 		t.Fatalf("public DB slots: 16→%d 10→%d 1→%d", publicDBSlots(16), publicDBSlots(10), publicDBSlots(1))
+	}
+}
+
+// FEATURE_SEAFOOD is off unless set to "on"; any other value is a startup
+// error, so a typo can't quietly turn seafood on or off.
+func TestLoadConfigSeafood(t *testing.T) {
+	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, tc := range []struct {
+		v      string
+		want   bool
+		wantOK bool
+	}{{"", false, true}, {"off", false, true}, {"on", true, true}, {"true", false, false}, {"ON", false, false}, {"1", false, false}} {
+		c, err := loadConfig(func(k string) string {
+			return map[string]string{"DATABASE_URL": "postgres://x", "FEATURE_SEAFOOD": tc.v}[k]
+		}, discard)
+		if (err == nil) != tc.wantOK || c.Seafood != tc.want {
+			t.Fatalf("FEATURE_SEAFOOD=%q: got %v, err %v", tc.v, c.Seafood, err)
+		}
 	}
 }
 

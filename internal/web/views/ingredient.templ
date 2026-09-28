@@ -13,7 +13,7 @@ templ Ingredient(vm IngredientVM) {
 		if vm.Local {
 			<p class="basis">{ vm.Basis }</p>
 		} else {
-			<p class="basis">Not grown or landed near here, as far as our estimates can tell.</p>
+			<p class="basis">{ vm.NotLocal }</p>
 		}
 		if vm.EstimateNote != "" {
 			<p class="badge">{ vm.EstimateNote }</p>

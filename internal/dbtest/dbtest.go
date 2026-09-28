@@ -83,17 +83,33 @@ func start() {
 		startErr = err
 		return
 	}
-	if err := exec(ctx, adminURL, "CREATE DATABASE tp_template"); err != nil {
+	// The same layout as production (deploy/db/initdb/20-roles.sh): the
+	// roles, a template owned by tp_owner with the extensions installed by
+	// the superuser, then migrations run as tp_owner.
+	for _, sql := range []string{
+		"CREATE ROLE tp_owner LOGIN PASSWORD 'tp_owner'",
+		"CREATE ROLE tp_app LOGIN PASSWORD 'tp_app'",
+		"CREATE ROLE tp_backup LOGIN PASSWORD 'tp_backup'",
+		"GRANT pg_read_all_data TO tp_backup",
+		"CREATE DATABASE tp_template OWNER tp_owner",
+	} {
+		if err := exec(ctx, adminURL, sql); err != nil {
+			startErr = fmt.Errorf("%s: %w", sql, err)
+			return
+		}
+	}
+	if err := exec(ctx, withDB(adminURL, "tp_template"), "CREATE EXTENSION postgis; CREATE EXTENSION pg_trgm"); err != nil {
 		startErr = err
 		return
 	}
-	if err := db.Migrate(ctx, withDB(adminURL, "tp_template")); err != nil {
+	if err := db.Migrate(ctx, withRole(withDB(adminURL, "tp_template"), "tp_owner")); err != nil {
 		startErr = err
 	}
 }
 
-// New returns a pool on a brand-new migrated database. It is dropped when
-// the test ends.
+// New returns a superuser pool on a brand-new migrated database (so fixtures
+// can insert freely); As gives a pool on the same database as another role.
+// The database is dropped when the test ends.
 func New(t testing.TB) *pgxpool.Pool {
 	t.Helper()
 	if os.Getenv("TP_SKIP_DB") == "1" {
@@ -107,7 +123,7 @@ func New(t testing.TB) *pgxpool.Pool {
 	name := fmt.Sprintf("t%d_%d", os.Getpid(), seq.Add(1))
 
 	createMu.Lock()
-	err := exec(ctx, adminURL, "CREATE DATABASE "+name+" TEMPLATE tp_template")
+	err := exec(ctx, adminURL, "CREATE DATABASE "+name+" TEMPLATE tp_template OWNER tp_owner")
 	createMu.Unlock()
 	if err != nil {
 		t.Fatalf("dbtest: create database: %v", err)
@@ -121,6 +137,39 @@ func New(t testing.TB) *pgxpool.Pool {
 		_ = exec(context.Background(), adminURL, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
 	})
 	return pool
+}
+
+// Roles created in the test container; each one's password is its name.
+const (
+	Owner  = "tp_owner"
+	App    = "tp_app"
+	Backup = "tp_backup"
+)
+
+// As returns a pool on pool's database (one from New) connected as role
+// (Owner, App or Backup), closed when the test ends.
+func As(t testing.TB, pool *pgxpool.Pool, role string) *pgxpool.Pool {
+	t.Helper()
+	p, err := pgxpool.New(context.Background(), withRole(withDB(adminURL, pool.Config().ConnConfig.Database), role))
+	if err != nil {
+		t.Fatalf("dbtest: pool as %s: %v", role, err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
+// URLAs is the connection string for pool's database as role.
+func URLAs(pool *pgxpool.Pool, role string) string {
+	return withRole(withDB(adminURL, pool.Config().ConnConfig.Database), role)
+}
+
+func withRole(dsn, role string) string {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		panic(err)
+	}
+	u.User = url.UserPassword(role, role)
+	return u.String()
 }
 
 func exec(ctx context.Context, dsn, sql string) error {

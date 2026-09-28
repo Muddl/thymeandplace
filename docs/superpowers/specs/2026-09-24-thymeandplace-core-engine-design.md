@@ -73,7 +73,7 @@ Docker Compose on one VPS runs three services:
 - **app** — the stateless Go binary serving both the public site and `/admin`. Can be scaled to N replicas later without code changes.
 - **db** — Postgres with PostGIS and `pg_trgm`.
 
-The ingestion pipeline (`ingest`, `transform`) and the admin CLI run as on-demand commands via `docker compose run` or `exec`.
+A one-shot **migrate** service (the app image with `-migrate-only`, as `tp_owner`) applies migrations before `app` starts; `app` depends on it completing successfully and refuses to start while migrations are pending. The ingestion pipeline (`ingest`, `transform`), backups, restores and the admin CLI run as on-demand commands via `docker compose run` or `exec`. (Amended by `2026-09-27-least-privilege-deployment-design.md`.)
 
 ### 4.2 Repository layout
 
@@ -131,10 +131,11 @@ thymeandplace/
 | Dataset | Use | License | Obligation |
 |---|---|---|---|
 | TerraClimate (Abatzoglou et al., 2018) | Monthly tmin, tmax, precipitation → 1991–2020 normals | CC0 | Cite (courtesy) |
-| Marine Ecoregions of the World (Spalding et al., 2007) | Ocean regions for seafood | Recorded and reviewed at fetch time (§7) | Per recorded license |
+| Marine Ecoregions of the World (Spalding et al., 2007) | Ocean regions for seafood | **Unresolved** (`docs/reference-data-licenses.md`) | Not used while seafood is off (§11.7); citation only until the terms are confirmed |
+| Natural Earth 1:50m land | Clipping ocean regions to water | Public domain (as recorded) | None; credited as a courtesy |
 | GeoNames cities | City search and reverse lookup | CC BY 4.0 | Attribution on About the data page |
 
-Rule: **no reference dataset can be promoted to live unless its license is recorded in `dataset_versions` and marked reviewed.** The ingestion CLI enforces this.
+Rule: **no reference dataset can be promoted to live unless its license is recorded in `dataset_versions` and marked reviewed.** The ingestion CLI enforces this. A license whose terms haven't been confirmed carries the `UNRESOLVED:` marker (`ingest.LicenseUnresolved`); such a version can't be approved and never passes validation. `docs/reference-data-licenses.md` is the register of every source file's terms and evidence, and each dataset's `Attribution()` lines must appear on the About page (a test checks this). (Amended by `2026-09-27-reference-data-provenance-design.md`.)
 
 ## 6. Reference data model
 
@@ -432,14 +433,17 @@ The expected setup is two passkeys (for example, phone plus hardware key or pass
 ### 10.4 Protections
 
 - **CSRF:** a per-session synchronizer token in every form, and sent by HTMX as a header (`hx-headers` on `<body>`). It's checked on every non-GET admin request.
-- **Login rate limit:** 5 attempts per 15 minutes per IP across all `/admin/login/*` routes.
+- **Login rate limit:** 5 failed attempts per 15 minutes per client (an IPv4 address or an IPv6 /64), across the passkey, re-auth and backup sign-in routes, checked before any audited work. Enrollment has its own budget of 5 failed attempts. Refused attempts are recorded once per client per window. If the check itself fails, the answer is 503 and nothing is recorded.
+- **Admin request limit:** per client, in memory, before any database work: sign-in and enrollment routes 1 req/s burst 20; other `/admin` routes 10 req/s burst 100; 429 with `Retry-After`.
 - **Backup lockout:** after 5 consecutive failures, the backup path locks globally for 15 minutes, doubling each time it repeats, up to 24 hours. Passkey login keeps working during a lockout. A global lock is acceptable because there is one user, and it stops distributed guessing.
-- **Audit:** every login attempt goes to `admin_login_log` (time, IP, method, outcome). Successful backup logins also log at `WARN`.
-- **Headers on `/admin`:** strict CSP (self only), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`, and `X-Robots-Tag: noindex`.
+- **Audit:** every login attempt that reaches a credential check goes to `admin_login_log` (time, IP, client key, method, outcome), kept 90 days. Successful backup logins also log at `WARN`.
+- **Headers on every response** (public and admin, set in the app by `web.SecurityHeaders`): strict CSP (self only, `object-src 'none'`, `frame-ancestors 'none'`, no inline script or style), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, a `Permissions-Policy` allowing only geolocation for self, and `Cross-Origin-Opener-Policy`/`Cross-Origin-Resource-Policy: same-origin`. `/admin` replaces the CSP (adding `data:` images) and adds `Cache-Control: no-store`, `X-Robots-Tag: noindex` and `Referrer-Policy: no-referrer`. (Amended by `2026-09-27-public-origin-hardening-design.md`.)
 
 ### 10.5 Tables
 
 `admin_passkey` (credential ID, public key, sign count, name, created_at, last_used_at), `admin_backup` (single row: password hash, encrypted TOTP secret, lockout state), `admin_session`, `admin_enrollment_token`, `admin_login_log`, `pending_changeset`.
+
+The audit tables are append-only for the app's database role: it can read `catalog_history` and `admin_login_log` and insert into the login log, but not update or delete either. History rows are written by `SECURITY DEFINER` triggers owned by `tp_owner`, and old login-log rows are removed only through `prune_admin_login_log(retention)`, which refuses a retention under 30 days.
 
 ## 11. Public web layer
 
@@ -452,22 +456,26 @@ The expected setup is two passkeys (for example, phone plus hardware key or pass
 | `GET /season?lat=&lng=&date=` | Partial: location header + in-season list grouped Peak / In season / From storage / Year-round, with seafood as its own group |
 | `GET /ingredient/{slug}?cell=&date=` | Partial: tips, pairings, 12-month season bar, disclaimer or note |
 | `GET /about/data` | Full page: sources, licenses, attribution, how estimates work, privacy |
+| `GET /robots.txt` | Plain text: disallows `/admin`, `/places` and the health checks; points to the sitemap |
+| `GET /sitemap.xml` | The home and About pages, plus a season page for each calibration city |
+| `GET /llms.txt` | Markdown summary for language models (llmstxt.org): what the site does, how far to trust it, featured season pages and the ingredient list. Follows the seafood flag (§11.7) |
 | `GET /healthz` | 200 if the process is up |
 | `GET /readyz` | 200 if the DB ping succeeds within 500 ms and a catalog snapshot is loaded |
 
-Requests without an `HX-Request` header get full-page versions of `/season` and `/ingredient`, so URLs are shareable and indexable.
+Requests without an `HX-Request` header get full-page versions of `/season` and `/ingredient`, so URLs are shareable and indexable. The absolute URLs in `robots.txt`, `sitemap.xml` and `llms.txt` use `PUBLIC_BASE_URL` (default: the admin origin, `https://thymeand.place`).
 
 ### 11.2 `/season` flow
 
 1. Validate lat/lng; compute `cell_id`.
 2. Cache lookup on `(cell_id, month, dataVersion)`. On a hit, render.
-3. On a miss: `climate.Normals` (with fallback), `ocean.Nearby`, `season.Estimate` against the current snapshot, `Adjuster.Adjust`, then cache and render.
-4. Place label: from the search selection if present, otherwise `places.Nearest`.
+3. On a miss: `climate.Normals` (with fallback), `ocean.Nearby`, `season.Estimate` against the current snapshot, `Adjuster.Adjust`, then cache and render. The miss's queries run while holding one public DB slot (§11.4).
+4. Place label: from the search selection if present, otherwise `places.Nearest`. The selection lookup also takes a DB slot; if none is free it falls back like any failed lookup.
 
 ### 11.3 Caching
 
 - In-process LRU, **50,000 entries**.
-- The data version refreshes on `LISTEN data_version_changed`, with a 5-minute poll as a fallback for missed notifications.
+- `/ingredient` keeps a second LRU of **20,000** per-cell inputs (climate normals and ecoregions, including cells with no normals), keyed by `(cell_id, dataVersion)`. Failures aren't cached.
+- The data version refreshes on `LISTEN data_version_changed`, with a 5-minute poll as a fallback for missed notifications. The `LISTEN` session uses its own connection, outside the pool.
 - A version change makes older keys unreachable, and LRU eviction reclaims them.
 
 ### 11.4 Middleware
@@ -480,9 +488,11 @@ Public rate limits (token bucket, per IP):
 
 Over the limit returns 429 with `Retry-After`.
 
+**Load shedding (public DB gate).** Public database work (cache misses on `/season` and `/ingredient`, `/places` searches, the `/season` place label) holds one of a fixed number of slots: three quarters of the server pool, **12 of 16**. A request waits at most **250 ms** for a slot, then gets the retry panel with **503** and `Retry-After: 5`. Cache hits, health checks, static files and `/admin` don't use the gate, so a public spike can't starve the owner. Shedding logs one sampled `INFO "public DB gate full"` line a minute at most.
+
 ### 11.5 HTMX
 
-HTMX 2.x, vendored. It's configured to swap 4xx and 5xx responses so error partials render. Geolocation uses about 20 lines of vanilla JS calling `htmx.ajax` with coordinates and the local date.
+HTMX 2.x, vendored. It's configured to swap 4xx and 5xx responses so error partials render, with `allowEval: false`, `allowScriptTags: false` and `selfRequestsOnly: true` on both the public and admin sides. Templates contain no inline scripts, `style=` attributes, `on*` handlers or `hx-on`; a lint test in each views package enforces this so the CSP (§10.4) never needs `'unsafe-inline'`. Geolocation uses about 20 lines of vanilla JS calling `htmx.ajax` with coordinates and the local date.
 
 ### 11.6 Error handling and UX states
 
@@ -492,17 +502,28 @@ Principle: the surrounding page stays usable, and every message says what happen
 |---|---|---|
 | No city match | 200 | Under the search box: "No places match '…'. Try a nearby larger town or city." |
 | Geolocation denied or unavailable | — (client) | Muted hint: "Location access is off, so search for your town instead." Search box focused. No error styling. |
-| No land cell after fallback and no ecoregion in reach | 200 | "We can't estimate seasons here yet. Estimates cover land and coastal waters." + "Search another place" |
+| No land cell after fallback and no ecoregion in reach | 200 | "We can't estimate seasons here yet. Estimates cover land and coastal waters." + "Search another place". With seafood off (§11.7): no land cell, and the copy is "Estimates cover land areas only." |
 | Inland | 200 | Seafood group omitted, with no message |
 | Harsh climate, little in season | 200 | "Not much grows locally this time of year. Here's what's still around." + year-round, storage, and seafood items |
 | Invalid lat/lng/date | 400 | Same panel as the unsupported spot |
 | DB unavailable on cache miss | 503 | Warning panel in the results area: "Couldn't load seasonal picks right now. Try again in a moment." + "Try again" (re-issues the same request). Location header stays. |
+| Overloaded (no public DB slot within 250 ms) | 503 + `Retry-After: 5` | Same panel as a DB outage, returned at once. `/places` shows "Search isn't available right now. Try again in a moment." |
 | Unexpected error or panic | 500 | Same panel as 503. Logged with request ID. |
 | Rate limited | 429 | Under the search box: "Search is pausing for a few seconds. Keep typing and results will catch up." Resumes automatically. |
 | No catalog snapshot loaded | 503 | `/readyz` fails, so Compose holds traffic. The site is not served. |
 | Ingestion validation failure | — | Pipeline exits non-zero naming dataset and step. Live data unchanged. |
 
 Admin errors follow the same style: validation errors appear inline next to their fields, and a stale changeset shows "The catalog changed since this preview. Preview again."
+
+### 11.7 Seafood feature flag
+
+`FEATURE_SEAFOOD` (`on` or `off`, default `off`; any other value is a startup error) switches seafood on the public site (`web.Deps.Seafood`). It exists because the MEOW license (§5) wasn't confirmed by launch, and the site launched with seafood off (`docs/reference-data-licenses.md`, "Launch decision"). With it off:
+
+- `/season` and `/ingredient` make no `ocean.Nearby` call, so no seafood item is ever in season and there's no seafood group;
+- seafood items are left out of `/season`, `/ingredient/{slug}` answers 404 for them, and pairings pointing at them are dropped;
+- the unsupported panel says estimates cover land areas only, and `/about/data` leaves out the seafood paragraph and the marine credits (MEOW, and Natural Earth as used for ocean clipping).
+
+The admin UI, the ingest pipeline, the calibration drift check and the engine are unaffected. Tests (§13.8) cover both states and check that no public page mentions seafood while it's off.
 
 ## 12. Season engine
 
@@ -590,6 +611,7 @@ Property tests:
 ### 13.3 Catalog and changeset tests
 
 - Every DB `CHECK` and foreign key rejects the invalid rows it's meant to (integration).
+- As `tp_app`: catalog load, a full apply (with history rows), login-log inserts, `LISTEN` and the reference views work; updating or deleting audit rows, DDL, `TRUNCATE`, `COPY ... TO PROGRAM` and `pg_read_file` fail with SQLSTATE 42501. A table `tp_owner` creates is readable by `tp_app` without a new grant.
 - App-level validation matches the DB constraints, via a shared table of invalid examples run against both.
 - History triggers record actor, change ID, and before/after. The version trigger bumps once per statement and sends `NOTIFY`.
 - Import: upsert only (never deletes); list replacement for pairings and regions; unknown format rejected; 5 MB limit.
@@ -604,6 +626,7 @@ Property tests:
 - CSRF: every non-GET admin route rejects requests missing the token or with a wrong one.
 - Enrollment tokens are single-use and expire after 15 minutes.
 - Every `/admin` route except login redirects unauthenticated requests.
+- The per-client budget buckets IPv6 by /64; refused attempts write at most one row per window; the request limiter answers before any database call; pruning removes only expired rows.
 
 ### 13.5 Store integration tests
 
@@ -612,7 +635,7 @@ Property tests:
 ### 13.6 Pipeline tests
 
 - `pytest`: the xarray transform on a tiny synthetic NetCDF produces the expected normals and grid.
-- Go: a failed validation leaves live data unchanged; swap flips `is_live`, repoints the view, and sends `NOTIFY`; rollback restores the previous version; promotion is refused without a reviewed license; ocean validation fails if catalog ecoregion IDs are missing.
+- Go: a failed validation leaves live data unchanged; swap flips `is_live`, repoints the view, and sends `NOTIFY`; rollback restores the previous version; promotion is refused without a reviewed license, and approval and promotion are both refused for an `UNRESOLVED:` license even when `license_reviewed` is set by SQL; every dataset's `Attribution()` appears on the About page; ocean validation fails if catalog ecoregion IDs are missing.
 
 ### 13.7 Cache tests
 
@@ -620,7 +643,7 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.8 Web tests
 
-`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`.
+`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any browser console message about Content Security Policy.
 
 ### 13.9 End-to-end (Playwright against Compose)
 
@@ -637,17 +660,20 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 ## 14. Deployment and operations
 
 - Images: `app` (distroless; contains `server` and `admin` binaries), `ingest` (Go), `transform` (Python + xarray), official Postgres/PostGIS, Caddy.
-- Secrets (`ADMIN_SECRET_KEY`, DB credentials, bucket credentials) come from an env file with mode 600 on the host, not stored in the repo.
-- Migrations: `goose` runs at app startup before listening. Migrations must be backward-compatible with the previous app version.
+- Secrets (`ADMIN_SECRET_KEY`, DB credentials, bucket credentials) come from root-only env files (mode 600) on the host, not stored in the repo: one per service (`db`, `migrate`, `app`, `ingest`, `backup`, `restore`), so no container gets a secret it doesn't use.
+- Database roles: the bootstrap superuser only for init and restores; `tp_owner` owns the schema and runs migrations, ingest and devseed; `tp_app` is the runtime (and admin CLI) with no DDL rights, no file or program access and append-only audit tables; `tp_backup` reads everything for `pg_dump` (`pg_read_all_data`).
+- Migrations: `goose` runs in the one-shot `migrate` service as `tp_owner`, before the app starts; the app refuses to serve while migrations are pending. Migrations must be backward-compatible with the previous app version.
 - Backups: nightly `pg_dump` (including the catalog and admin tables) to the S3-compatible bucket, keeping 7 daily and 4 weekly copies. A restore test is run manually before launch. Catalog JSON exports are a convenience, not the backup.
+- Connection budget: app pool 16 (2 kept open; `DB_MAX_CONNS` overrides) + the app's `LISTEN` connection 1 + `ingest` or `devseed` 4 + admin CLI 4 + backup 1 + `psql` sessions, about 30 in all, well under Postgres's default `max_connections` of 100. A `pool_max_conns` in `DATABASE_URL` wins over a binary's default. A k6 load test (`deploy/loadtest/`) checks the §1 latency targets before launch; results go in `docs/capacity-baseline.md`.
 - Health: Compose health checks on `/healthz` (restart) and `/readyz` (traffic).
 - Logs: JSON `slog` to stdout. Public request lat/lng is logged only as `cell_id`.
+- The app prunes admin audit (90 days), session and enrollment-token rows daily, starting at boot.
 
 ## 15. Privacy
 
 - No public accounts, no public cookies.
 - Public locations are not stored. Logs record `cell_id` (~28 km resolution) only.
-- Admin login logs store IP addresses for security auditing.
+- Admin login logs store IP addresses for security auditing, for 90 days.
 - The About the data page states this.
 
 ## 16. Values chosen in this spec (confirm or change)
@@ -661,6 +687,10 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Seafood reach | 100 km from ecoregion |
 | Launch catalog | ≥ 60 land ingredients, ≥ 15 seafood species |
 | Cache size | 50,000 entries |
+| Per-cell input cache (`/ingredient`) | 20,000 entries |
+| DB pool size | server 16 max, 2 min (`DB_MAX_CONNS`); CLIs 4 |
+| Public DB slots / gate wait | 12 (¾ of the pool) / 250 ms; shed with 503 + `Retry-After: 5` |
+| Ocean query target | p95 ≤ 25 ms (else subdivide polygons at ingest) |
 | Public request timeout | 2 s |
 | Public rate limits | `/places` 10/s burst 20; `/season`, `/ingredient` 2/s burst 10 |
 | Calibration override threshold | score drop > 0.02 |
@@ -668,6 +698,8 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Import size limit | 5 MB |
 | Enrollment link TTL | 15 minutes |
 | Admin session | 30 min idle, 12 h absolute; re-auth window 5 min |
-| Login rate limit | 5 attempts / 15 min / IP |
+| Login rate limit | 5 failures / 15 min / client (IPv4 or IPv6 /64); enrollment separate |
+| Admin request limits | sign-in/enroll 1/s burst 20; other `/admin` 10/s burst 100 |
+| Admin login log retention | 90 days (growth warning above 10,000 rows / 24 h) |
 | Backup lockout | 5 failures → 15 min, doubling, max 24 h |
 | Backup retention | 7 daily, 4 weekly |

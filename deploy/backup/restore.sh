@@ -76,4 +76,13 @@ CREATE DATABASE :"db" TEMPLATE template0;
 SQL
 
 pg_restore --single-transaction --exit-on-error --no-owner --dbname="$target" "$tmp"
+
+# --no-owner leaves every object owned by the restoring superuser. Hand the
+# database back to tp_owner, as migrations and ingest expect (the grants to
+# tp_app came back with the dump). A cluster from before the roles existed
+# has no tp_owner; skip it there.
+has_owner=$(psql "$target" -X -Atq -c "SELECT count(*) FROM pg_roles WHERE rolname = 'tp_owner'")
+if [ "$has_owner" = "1" ]; then
+  psql "$target" -X -q -v ON_ERROR_STOP=1 -f /usr/local/share/thymeandplace/own-objects.sql
+fi
 echo "restore ok: $key → $dbname"

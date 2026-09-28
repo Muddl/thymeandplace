@@ -62,6 +62,9 @@ func (*Climate) Prefix() string { return "climate_cell_v" }
 func (*Climate) License() string {
 	return "CC0 1.0 — TerraClimate (Abatzoglou et al., 2018); citation requested"
 }
+func (*Climate) Attribution() []string {
+	return []string{"TerraClimate (Abatzoglou, J.T., Dobrowski, S.Z., Parks, S.A., Hegewisch, K.C., 2018, Scientific Data), CC0"}
+}
 func (c *Climate) Sources() []Source { return c.SourceList }
 
 // Transform copies the output of the Python transform container.

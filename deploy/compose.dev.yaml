@@ -1,3 +1,9 @@
+# Local development database, with the same roles as production
+# (deploy/db/initdb/20-roles.sh). Migrate as tp_owner, run as tp_app:
+#   DATABASE_URL=postgres://tp_owner:tp_owner@localhost:55432/thymeandplace?sslmode=disable go run ./cmd/server -migrate-only
+#   DATABASE_URL=postgres://tp_app:tp_app@localhost:55432/thymeandplace?sslmode=disable go run ./cmd/server
+# ingest and devseed connect as tp_owner. A volume created before the roles
+# existed needs deploy/db/adopt-roles.sql once, or `down -v`.
 name: thymeandplace-dev
 services:
   db:
@@ -6,10 +12,14 @@ services:
       POSTGRES_USER: tp
       POSTGRES_PASSWORD: tp
       POSTGRES_DB: thymeandplace
+      TP_OWNER_PASSWORD: tp_owner
+      TP_APP_PASSWORD: tp_app
+      TP_BACKUP_PASSWORD: tp_backup
     ports:
       - "55432:5432"
     volumes:
       - dbdata:/var/lib/postgresql/data
+      - ./db/initdb/20-roles.sh:/docker-entrypoint-initdb.d/20-roles.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tp -d thymeandplace"]
       interval: 5s

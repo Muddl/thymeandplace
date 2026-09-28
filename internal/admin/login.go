@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -76,32 +77,56 @@ func limitCeremonyBody(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+const (
+	msgTooManyAttempts = "Too many sign-in attempts. Wait 15 minutes and try again."
+	msgBudgetCheck     = "Couldn't check sign-in attempts. Try again in a moment."
+)
+
+// admit applies method's attempt budget before any audited work. Over budget
+// it records one refusal per client key per window and calls refuse(429,
+// ...). If the check itself fails it calls refuse(503, ...) and writes
+// nothing. It reports whether the caller may go on.
+func (a *Admin) admit(ctx context.Context, c auth.Caller, method string, refuse func(int, string)) bool {
+	ok, err := a.d.Auth.AllowAttempt(ctx, c, method)
+	if err != nil {
+		a.d.Log.Error("sign-in budget check failed", "err", err, "method", method, "request_id", web.RequestIDFrom(ctx))
+		refuse(http.StatusServiceUnavailable, msgBudgetCheck)
+		return false
+	}
+	if !ok {
+		a.d.Auth.LogRefusal(ctx, c, method)
+		refuse(http.StatusTooManyRequests, msgTooManyAttempts)
+		return false
+	}
+	return true
+}
+
+// jsonRefusal adapts jsonError to admit's refuse.
+func jsonRefusal(w http.ResponseWriter) func(int, string) {
+	return func(status int, msg string) { jsonError(w, status, msg) }
+}
+
 // finishPasskeyLogin runs the WebAuthn login-finish ceremony shared by every
 // route that ends a passkey login: /admin/login/passkey/finish (fresh sign-in
 // or a re-auth from an already-signed-in session) and
 // /admin/security/reauth/finish (re-auth only). It applies the fail-closed
-// per-IP rate limit, caps the ceremony body, clears the WebAuthn state cookie
-// on every response (success or failure), and writes the outcome to
-// admin_login_log — so every login attempt, from either route, is rate
-// limited and audited exactly once. It reports whether the ceremony
+// per-client attempt budget, caps the ceremony body, clears the WebAuthn
+// state cookie on every response (success or failure), and writes the
+// outcome to admin_login_log — so every login attempt, from either route, is
+// budgeted and audited exactly once. It reports whether the ceremony
 // succeeded; on failure it has already written the error response and the
 // caller must return without writing anything else.
 func (a *Admin) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) bool {
-	ctx, ip := r.Context(), a.ip(r)
+	ctx, c := r.Context(), a.caller(r)
 	state := ""
-	if c, err := r.Cookie(auth.StateCookie); err == nil {
-		state = c.Value
+	if ck, err := r.Cookie(auth.StateCookie); err == nil {
+		state = ck.Value
 	}
 	// Clear the WebAuthn state cookie on every response from this route,
 	// success or failure, so a spent or abandoned ceremony state is never
 	// left around to be replayed or to linger stale in the browser.
 	auth.ClearStateCookie(w)
-	if ok, err := a.d.Auth.AllowAttempt(ctx, ip); err != nil || !ok {
-		if err != nil {
-			a.d.Log.Error("passkey rate limit check failed", "err", err, "request_id", web.RequestIDFrom(ctx))
-		}
-		a.d.Auth.LogAttempt(ctx, ip, "passkey", "rate_limited")
-		jsonError(w, http.StatusTooManyRequests, "Too many sign-in attempts. Wait 15 minutes and try again.")
+	if !a.admit(ctx, c, "passkey", jsonRefusal(w)) {
 		return false
 	}
 	err := limitCeremonyBody(w, r)
@@ -109,14 +134,14 @@ func (a *Admin) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) bool 
 		err = a.d.Auth.FinishLogin(ctx, state, r)
 	}
 	if err != nil {
-		a.d.Auth.LogAttempt(ctx, ip, "passkey", "failure")
+		a.d.Auth.LogAttempt(ctx, c, "passkey", "failure")
 		if !errors.Is(err, auth.ErrCeremony) {
 			a.d.Log.Warn("passkey finish failed", "err", err)
 		}
 		jsonError(w, http.StatusUnauthorized, "That passkey didn't work. Try again, or use backup login.")
 		return false
 	}
-	a.d.Auth.LogAttempt(ctx, ip, "passkey", "success")
+	a.d.Auth.LogAttempt(ctx, c, "passkey", "success")
 	return true
 }
 
@@ -150,47 +175,49 @@ func (a *Admin) backupPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) backupSubmit(w http.ResponseWriter, r *http.Request) {
-	ctx, ip := r.Context(), a.ip(r)
+	ctx, c := r.Context(), a.caller(r)
 	// A stray WebAuthn state cookie (from an abandoned passkey attempt) must
 	// not linger past a backup login response either.
 	auth.ClearStateCookie(w)
-	if !a.d.Auth.BackupEnabled() {
-		a.d.Auth.LogAttempt(ctx, ip, "backup", "disabled")
-		http.NotFound(w, r)
-		return
-	}
 	page := func(status int, msg string) {
 		a.render(w, r, status, views.BackupPage(views.BackupVM{Layout: a.layout(r, "Backup login"), Message: msg}))
 	}
-	if ok, err := a.d.Auth.AllowAttempt(ctx, ip); err != nil || !ok {
-		if err != nil {
-			a.d.Log.Error("backup rate limit check failed", "err", err, "request_id", web.RequestIDFrom(ctx))
-		}
-		a.d.Auth.LogAttempt(ctx, ip, "backup", "rate_limited")
-		page(http.StatusTooManyRequests, "Too many sign-in attempts. Wait 15 minutes and try again.")
+	// The budget applies before the disabled check, so a disabled route
+	// can't be used to write unbounded audit rows. While disabled, every
+	// answer is a plain 404, indistinguishable from a missing route.
+	refuse := func(status int, msg string) { page(status, msg) }
+	if !a.d.Auth.BackupEnabled() {
+		refuse = func(int, string) { http.NotFound(w, r) }
+	}
+	if !a.admit(ctx, c, "backup", refuse) {
+		return
+	}
+	if !a.d.Auth.BackupEnabled() {
+		a.d.Auth.LogAttempt(ctx, c, "backup", "disabled")
+		http.NotFound(w, r)
 		return
 	}
 	err := a.d.Auth.BackupLogin(ctx, r.PostFormValue("password"), r.PostFormValue("code"))
 	var locked *auth.LockedError
 	switch {
 	case err == nil:
-		a.d.Auth.LogAttempt(ctx, ip, "backup", "success")
+		a.d.Auth.LogAttempt(ctx, c, "backup", "success")
 		if err := a.startSession(w, r, "backup"); err != nil {
 			page(http.StatusInternalServerError, "Signed in, but couldn't start a session.")
 			return
 		}
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	case errors.As(err, &locked):
-		a.d.Auth.LogAttempt(ctx, ip, "backup", "locked")
+		a.d.Auth.LogAttempt(ctx, c, "backup", "locked")
 		page(http.StatusForbidden, fmt.Sprintf("Backup login is locked until %s UTC. Passkey sign-in still works.", locked.Until.UTC().Format("15:04")))
 	case errors.Is(err, auth.ErrBackupNotSet):
-		a.d.Auth.LogAttempt(ctx, ip, "backup", "failure")
+		a.d.Auth.LogAttempt(ctx, c, "backup", "failure")
 		page(http.StatusUnauthorized, "Backup login isn't set up. Run admin set-backup on the server.")
 	case errors.Is(err, auth.ErrBadCredentials):
-		a.d.Auth.LogAttempt(ctx, ip, "backup", "failure")
+		a.d.Auth.LogAttempt(ctx, c, "backup", "failure")
 		page(http.StatusUnauthorized, "Password or code is wrong.")
 	default:
-		a.d.Auth.LogAttempt(ctx, ip, "backup", "error")
+		a.d.Auth.LogAttempt(ctx, c, "backup", "error")
 		a.d.Log.Error("backup login error", "err", err, "request_id", web.RequestIDFrom(ctx))
 		page(http.StatusInternalServerError, "Something went wrong. Try again.")
 	}
@@ -245,31 +272,34 @@ func (a *Admin) enrollBegin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) enrollFinish(w http.ResponseWriter, r *http.Request) {
-	ctx, ip := r.Context(), a.ip(r)
+	ctx, c := r.Context(), a.caller(r)
 	state := ""
-	if c, err := r.Cookie(auth.StateCookie); err == nil {
-		state = c.Value
+	if ck, err := r.Cookie(auth.StateCookie); err == nil {
+		state = ck.Value
 	}
 	// See passkeyFinish: the state cookie is cleared on every response here too.
 	auth.ClearStateCookie(w)
+	if !a.admit(ctx, c, "enroll", jsonRefusal(w)) {
+		return
+	}
 	err := limitCeremonyBody(w, r)
 	if err == nil {
 		err = a.d.Auth.FinishEnrollment(ctx, state, r, r.URL.Query().Get("name"), r.URL.Query().Get("token"))
 	}
 	switch {
 	case errors.Is(err, auth.ErrBadEnrollment):
-		a.d.Auth.LogAttempt(ctx, ip, "enroll", "failure")
+		a.d.Auth.LogAttempt(ctx, c, "enroll", "failure")
 		jsonError(w, http.StatusBadRequest, "This enrollment link is invalid or has expired. Run admin enroll again.")
 		return
 	case err != nil:
-		a.d.Auth.LogAttempt(ctx, ip, "enroll", "failure")
+		a.d.Auth.LogAttempt(ctx, c, "enroll", "failure")
 		if !errors.Is(err, auth.ErrCeremony) {
 			a.d.Log.Error("enrollment finish failed", "err", err, "request_id", web.RequestIDFrom(ctx))
 		}
 		jsonError(w, http.StatusBadRequest, "The passkey couldn't be registered. Try again.")
 		return
 	}
-	a.d.Auth.LogAttempt(ctx, ip, "enroll", "success")
+	a.d.Auth.LogAttempt(ctx, c, "enroll", "success")
 	if err := a.startSession(w, r, "enroll"); err != nil {
 		jsonError(w, http.StatusInternalServerError, "Registered, but couldn't start a session. Sign in.")
 		return

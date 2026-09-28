@@ -41,7 +41,7 @@ func seed(ctx context.Context, url string) error {
 	if err := db.Migrate(ctx, url); err != nil {
 		return err
 	}
-	pool, err := db.Open(ctx, url)
+	pool, err := db.Open(ctx, url, db.CLIPool)
 	if err != nil {
 		return err
 	}

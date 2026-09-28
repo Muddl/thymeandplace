@@ -15,7 +15,8 @@ func TestCLI(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)
 	env := map[string]string{
-		"DATABASE_URL":     pool.Config().ConnString(),
+		// The CLI runs through `docker compose exec app`, as the app's role.
+		"DATABASE_URL":     dbtest.URLAs(pool, dbtest.App),
 		"ADMIN_SECRET_KEY": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, 32)),
 		"PUBLIC_BASE_URL":  "https://thymeand.place",
 	}

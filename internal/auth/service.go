@@ -30,6 +30,8 @@ type Service struct {
 	backup bool
 	now    func() time.Time
 	log    *slog.Logger
+
+	growthWarn int64 // Prune warns above this many login-log rows a day; tests lower it
 }
 
 func NewService(pool *pgxpool.Pool, cfg Config) (*Service, error) {
@@ -57,7 +59,7 @@ func NewService(pool *pgxpool.Pool, cfg Config) (*Service, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
-	return &Service{pool: pool, wa: wa, sealer: sealer, backup: cfg.BackupEnabled, now: cfg.Now, log: cfg.Log}, nil
+	return &Service{pool: pool, wa: wa, sealer: sealer, backup: cfg.BackupEnabled, now: cfg.Now, log: cfg.Log, growthWarn: loginLogGrowthWarn}, nil
 }
 
 func (s *Service) q() *store.Queries { return store.New(s.pool) }
@@ -71,9 +73,35 @@ const (
 	AttemptWindow = 15 * time.Minute
 )
 
-// AllowAttempt reports whether ip may make another login attempt.
-func (s *Service) AllowAttempt(ctx context.Context, ip string) (bool, error) {
-	n, err := s.q().CountRecentLoginAttempts(ctx, store.CountRecentLoginAttemptsParams{Ip: ip, Since: ts(s.now().Add(-AttemptWindow))})
+// Caller is who is making a sign-in attempt. IP is the full address, stored
+// in the audit row; Key is what the attempt budget counts by (the IPv4
+// address, or the /64 for IPv6, from web.LimiterKey), so a client can't get
+// fresh attempts by rotating addresses inside its /64.
+type Caller struct{ IP, Key string }
+
+// budgets maps an audited method to the methods whose failures share its
+// budget: passkey and backup sign-in share one, enrollment has its own
+// (controller ruling E: failed logins must not block the owner enrolling).
+var budgets = map[string][]string{
+	"passkey": {"passkey", "backup"},
+	"backup":  {"passkey", "backup"},
+	"enroll":  {"enroll"},
+}
+
+func budget(method string) []string {
+	if b, ok := budgets[method]; ok {
+		return b
+	}
+	return []string{method}
+}
+
+// AllowAttempt reports whether c may make another attempt at method: fewer
+// than AttemptLimit failures in method's budget in the last AttemptWindow.
+// Any outcome except success and rate_limited is a failure.
+func (s *Service) AllowAttempt(ctx context.Context, c Caller, method string) (bool, error) {
+	n, err := s.q().CountRecentLoginAttempts(ctx, store.CountRecentLoginAttemptsParams{
+		IpKey: c.Key, Since: ts(s.now().Add(-AttemptWindow)), Methods: budget(method),
+	})
 	if err != nil {
 		return false, err
 	}
@@ -81,13 +109,30 @@ func (s *Service) AllowAttempt(ctx context.Context, ip string) (bool, error) {
 }
 
 // LogAttempt writes the audit row. Failures to log are themselves logged.
-func (s *Service) LogAttempt(ctx context.Context, ip, method, outcome string) {
-	err := s.q().InsertLoginAttempt(ctx, store.InsertLoginAttemptParams{At: ts(s.now()), Ip: ip, Method: method, Outcome: outcome})
+func (s *Service) LogAttempt(ctx context.Context, c Caller, method, outcome string) {
+	err := s.q().InsertLoginAttempt(ctx, store.InsertLoginAttemptParams{At: ts(s.now()), Ip: c.IP, IpKey: c.Key, Method: method, Outcome: outcome})
 	if err != nil {
 		s.log.Error("login audit write failed", "err", err)
 	}
 	if method == "backup" && outcome == "success" {
-		s.log.Warn("backup login used", "ip", ip)
+		s.log.Warn("backup login used", "ip", c.IP)
+	}
+}
+
+// LogRefusal records that c hit method's budget, at most once per key and
+// budget per AttemptWindow, so refused attempts can't grow the log without
+// bound. It logs a WARN only when it wrote the row.
+func (s *Service) LogRefusal(ctx context.Context, c Caller, method string) {
+	now := s.now()
+	n, err := s.q().InsertRefusalOnce(ctx, store.InsertRefusalOnceParams{
+		At: ts(now), Ip: c.IP, IpKey: c.Key, Method: method, Methods: budget(method), Since: ts(now.Add(-AttemptWindow)),
+	})
+	if err != nil {
+		s.log.Error("login audit write failed", "err", err)
+		return
+	}
+	if n > 0 {
+		s.log.Warn("admin sign-in budget reached", "ip", c.IP, "method", method)
 	}
 }
 

@@ -60,12 +60,29 @@ func (l *logBuffer) String() string {
 // assert that error logs carry the request's ID.
 const testRequestID = "test-request-0001"
 
+// newEnv serves the admin handler with its request limiter switched off, so
+// tests can make as many requests as they need; newLimitedEnv turns it on.
 func newEnv(t *testing.T, backup bool) *env {
 	t.Helper()
 	return newEnvOn(t, dbtest.New(t), backup)
 }
 
 func newEnvOn(t *testing.T, pool *pgxpool.Pool, backup bool) *env {
+	t.Helper()
+	return newEnvWith(t, pool, backup, false)
+}
+
+// noLimits switches the request limiter off.
+func noLimits(string) (string, web.Limit, bool) { return "", web.Limit{}, false }
+
+// newLimitedEnv is newEnv with the /admin request limiter on, driven by the
+// test clock.
+func newLimitedEnv(t *testing.T, pool *pgxpool.Pool) *env {
+	t.Helper()
+	return newEnvWith(t, pool, true, true)
+}
+
+func newEnvWith(t *testing.T, pool *pgxpool.Pool, backup, limited bool) *env {
 	t.Helper()
 	c := &clock{t: time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
 	logs := &logBuffer{}
@@ -77,10 +94,15 @@ func newEnvOn(t *testing.T, pool *pgxpool.Pool, backup bool) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := web.RequestID(New(Deps{
+	d := Deps{
 		Auth: svc, Log: log, Pool: pool,
 		Load: func(ctx context.Context) (*catalog.Snapshot, error) { return catalog.Load(ctx, pool) },
-	}))
+		now:  c.now, limits: noLimits,
+	}
+	if limited {
+		d.limits = nil // adminLimits
+	}
+	h := web.RequestID(New(d))
 	return &env{h: h, auth: svc, clock: c, pool: pool, logs: logs}
 }
 

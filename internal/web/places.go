@@ -1,10 +1,13 @@
 package web
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"thymeandplace/internal/places"
 	"thymeandplace/internal/web/views"
 )
 
@@ -32,7 +35,17 @@ func (s *Server) places(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusOK, "Search", "", views.PlaceList(nil), nil)
 		return
 	}
-	found, err := s.d.Places.Search(r.Context(), q)
+	var found []places.Place
+	err := s.withDB(r.Context(), func(ctx context.Context) error {
+		var err error
+		found, err = s.d.Places.Search(ctx, q)
+		return err
+	})
+	if errors.Is(err, errBusy) {
+		w.Header().Set("Retry-After", shedRetryAfter)
+		s.render(w, r, http.StatusServiceUnavailable, "Search", q, views.PlacesUnavailable(), nil)
+		return
+	}
 	if err != nil {
 		s.d.Log.Warn("place search failed", "err", err, "request_id", RequestIDFrom(r.Context()))
 		s.render(w, r, http.StatusServiceUnavailable, "Search", q, views.PlacesUnavailable(), nil)

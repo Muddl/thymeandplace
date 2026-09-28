@@ -10,14 +10,21 @@ import (
 	"github.com/pquerna/otp/totp"
 
 	"thymeandplace/internal/auth"
+	"thymeandplace/internal/web"
 )
 
 func TestSecurityHeaders(t *testing.T) {
 	e := newEnv(t, true)
-	rec := e.client(t).get("/admin/login")
+	// Serve through the site-wide headers, as cmd/server does via web.Common:
+	// the admin values must replace the public ones.
+	c := e.client(t)
+	c.h = web.SecurityHeaders(e.h)
+	rec := c.get("/admin/login")
 	h := rec.Header()
 	const wantCSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 	switch {
+	case !strings.HasPrefix(h.Get("Permissions-Policy"), "geolocation=(self)"):
+		t.Fatalf("Permissions-Policy = %q (site-wide headers missing)", h.Get("Permissions-Policy"))
 	case h.Get("Content-Security-Policy") != wantCSP:
 		t.Fatalf("Content-Security-Policy = %q, want %q", h.Get("Content-Security-Policy"), wantCSP)
 	case h.Get("X-Frame-Options") != "DENY":

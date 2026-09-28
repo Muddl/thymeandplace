@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"thymeandplace/internal/dataversion"
 	"thymeandplace/internal/dbtest"
 )
@@ -64,6 +66,81 @@ func TestWatcherNotifyAndPoll(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("poll did not catch the missed notification")
+	}
+}
+
+// listeners counts sessions in this test's database whose last statement
+// was the watcher's LISTEN.
+func listeners(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_stat_activity
+		WHERE datname = current_database() AND query = 'LISTEN data_version_changed'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// The LISTEN session uses its own connection: it takes nothing from the pool,
+// and cancelling Run closes it so pool.Close() never waits on it.
+func TestWatcherListensOnDedicatedConnection(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool := dbtest.New(t)
+	changes := make(chan string, 10)
+	w := dataversion.NewWatcher(pool, time.Minute, quiet(), func(_ context.Context, v string) error { changes <- v; return nil })
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for listeners(t, pool) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("watcher never started listening")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	select { // the session's first Refresh publishes the initial version, then is done with the pool
+	case <-changes:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no initial version")
+	}
+	if n := pool.Stat().AcquiredConns(); n != 0 {
+		t.Fatalf("pool has %d acquired connections while the watcher listens; want 0", n)
+	}
+
+	if _, err := pool.Exec(ctx, `SELECT pg_notify('data_version_changed', 'dataset')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE catalog_meta SET version = version + 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `SELECT pg_notify('data_version_changed', 'catalog')`); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changes:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pg_notify did not trigger a reload")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after cancel")
+	}
+	for listeners(t, pool) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the LISTEN connection stayed open after Run returned")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	closed := make(chan struct{})
+	go func() { pool.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pool.Close() blocked after the watcher stopped")
 	}
 }
 

@@ -137,7 +137,7 @@ func TestRateLimit(t *testing.T) {
 
 func TestRateLimiterLRUEviction(t *testing.T) {
 	now := time.Unix(0, 0)
-	rl := newRateLimiterWithCapacity(2, func() time.Time { return now })
+	rl := NewRateLimiterSize(2, func() time.Time { return now })
 	limited := 0
 	h := rl.Middleware(false, PublicLimits, func(w http.ResponseWriter, r *http.Request) {
 		limited++
@@ -197,6 +197,21 @@ func TestTimeout(t *testing.T) {
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil).WithContext(context.Background()))
 	if d := time.Until(dl); d <= 0 || d > 2*time.Second {
 		t.Fatalf("deadline in %v", d)
+	}
+}
+
+func TestLimiterKey(t *testing.T) {
+	for in, want := range map[string]string{
+		"203.0.113.9":        "203.0.113.9",
+		"::ffff:9.9.9.9":     "9.9.9.9",
+		"2001:db8:1:2::1":    "2001:db8:1:2::/64",
+		"2001:db8:1:2:ff::9": "2001:db8:1:2::/64",
+		"2001:db8:1:3::1":    "2001:db8:1:3::/64",
+		"garbage":            "garbage",
+	} {
+		if got := LimiterKey(in); got != want {
+			t.Errorf("LimiterKey(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

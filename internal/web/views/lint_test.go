@@ -1,0 +1,97 @@
+package views
+
+import (
+	"bytes"
+	"context"
+	"regexp"
+	"testing"
+	"time"
+
+	"github.com/a-h/templ"
+
+	"thymeandplace/internal/season"
+)
+
+var (
+	scriptTagRE   = regexp.MustCompile(`(?i)<script\b[^>]*>`)
+	scriptSrcRE   = regexp.MustCompile(`(?i)\ssrc=`)
+	styleAttrRE   = regexp.MustCompile(`(?i)\sstyle=`)
+	handlerAttrRE = regexp.MustCompile(`(?i)\son[a-z]+=`)
+	hxOnRE        = regexp.MustCompile(`(?i)hx-on`)
+)
+
+// CSPViolations lists what in html the site's CSP (no inline script or
+// style) or the htmx config (no eval) would block.
+func CSPViolations(html string) []string {
+	var out []string
+	for _, tag := range scriptTagRE.FindAllString(html, -1) {
+		if !scriptSrcRE.MatchString(tag) {
+			out = append(out, "inline <script>: "+tag)
+		}
+	}
+	for _, re := range []*regexp.Regexp{styleAttrRE, handlerAttrRE, hxOnRE} {
+		for _, m := range re.FindAllString(html, -1) {
+			out = append(out, "attribute "+m)
+		}
+	}
+	return out
+}
+
+// Every public component must render without anything the CSP would block,
+// so the policy can stay free of 'unsafe-inline'.
+func TestTemplatesFitCSP(t *testing.T) {
+	var months [12]season.Status
+	for i := range months {
+		months[i] = season.Status(i % 5)
+	}
+	seasonVM := SeasonVM{Label: "Lisbon, PT", MonthName: "August", Harsh: true, Groups: []Group{
+		{Title: "Peak", Items: []Item{{Name: "Tomato", StatusClass: "s-peak", Basis: "Grown near you", URL: "/ingredient/tomato?cell=1", Estimate: true}}},
+	}}
+	ingredient := IngredientVM{
+		Name: "Tomato", Category: "vegetable", Basis: "Grown near you", EstimateNote: CopyLandEstimate, Local: true, WildMushroom: true,
+		Bars: MonthBars(months, time.August), TipChoose: "Heavy for size.", TipStore: "Counter.", Note: "A note.",
+		Pairings: []Link{{Name: "Basil", URL: "/ingredient/basil?cell=1"}}, BackURL: "/season?lat=1&lng=2",
+	}
+	places := PlaceList([]PlaceItem{{Label: "Lisbon, PT", URL: "/season?lat=1&lng=2&place=1"}})
+	components := map[string]templ.Component{
+		"Page":              Page(PageVM{Title: "t", Query: "lis", Places: places, Results: Season(seasonVM)}),
+		"Page empty":        Page(PageVM{Title: "t"}),
+		"Location":          Location("Lisbon"),
+		"Unsupported":       Unsupported(true),
+		"Unsupported land":  Unsupported(false),
+		"LoadError":         LoadError("Lisbon", "/season?lat=1&lng=2"),
+		"NotFound":          NotFound(),
+		"TooMany":           TooMany(),
+		"Season":            Season(seasonVM),
+		"Ingredient":        Ingredient(ingredient),
+		"Ingredient remote": Ingredient(IngredientVM{Name: "Mango", BackURL: "/"}),
+		"PlaceList":         places,
+		"PlacesNoMatch":     PlacesNoMatch("zzz"),
+		"PlacesPaused":      PlacesPaused(),
+		"PlacesUnavailable": PlacesUnavailable(),
+		"About":             About(true),
+		"About land":        About(false),
+	}
+	for name, c := range components {
+		var buf bytes.Buffer
+		if err := c.Render(context.Background(), &buf); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if v := CSPViolations(buf.String()); len(v) > 0 {
+			t.Errorf("%s: %v", name, v)
+		}
+	}
+}
+
+func TestCSPViolationsCatchesInlineContent(t *testing.T) {
+	for _, bad := range []string{
+		`<script>alert(1)</script>`, `<p style="color:red">`, `<a onclick="x()">`, `<div hx-on:click="x()">`, `<img src=x onerror=y>`,
+	} {
+		if len(CSPViolations(bad)) == 0 {
+			t.Errorf("not caught: %s", bad)
+		}
+	}
+	if v := CSPViolations(`<script src="/static/app.js" defer></script><section aria-live="polite">Location</section>`); len(v) > 0 {
+		t.Errorf("false positive: %v", v)
+	}
+}

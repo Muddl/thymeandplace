@@ -1,27 +1,35 @@
 package views
 
-templ About() {
+// About is the About the data page. Everything about seafood (the method,
+// the marine regions and the coastline data used to trim them) appears only
+// with the seafood feature on.
+templ About(seafood bool) {
 	<article class="about">
 		<h2>About the data</h2>
 		<h3 id="estimates">How estimates work</h3>
-		<p>Every land result is an estimate. We look up 1991–2020 monthly climate normals for the 0.25° grid cell (about 28 km across) around your location, then apply simple rules per ingredient:</p>
+		<p>{ estimatesIntro(seafood) }</p>
 		<ul>
 			<li>Annual crops are in season after enough warm, frost-free months to grow them.</li>
 			<li>Fruit ripens a set time after spring warms up. Temperate fruit needs a cool winter, and frost-tender trees such as citrus and avocado aren't grown where winters freeze.</li>
 			<li>Some produce is grown year-round under cover; some keeps for months in storage after harvest.</li>
 			<li>Wild mushrooms appear in months that are both mild and wet enough.</li>
 		</ul>
-		<p>Seafood is different: it depends on spawning seasons and fishing rules, so we use hand-curated months for marine regions within 100 km of the coast. Treat it as general guidance and check local fishing rules.</p>
+		if seafood {
+			<p>Seafood is different: it depends on spawning seasons and fishing rules, so we use hand-curated months for marine regions within 100 km of the coast. Treat it as general guidance and check local fishing rules.</p>
+		}
 		<p>Estimates are checked against published seasonal guides for about fifteen places around the world. They won't match every market; local growers, greenhouses and imports all make a difference.</p>
 		<h3>Wild mushrooms</h3>
 		<p>{ WildMushroomDisclaimer }</p>
 		<h3>Sources and licenses</h3>
 		<ul>
 			<li>Climate: TerraClimate (Abatzoglou, J.T., Dobrowski, S.Z., Parks, S.A., Hegewisch, K.C., 2018, Scientific Data), CC0. 1991–2020 normals.</li>
-			<li>Marine regions: Marine Ecoregions of the World (Spalding, M.D. et al., 2007, BioScience), distributed by UNEP-WCMC; used under its data licence.</li>
+			if seafood {
+				<li>Marine regions: Marine Ecoregions of the World (Spalding, M.D. et al., 2007, BioScience).</li>
+				<li>Coastlines: Natural Earth 1:50m land polygons (public domain), used to trim the marine regions to water.</li>
+			}
 			<li>Places: <a href="https://www.geonames.org/">GeoNames</a>, licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</li>
 		</ul>
 		<h3>Privacy</h3>
-		<p>There are no accounts and no cookies on the public site. We do not store the locations you look up. Our logs record only the roughly 28 km grid cell of a request, never your coordinates or IP address. Our single administrator's sign-in log keeps IP addresses for security.</p>
+		<p>There are no accounts and no cookies on the public site. We do not store the locations you look up. Our logs record only the roughly 28 km grid cell of a request, never your coordinates or IP address. Our single administrator's sign-in log keeps IP addresses for security, for 90 days.</p>
 	</article>
 }

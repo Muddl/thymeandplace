@@ -7,8 +7,7 @@
 # local env and secrets
 .env
 *.env
-!deploy/env.example
-!deploy/e2e.env
+!deploy/e2e/*.env
 # python
 __pycache__/
 .pytest_cache/

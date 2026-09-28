@@ -103,6 +103,28 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
+// PublicCSP is the site-wide Content-Security-Policy. Nothing on the site
+// needs inline script or style, eval, or a third-party origin; adding one
+// (a font, an image host, an embed) means changing this policy.
+const PublicCSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
+// SecurityHeaders sets the site-wide response headers before calling next,
+// so every response carries them, including 404s, 429s and panic pages.
+// Handlers may override them (admin sets a stricter policy).
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", PublicCSP)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "same-origin")
+		h.Set("Permissions-Policy", "geolocation=(self), camera=(), microphone=(), payment=(), usb=()")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func Recover(log *slog.Logger, render func(http.ResponseWriter, *http.Request)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -135,10 +157,11 @@ func ClientIP(r *http.Request, trustProxy bool) string {
 	return host
 }
 
-// limiterKey buckets a client IP for rate limiting: IPv4 (including
+// LimiterKey buckets a client IP for rate limiting: IPv4 (including
 // IPv4-mapped IPv6) per address, IPv6 per /64, since one subscriber
-// typically holds a whole /64. Unparseable values are used as-is.
-func limiterKey(ip string) string {
+// typically holds a whole /64. Unparseable values are used as-is. The admin
+// sign-in budget counts by the same key (auth.Caller).
+func LimiterKey(ip string) string {
 	a, err := netip.ParseAddr(ip)
 	if err != nil {
 		return ip
@@ -178,8 +201,9 @@ type RateLimiter struct {
 	now   func() time.Time
 }
 
-// newRateLimiterWithCapacity creates a RateLimiter with a specified cache capacity (for testing).
-func newRateLimiterWithCapacity(cap int, now func() time.Time) *RateLimiter {
+// NewRateLimiterSize creates a RateLimiter that tracks at most cap client
+// keys (least recently used are evicted). now nil → time.Now.
+func NewRateLimiterSize(cap int, now func() time.Time) *RateLimiter {
 	if now == nil {
 		now = time.Now
 	}
@@ -188,7 +212,7 @@ func newRateLimiterWithCapacity(cap int, now func() time.Time) *RateLimiter {
 }
 
 func NewRateLimiter(now func() time.Time) *RateLimiter {
-	return newRateLimiterWithCapacity(maxLimiterKeys, now)
+	return NewRateLimiterSize(maxLimiterKeys, now)
 }
 
 func (rl *RateLimiter) allow(key string, l Limit) bool {
@@ -206,7 +230,7 @@ func (rl *RateLimiter) allow(key string, l Limit) bool {
 func (rl *RateLimiter) Middleware(trustProxy bool, classify func(string) (string, Limit, bool), onLimit func(http.ResponseWriter, *http.Request)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if class, l, ok := classify(r.URL.Path); ok && !rl.allow(class+"|"+limiterKey(ClientIP(r, trustProxy)), l) {
+			if class, l, ok := classify(r.URL.Path); ok && !rl.allow(class+"|"+LimiterKey(ClientIP(r, trustProxy)), l) {
 				onLimit(w, r)
 				return
 			}

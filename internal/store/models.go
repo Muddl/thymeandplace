@@ -166,6 +166,7 @@ type AdminLoginLog struct {
 	Ip      string
 	Method  string
 	Outcome string
+	IpKey   string
 }
 
 type AdminPasskey struct {

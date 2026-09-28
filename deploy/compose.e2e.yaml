@@ -3,9 +3,15 @@
 # production stack's (thymeandplace_*), so the `down -v` in deploy/smoke.sh,
 # e2e/run.sh and the local backup recipe can never wipe production volumes
 # even when run on the VPS. Compose takes `name` from the last file given.
+# Use it with TP_ENV_DIR=./e2e (committed, non-secret env files).
 name: thymeandplace-e2e
 
 services:
+  # migrate and app build the same image tag, so both get the e2e fixtures.
+  migrate:
+    build:
+      args:
+        CALIBRATION_FIXTURES: e2e/fixtures
   app:
     build:
       args:

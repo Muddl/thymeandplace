@@ -1,6 +1,5 @@
-import { test, expect } from "@playwright/test";
 import { promises as fs } from "node:fs";
-import { enrollAndSignIn } from "../helpers";
+import { enrollAndSignIn, expect, test } from "../helpers";
 
 // date=2026-05-15 matches TP_PUBLIC_TODAY (deploy/e2e.env), the server's
 // pinned "today" for this stack (Ruling F), so month-dependent checks below

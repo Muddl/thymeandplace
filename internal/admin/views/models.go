@@ -6,7 +6,9 @@ import (
 	"strconv"
 )
 
-const htmxConfig = `{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false}`
+// HTMX config: swap 4xx/5xx so error messages render, with eval, script
+// tags in swapped content and cross-origin requests off.
+const htmxConfig = `{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true}`
 
 type LayoutVM struct {
 	Title    string

@@ -70,8 +70,30 @@ UPDATE admin_enrollment_token SET used_at = @now
 WHERE token_hash = @token_hash AND used_at IS NULL AND expires_at > @now;
 
 -- name: InsertLoginAttempt :exec
-INSERT INTO admin_login_log (at, ip, method, outcome) VALUES (@at, @ip, @method, @outcome);
+INSERT INTO admin_login_log (at, ip, ip_key, method, outcome) VALUES (@at, @ip, @ip_key, @method, @outcome);
 
 -- name: CountRecentLoginAttempts :one
-SELECT count(*) FROM admin_login_log WHERE ip = @ip AND at > @since
-  AND method IN ('passkey', 'backup') AND outcome NOT IN ('success', 'rate_limited');
+SELECT count(*) FROM admin_login_log WHERE ip_key = @ip_key AND at > @since
+  AND method = ANY(@methods::text[]) AND outcome NOT IN ('success', 'rate_limited');
+
+-- name: InsertRefusalOnce :execrows
+INSERT INTO admin_login_log (at, ip, ip_key, method, outcome)
+SELECT @at::timestamptz, @ip::text, @ip_key::text, @method::text, 'rate_limited'
+WHERE NOT EXISTS (
+  SELECT 1 FROM admin_login_log
+  WHERE ip_key = @ip_key::text AND method = ANY(@methods::text[]) AND outcome = 'rate_limited' AND at > @since::timestamptz
+);
+
+-- name: PruneLoginLog :one
+-- The app role can't DELETE from admin_login_log; this SECURITY DEFINER
+-- function (migrations/00008_privileges.sql) refuses a retention under 30 days.
+SELECT prune_admin_login_log(@retention::interval);
+
+-- name: PruneSessions :execrows
+DELETE FROM admin_session WHERE last_seen_at < @idle_before OR created_at < @created_before;
+
+-- name: PruneEnrollmentTokens :execrows
+DELETE FROM admin_enrollment_token WHERE used_at IS NOT NULL OR expires_at <= @now;
+
+-- name: CountLoginLogSince :one
+SELECT count(*) FROM admin_login_log WHERE at > @since;

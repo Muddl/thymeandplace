@@ -1,15 +1,42 @@
 import { execSync } from "node:child_process";
 import path from "node:path";
-import { APIRequestContext, Page, expect } from "@playwright/test";
+import { APIRequestContext, Page, expect, test as base } from "@playwright/test";
 
 const deploy = path.resolve(__dirname, "..", "deploy");
+
+// watchCSP collects the page's browser console messages about Content
+// Security Policy. The site sends a strict CSP (internal/web/middleware.go),
+// so any such message means a page uses something the policy blocks.
+export function watchCSP(page: Page): string[] {
+  const seen: string[] = [];
+  page.on("console", (m) => {
+    if (m.text().includes("Content Security Policy")) seen.push(m.text());
+  });
+  return seen;
+}
+
+// test is Playwright's test with a guard that fails any test whose page
+// logged a CSP message. Pages from a context a test makes itself need their
+// own watchCSP.
+export const test = base.extend<{ cspGuard: void }>({
+  cspGuard: [
+    async ({ page }, use) => {
+      const seen = watchCSP(page);
+      await use();
+      expect(seen, "Content Security Policy messages in the browser console").toEqual([]);
+    },
+    { auto: true },
+  ],
+});
+
+export { expect };
 
 export function compose(args: string): string {
   return execSync(`docker compose -p thymeandplace-e2e -f compose.yaml -f compose.e2e.yaml ${args}`, {
     cwd: deploy,
     env: {
       ...process.env,
-      TP_ENV_FILE: "./e2e.env",
+      TP_ENV_DIR: "./e2e",
       // Git Bash on Windows (MSYS) rewrites an argument that looks like an
       // absolute Unix path (e.g. "/app/admin" in --entrypoint /app/admin)
       // into a Windows path before docker ever sees it. This opts out; it's

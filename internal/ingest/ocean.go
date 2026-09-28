@@ -65,11 +65,25 @@ func NewOcean(url string) *Ocean {
 func (*Ocean) Name() string   { return "ocean" }
 func (*Ocean) View() string   { return "ocean_ecoregion" }
 func (*Ocean) Prefix() string { return "ocean_ecoregion_v" }
+
+// License carries the LicenseUnresolved marker until the MEOW terms are
+// confirmed and recorded in docs/reference-data-licenses.md; until then no
+// ocean version can be approved or go live. The resolution commit replaces
+// this text with the confirmed terms (docs/superpowers/specs/
+// 2026-09-27-reference-data-provenance-design.md §4.2).
 func (*Ocean) License() string {
-	return "Marine Ecoregions of the World (Spalding et al., 2007, BioScience), via Esri Oceans ArcGIS Online item " +
-		"74b6ac5c8fc24dcb8abaad6428a5dfa4. The item states no licence: confirm terms with the original publishers " +
-		"(The Nature Conservancy / WWF) before approving" +
-		"; land mask: Natural Earth 1:50m land (public domain, naturalearthdata.com)"
+	return LicenseUnresolved + " Marine Ecoregions of the World (Spalding et al., 2007) via Esri ArcGIS Online item " +
+		"74b6ac5c8fc24dcb8abaad6428a5dfa4; terms not yet confirmed (docs/reference-data-licenses.md)" +
+		"; land mask: Natural Earth 1:50m land (recorded as public domain)"
+}
+
+// Attribution is the citation only, with no licensing claim, until the MEOW
+// terms are confirmed and say what attribution they require.
+func (*Ocean) Attribution() []string {
+	return []string{
+		"Marine Ecoregions of the World (Spalding, M.D. et al., 2007, BioScience)",
+		"Natural Earth 1:50m land polygons (public domain)",
+	}
 }
 func (o *Ocean) Sources() []Source { return []Source{o.Source, o.Land} }
 

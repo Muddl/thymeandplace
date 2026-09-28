@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
@@ -32,6 +33,34 @@ type Deps struct {
 	Changes    *changeset.Service
 	Load       func(context.Context) (*catalog.Snapshot, error)
 	Pool       *pgxpool.Pool
+
+	now    func() time.Time                       // request limiter clock; nil → time.Now (tests pin it)
+	limits func(string) (string, web.Limit, bool) // request limiter classes; nil → adminLimits (tests switch it off)
+}
+
+// adminLimiterKeys caps how many client keys the /admin request limiter
+// tracks; the owner is one client, so this only bounds a flood's memory.
+const adminLimiterKeys = 10_000
+
+// adminLimits classifies /admin paths for the per-client request limiter.
+// The sizes come from the owner's real traffic: a sign-in is 3 requests,
+// enrolling two devices 6, and catalog search fires at most every 250 ms.
+func adminLimits(path string) (string, web.Limit, bool) {
+	switch {
+	case path == "/admin/login" || strings.HasPrefix(path, "/admin/login/") ||
+		path == "/admin/enroll" || strings.HasPrefix(path, "/admin/enroll/"):
+		return "admin-signin", web.Limit{Rate: 1, Burst: 20}, true
+	case path == "/admin" || strings.HasPrefix(path, "/admin/"):
+		return "admin", web.Limit{Rate: 10, Burst: 100}, true
+	}
+	return "", web.Limit{}, false
+}
+
+// tooMany answers a request over the /admin request limit. It runs before
+// any database work and writes no audit row.
+func tooMany(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Retry-After", "1")
+	http.Error(w, "Too many requests. Wait a few seconds and try again.", http.StatusTooManyRequests)
 }
 
 type Admin struct {
@@ -87,11 +116,18 @@ func New(d Deps) http.Handler {
 	a.registerSecurity() // Task 7
 	a.registerCatalog()
 
+	limits := d.limits
+	if limits == nil {
+		limits = adminLimits
+	}
 	var h http.Handler = m
 	h = a.csrf(h)
 	h = a.loadSession(h)
 	h = web.Timeout(adminTimeout)(h)
 	h = http.MaxBytesHandler(h, maxBody)
+	// The request limiter answers before any body is read or any database
+	// call is made, and inside securityHeaders so a 429 carries them too.
+	h = web.NewRateLimiterSize(adminLimiterKeys, d.now).Middleware(d.TrustProxy, limits, tooMany)(h)
 	h = securityHeaders(h)
 	h = web.Recover(d.Log, func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "Something went wrong. The error was logged.", http.StatusInternalServerError)
@@ -259,4 +295,9 @@ func jsonError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-func (a *Admin) ip(r *http.Request) string { return web.ClientIP(r, a.d.TrustProxy) }
+// caller identifies the client for the sign-in budget: its full IP for the
+// audit row, and the same key the request limiter uses.
+func (a *Admin) caller(r *http.Request) auth.Caller {
+	ip := web.ClientIP(r, a.d.TrustProxy)
+	return auth.Caller{IP: ip, Key: web.LimiterKey(ip)}
+}

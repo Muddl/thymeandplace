@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +33,9 @@ type config struct {
 	DatabaseURL string
 	Addr        string
 	TrustProxy  bool
+	DBMaxConns  int32  // DB_MAX_CONNS; 0 → db.ServerPool's default
+	Seafood     bool   // FEATURE_SEAFOOD=on; off (the default) serves a land-only site
+	BaseURL     string // PUBLIC_BASE_URL, for robots.txt, sitemap.xml and llms.txt; defaults to AdminOrigin
 
 	AdminSecretKey []byte
 	AdminRPID      string
@@ -47,6 +52,22 @@ func loadConfig(getenv func(string) string, log *slog.Logger) (config, error) {
 	}
 	if c.DatabaseURL == "" {
 		return c, errors.New("DATABASE_URL is required")
+	}
+	if v := getenv("DB_MAX_CONNS"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil || n < 2 {
+			return c, fmt.Errorf("DB_MAX_CONNS must be a whole number of at least 2, got %q", v)
+		}
+		c.DBMaxConns = int32(n)
+	}
+	// Seafood stays off until the ocean dataset's license is confirmed
+	// (docs/reference-data-licenses.md); a typo must not silently change it.
+	switch v := getenv("FEATURE_SEAFOOD"); v {
+	case "", "off":
+	case "on":
+		c.Seafood = true
+	default:
+		return c, fmt.Errorf(`FEATURE_SEAFOOD must be "on" or "off", got %q`, v)
 	}
 	if k := getenv("ADMIN_SECRET_KEY"); k != "" {
 		key, err := auth.ParseSecretKey(k)
@@ -66,6 +87,15 @@ func loadConfig(getenv func(string) string, log *slog.Logger) (config, error) {
 	// A browser's Origin never ends in "/", so neither may the WebAuthn
 	// origin (nor the enrollment links built from it).
 	c.AdminOrigin = strings.TrimRight(c.AdminOrigin, "/")
+	// Same default as the admin CLI's enroll links: the public site and the
+	// admin share an origin unless PUBLIC_BASE_URL says otherwise.
+	c.BaseURL = strings.TrimRight(getenv("PUBLIC_BASE_URL"), "/")
+	if c.BaseURL == "" {
+		c.BaseURL = c.AdminOrigin
+	}
+	if u, err := url.Parse(c.BaseURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.Path != "" || u.RawQuery != "" {
+		return c, fmt.Errorf("PUBLIC_BASE_URL must be an origin like https://thymeand.place, got %q", c.BaseURL)
+	}
 	c.AdminBackup = getenv("ADMIN_BACKUP_LOGIN") != "off"
 	// TP_PUBLIC_TODAY pins the public site's "today" to a fixed calendar
 	// date, keeping the current time of day. Test use only (e2e needs a
@@ -105,11 +135,18 @@ type app struct {
 	cancel  context.CancelFunc // stops start()'s background work; set by start
 }
 
+// newApp refuses to start on a database with pending migrations: the app
+// role can't run DDL, so migrations run first as a separate step (the
+// migrate service, `server -migrate-only`, as tp_owner).
 func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
-	if err := db.Migrate(ctx, cfg.DatabaseURL); err != nil {
+	if err := db.RequireMigrated(ctx, cfg.DatabaseURL); err != nil {
 		return nil, err
 	}
-	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	poolOpts := db.ServerPool
+	if cfg.DBMaxConns > 0 {
+		poolOpts.MaxConns = cfg.DBMaxConns
+	}
+	pool, err := db.Open(ctx, cfg.DatabaseURL, poolOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -137,11 +174,20 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	}
 	a.drift = &calibrun.Drift{Pool: pool, Snapshot: a.holder.Current, Cases: a.cases, DataVersion: a.watcher.Current, Log: log}
 
+	// The calibration cities double as the sitemap's season pages: they're
+	// the places whose estimates are checked against published guides.
+	featured := make([]web.Featured, len(fixtures))
+	for i, f := range fixtures {
+		featured[i] = web.Featured{Name: f.Name, Lat: f.Lat, Lng: f.Lng}
+	}
 	public := web.New(web.Deps{
 		Climate: a.climate, Ocean: a.ocean, Places: places.NewService(pool),
 		Snapshot: a.holder.Current, DataVersion: a.watcher.Current, Adjuster: season.NoopAdjuster{},
 		Ping: pool.Ping, Now: cfg.now, Log: log, TrustProxy: cfg.TrustProxy,
+		DBSlots: publicDBSlots(pool.Config().MaxConns), Seafood: cfg.Seafood,
+		BaseURL: cfg.BaseURL, Featured: featured,
 	})
+	log.Info("seafood feature", "enabled", cfg.Seafood)
 	a.mux = http.NewServeMux()
 	a.mux.Handle("/", public)
 
@@ -170,17 +216,53 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	return a, nil
 }
 
+// publicDBSlots is how many of the pool's connections public requests may
+// hold at once: three quarters (12 of 16, 7 of 10), leaving the rest for
+// admin, the drift check, catalog reloads and Apply's second connection.
+func publicDBSlots(poolSize int32) int {
+	return max(1, int(poolSize)*3/4)
+}
+
 // start launches background work: the data-version listener and the daily
 // drift check. It derives its own cancelable context so close() can stop
-// that work before closing the pool: the watcher holds a dedicated LISTEN
-// connection checked out of the pool for as long as it runs, and
-// pool.Close() blocks until every checked-out connection is released, so
-// shutdown must cancel the background work first.
+// that work before closing the pool. The watcher's LISTEN session uses its
+// own connection outside the pool, so pool.Close() no longer waits on it,
+// but cancelling first still stops the drift check and any Refresh cleanly.
 func (a *app) start(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	a.cancel = cancel
 	go a.watcher.Run(ctx)
 	go a.drift.Loop(ctx, 24*time.Hour)
+	if a.auth != nil {
+		go a.pruneLoop(ctx, 24*time.Hour)
+	}
+}
+
+// pruneLoop prunes the admin audit, session and enrollment-token tables once
+// right away, then every `every`, until ctx ends. A failed run is logged and
+// retried at the next tick; nothing depends on prompt pruning.
+func (a *app) pruneLoop(ctx context.Context, every time.Duration) {
+	run := func() {
+		r, err := a.auth.Prune(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				a.log.Error("admin prune failed", "err", err)
+			}
+			return
+		}
+		a.log.Info("admin prune", "login_log", r.LoginLog, "sessions", r.Sessions, "enrollment_tokens", r.EnrollmentTokens)
+	}
+	run()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			run()
+		}
+	}
 }
 
 // waitForSnapshot blocks until a catalog snapshot is loaded, retrying every

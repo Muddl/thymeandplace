@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-export TP_ENV_FILE=./e2e.env
+# Relative to deploy/, where the compose files live.
+export TP_ENV_DIR=./e2e
 # Git Bash on Windows (MSYS) rewrites an argument that looks like an absolute
 # Unix path (e.g. "/app/devseed" in --entrypoint /app/devseed) into a Windows
 # path before docker ever sees it. This opts out; it's a no-op on Linux CI.

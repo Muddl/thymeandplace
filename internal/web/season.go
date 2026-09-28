@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"thymeandplace/internal/cache"
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/climate"
+	"thymeandplace/internal/ocean"
+	"thymeandplace/internal/places"
 	"thymeandplace/internal/season"
 	"thymeandplace/internal/web/views"
 )
@@ -97,7 +100,7 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	lat, lng, ok := parseLatLng(q.Get("lat"), q.Get("lng"))
 	if !ok {
-		s.render(w, r, http.StatusBadRequest, "Seasons", "", nil, views.Unsupported())
+		s.render(w, r, http.StatusBadRequest, "Seasons", "", nil, s.unsupported())
 		return
 	}
 	ctx := r.Context()
@@ -117,8 +120,16 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 	key := cache.Key{CellID: queryCell, Month: month, DataVersion: version}
 	core, hit := s.cache.Get(key)
 	if !hit {
-		var err error
-		core, err = s.compute(ctx, lat, lng, month, snap)
+		// One slot covers compute's sequential queries.
+		err := s.withDB(ctx, func(ctx context.Context) error {
+			var err error
+			core, err = s.compute(ctx, lat, lng, month, snap)
+			return err
+		})
+		if errors.Is(err, errBusy) {
+			s.overloaded(w, r, "Seasons", coords(lat, lng), r.URL.RequestURI())
+			return
+		}
 		if err != nil {
 			s.d.Log.Warn("season lookup failed", "err", err, "request_id", RequestIDFrom(ctx), "cell_id", queryCell)
 			s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), r.URL.RequestURI()))
@@ -127,11 +138,11 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 		s.cache.Add(key, core)
 	}
 	if !core.Supported {
-		s.render(w, r, http.StatusOK, "Seasons", "", nil, views.Unsupported())
+		s.render(w, r, http.StatusOK, "Seasons", "", nil, s.unsupported())
 		return
 	}
 	vm := s.seasonVM(ctx, core, snap, month, q.Get("place"), lat, lng, s.validDate(q.Get("date")))
-	s.render(w, r, http.StatusOK, vm.Label, "", nil, views.Season(vm))
+	s.renderPage(w, r, http.StatusOK, vm.Label, views.SeasonDescription(vm.Label, vm.MonthName), "", nil, views.Season(vm))
 }
 
 func (s *Server) compute(ctx context.Context, lat, lng float64, month time.Month, snap *catalog.Snapshot) (seasonCore, error) {
@@ -139,9 +150,13 @@ func (s *Server) compute(ctx context.Context, lat, lng float64, month time.Month
 	if err != nil {
 		return seasonCore{}, err
 	}
-	eco, err := s.d.Ocean.Nearby(ctx, lat, lng)
-	if err != nil {
-		return seasonCore{}, err
+	// With seafood off there is no ocean lookup: no ecoregion is ever in
+	// reach, so only land cells are supported.
+	var eco []ocean.EcoregionID
+	if s.d.Seafood {
+		if eco, err = s.d.Ocean.Nearby(ctx, lat, lng); err != nil {
+			return seasonCore{}, err
+		}
 	}
 	in := season.Input{Normals: l.Normals, Ecoregions: eco, Month: month}
 	results := s.d.Adjuster.Adjust(ctx, l.Cell, season.Estimate(in, snap))
@@ -161,7 +176,15 @@ const placeLookupTimeout = 300 * time.Millisecond
 func (s *Server) label(ctx context.Context, placeParam string, core seasonCore, lat, lng float64) string {
 	if id, err := strconv.ParseInt(placeParam, 10, 32); err == nil {
 		pctx, cancel := context.WithTimeout(ctx, placeLookupTimeout)
-		p, ok, err := s.d.Places.ByID(pctx, int32(id))
+		var p places.Place
+		var ok bool
+		// A full DB gate (errBusy) just falls back, like any lookup failure:
+		// the label never fails the request.
+		err := s.withDB(pctx, func(ctx context.Context) error {
+			var err error
+			p, ok, err = s.d.Places.ByID(ctx, int32(id))
+			return err
+		})
 		cancel()
 		// Only a place near the requested point may label it (a crafted or
 		// mismatched URL must not call mid-ocean results "Lisbon").
@@ -189,7 +212,7 @@ func (s *Server) seasonVM(ctx context.Context, core seasonCore, snap *catalog.Sn
 	growing := 0
 	for _, res := range core.Results {
 		ing, ok := snap.Get(res.Slug)
-		if !ok {
+		if !ok || !s.visible(ing) {
 			continue
 		}
 		it := views.Item{

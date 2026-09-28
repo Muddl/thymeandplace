@@ -1,9 +1,13 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,25 +127,96 @@ func TestBackupDisabledAndNotSet(t *testing.T) {
 	}
 }
 
+// v4 is the Caller for an IPv4 address, keyed by the address itself.
+func v4(ip string) Caller { return Caller{IP: ip, Key: ip} }
+
 func TestAttemptRateLimit(t *testing.T) {
 	ctx := context.Background()
 	s, c := newTestService(t, true)
 	for i := 0; i < AttemptLimit; i++ {
-		if ok, _ := s.AllowAttempt(ctx, "203.0.113.5"); !ok {
+		if ok, _ := s.AllowAttempt(ctx, v4("203.0.113.5"), "backup"); !ok {
 			t.Fatalf("attempt %d refused", i)
 		}
-		s.LogAttempt(ctx, "203.0.113.5", "backup", "failure")
+		s.LogAttempt(ctx, v4("203.0.113.5"), "backup", "failure")
 	}
-	if ok, _ := s.AllowAttempt(ctx, "203.0.113.5"); ok {
+	if ok, _ := s.AllowAttempt(ctx, v4("203.0.113.5"), "backup"); ok {
 		t.Fatal("6th attempt within 15 minutes allowed")
 	}
-	s.LogAttempt(ctx, "203.0.113.5", "backup", "rate_limited")
-	if ok, _ := s.AllowAttempt(ctx, "198.51.100.1"); !ok {
+	s.LogRefusal(ctx, v4("203.0.113.5"), "backup")
+	if ok, _ := s.AllowAttempt(ctx, v4("198.51.100.1"), "backup"); !ok {
 		t.Fatal("other IP limited")
 	}
 	c.add(AttemptWindow + time.Second)
-	if ok, _ := s.AllowAttempt(ctx, "203.0.113.5"); !ok {
+	if ok, _ := s.AllowAttempt(ctx, v4("203.0.113.5"), "backup"); !ok {
 		t.Fatal("window did not slide (rate_limited rows must not count)")
+	}
+}
+
+// The budget counts by client key, so an IPv6 client rotating addresses in
+// its /64 shares one budget, while the audit row keeps the full address.
+func TestAttemptBudgetByClientKey(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestService(t, true)
+	const key = "2001:db8:1:2::/64"
+	for i := 1; i <= AttemptLimit; i++ {
+		s.LogAttempt(ctx, Caller{IP: fmt.Sprintf("2001:db8:1:2::%d", i), Key: key}, "passkey", "failure")
+	}
+	if ok, err := s.AllowAttempt(ctx, Caller{IP: "2001:db8:1:2::99", Key: key}, "passkey"); err != nil || ok {
+		t.Fatalf("another address in the same /64 must share the budget: ok=%v err=%v", ok, err)
+	}
+	if ok, err := s.AllowAttempt(ctx, Caller{IP: "2001:db8:1:3::1", Key: "2001:db8:1:3::/64"}, "passkey"); err != nil || !ok {
+		t.Fatalf("another /64 has its own budget: ok=%v err=%v", ok, err)
+	}
+	var n int
+	_ = s.pool.QueryRow(ctx, `SELECT count(*) FROM admin_login_log WHERE ip_key = $1 AND ip LIKE '2001:db8:1:2::%'`, key).Scan(&n)
+	if n != AttemptLimit {
+		t.Fatalf("stored rows must keep their full ip: %d", n)
+	}
+	// Login failures leave the enroll budget alone, and the other way round.
+	if ok, _ := s.AllowAttempt(ctx, Caller{IP: "2001:db8:1:2::99", Key: key}, "enroll"); !ok {
+		t.Fatal("login failures must not use up the enroll budget")
+	}
+	for i := 0; i < AttemptLimit; i++ {
+		s.LogAttempt(ctx, v4("192.0.2.30"), "enroll", "failure")
+	}
+	if ok, _ := s.AllowAttempt(ctx, v4("192.0.2.30"), "enroll"); ok {
+		t.Fatal("enroll failures must use up the enroll budget")
+	}
+	if ok, _ := s.AllowAttempt(ctx, v4("192.0.2.30"), "passkey"); !ok {
+		t.Fatal("enroll failures must not use up the login budget")
+	}
+}
+
+// Refused attempts write one row per key and budget per window, and one WARN.
+func TestLogRefusalOncePerWindow(t *testing.T) {
+	ctx := context.Background()
+	s, c := newTestService(t, true)
+	var logs bytes.Buffer
+	s.log = slog.New(slog.NewTextHandler(&logs, nil))
+	count := func() int {
+		var n int
+		_ = s.pool.QueryRow(ctx, `SELECT count(*) FROM admin_login_log WHERE ip_key = '203.0.113.9' AND outcome = 'rate_limited'`).Scan(&n)
+		return n
+	}
+	for i := 0; i < 50; i++ {
+		s.LogRefusal(ctx, v4("203.0.113.9"), "passkey")
+	}
+	if n, w := count(), strings.Count(logs.String(), "admin sign-in budget reached"); n != 1 || w != 1 {
+		t.Fatalf("50 refusals in one window: %d rows, %d WARN lines; want 1 and 1", n, w)
+	}
+	s.LogRefusal(ctx, v4("203.0.113.9"), "enroll") // another budget
+	c.add(AttemptWindow + time.Second)
+	s.LogRefusal(ctx, v4("203.0.113.9"), "backup") // same login budget, next window
+	if n := count(); n != 3 {
+		t.Fatalf("rows after a second budget and a new window: %d, want 3", n)
+	}
+}
+
+// A binary from before the ip_key column (after a rollback) still inserts.
+func TestLoginLogInsertWithoutIPKey(t *testing.T) {
+	s, _ := newTestService(t, true)
+	if _, err := s.pool.Exec(context.Background(), `INSERT INTO admin_login_log (at, ip, method, outcome) VALUES (now(), '192.0.2.1', 'passkey', 'failure')`); err != nil {
+		t.Fatalf("insert without ip_key: %v", err)
 	}
 }
 
@@ -155,12 +230,12 @@ func TestAttemptRateLimitCountsOnlyLoginFailures(t *testing.T) {
 	ip := "203.0.113.20"
 
 	for i := 0; i < 10; i++ {
-		s.LogAttempt(ctx, ip, "passkey", "success")
-		s.LogAttempt(ctx, ip, "backup", "success")
-		s.LogAttempt(ctx, ip, "enroll", "success")
-		s.LogAttempt(ctx, ip, "enroll", "failure")
+		s.LogAttempt(ctx, v4(ip), "passkey", "success")
+		s.LogAttempt(ctx, v4(ip), "backup", "success")
+		s.LogAttempt(ctx, v4(ip), "enroll", "success")
+		s.LogAttempt(ctx, v4(ip), "enroll", "failure")
 	}
-	if ok, err := s.AllowAttempt(ctx, ip); err != nil || !ok {
+	if ok, err := s.AllowAttempt(ctx, v4(ip), "passkey"); err != nil || !ok {
 		t.Fatalf("successes and enroll outcomes must not count: ok=%v err=%v", ok, err)
 	}
 
@@ -169,9 +244,9 @@ func TestAttemptRateLimitCountsOnlyLoginFailures(t *testing.T) {
 		if i%2 == 1 {
 			method = "backup"
 		}
-		s.LogAttempt(ctx, ip, method, "failure")
+		s.LogAttempt(ctx, v4(ip), method, "failure")
 	}
-	if ok, err := s.AllowAttempt(ctx, ip); err != nil || ok {
+	if ok, err := s.AllowAttempt(ctx, v4(ip), "backup"); err != nil || ok {
 		t.Fatalf("%d login failures should block the next attempt: ok=%v err=%v", AttemptLimit, ok, err)
 	}
 }

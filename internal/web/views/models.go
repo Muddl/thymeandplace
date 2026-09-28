@@ -14,6 +14,9 @@ const (
 	CopyNoMatchSuffix      = "Try a nearby larger town or city."
 	CopyGeoOff             = "Location access is off, so search for your town instead."
 	CopyUnsupported        = "We can't estimate seasons here yet. Estimates cover land and coastal waters."
+	CopyUnsupportedLand    = "We can't estimate seasons here yet. Estimates cover land areas only." // seafood off
+	CopyNotLocal           = "Not grown or landed near here, as far as our estimates can tell."
+	CopyNotGrown           = "Not grown near here, as far as our estimates can tell." // seafood off
 	CopySearchAnother      = "Search another place"
 	CopyHarsh              = "Not much grows locally this time of year. Here's what's still around."
 	CopyLoadError          = "Couldn't load seasonal picks right now. Try again in a moment."
@@ -27,8 +30,39 @@ const (
 
 // HTMX config: swap 4xx/5xx so error partials render (§11.5), and keep no
 // history snapshots in localStorage (they would hold place labels); history
-// restores refetch the full page instead.
-const htmxConfig = `{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false,"historyCacheSize":0}`
+// restores refetch the full page instead. Eval (trigger filters, hx-on, js:
+// values) and script tags in swapped content are off, and requests stay on
+// this origin; the CSP would block the first two anyway.
+const htmxConfig = `{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false,"historyCacheSize":0,"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true}`
+
+// estimatesIntro opens "How estimates work". Only land results are estimates
+// when seafood (hand-curated months) is shown too.
+func estimatesIntro(seafood bool) string {
+	lead := "Every result is an estimate."
+	if seafood {
+		lead = "Every land result is an estimate."
+	}
+	return lead + " We look up 1991–2020 monthly climate normals for the 0.25° grid cell (about 28 km across) around your location, then apply simple rules per ingredient:"
+}
+
+// SiteDescription is the meta description for pages without their own.
+func SiteDescription(seafood bool) string {
+	covers := "fruit, vegetables, herbs and mushrooms"
+	if seafood {
+		covers = "fruit, vegetables, herbs, mushrooms and seafood"
+	}
+	return "Find out which " + covers + " are in season where you live, with tips on choosing, storing and pairing them."
+}
+
+const AboutDescription = "How Thyme & Place estimates what's in season: climate data, simple rules per ingredient, sources, licenses and privacy."
+
+func SeasonDescription(label, month string) string {
+	return "What's in season near " + label + " in " + month + ", estimated from the local climate, with tips on choosing, storing and pairing each ingredient."
+}
+
+func IngredientDescription(name string) string {
+	return name + ": when it's in season near you, how to choose and store it, and what it goes with."
+}
 
 // AssetVersion is a short content hash of the static files, appended to asset
 // URLs so a deploy busts browser caches. web.New sets it once at startup.
@@ -43,10 +77,11 @@ func Asset(name string) string {
 }
 
 type PageVM struct {
-	Title   string
-	Query   string
-	Places  templ.Component
-	Results templ.Component
+	Title       string
+	Description string // the meta description search results show
+	Query       string
+	Places      templ.Component
+	Results     templ.Component
 }
 
 type PlaceItem struct{ Label, URL string }
@@ -72,6 +107,7 @@ type Link struct{ Name, URL string }
 
 type IngredientVM struct {
 	Name, Category, Basis, EstimateNote string
+	NotLocal                            string // shown when !Local: CopyNotLocal, or CopyNotGrown with seafood off
 	Local, WildMushroom                 bool
 	Bars                                []Bar
 	TipChoose, TipStore, Note           string

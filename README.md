@@ -54,6 +54,8 @@ DATABASE_URL='postgres://tp_app:tp_app@localhost:55432/thymeandplace?sslmode=dis
 
 Then open <http://localhost:8080> and search for "Lisbon". To try `/admin` locally, also set `ADMIN_SECRET_KEY` (`openssl rand -base64 32`), `ADMIN_RP_ID=localhost` and `ADMIN_ORIGIN=http://localhost:8080`, then enroll with `go run ./cmd/admin enroll` using the same environment.
 
+In GoLand, the shared `.idea` has run configurations for all of the above (Dev, Admin, Test and Generate folders), a data source for the dev database, and a file watcher that regenerates a `.templ` file's Go code on save (install the Templ plugin).
+
 After changing a `.templ` file or a SQL query, regenerate and commit the output (CI fails if it's stale):
 
 ```bash

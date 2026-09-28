@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectTasksOptions">
+    <!-- Regenerates foo_templ.go whenever foo.templ is saved (needs the Templ plugin). -->
+    <TaskOptions isEnabled="true">
+      <option name="arguments" value="tool templ generate -f $FilePath$" />
+      <option name="checkSyntaxErrors" value="true" />
+      <option name="description" value="go tool templ generate for the saved .templ file" />
+      <option name="exitCodeBehavior" value="ERROR" />
+      <option name="fileExtension" value="templ" />
+      <option name="immediateSync" value="false" />
+      <option name="name" value="templ generate" />
+      <option name="output" value="$FileDir$/$FileNameWithoutExtension$_templ.go" />
+      <option name="outputFilters">
+        <array />
+      </option>
+      <option name="outputFromStdout" value="false" />
+      <option name="program" value="$GoExecPath$" />
+      <option name="runOnExternalChanges" value="false" />
+      <option name="scopeName" value="Project Files" />
+      <option name="trackOnlyRoot" value="false" />
+      <option name="workingDir" value="$ProjectFileDir$" />
+      <envs />
+    </TaskOptions>
+  </component>
+</project>

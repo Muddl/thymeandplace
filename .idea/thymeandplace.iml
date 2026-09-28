@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="WEB_MODULE" version="4">
+  <component name="Go" enabled="true" />
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <!-- Agent worktrees are full copies of the repo; indexing them doubles every search. -->
+      <excludeFolder url="file://$MODULE_DIR$/.claude" />
+      <excludeFolder url="file://$MODULE_DIR$/.superpowers" />
+      <!-- Build output and ingest scratch -->
+      <excludeFolder url="file://$MODULE_DIR$/bin" />
+      <excludeFolder url="file://$MODULE_DIR$/dist" />
+      <excludeFolder url="file://$MODULE_DIR$/.blob" />
+      <excludeFolder url="file://$MODULE_DIR$/.work" />
+      <!-- Test and tooling output -->
+      <excludeFolder url="file://$MODULE_DIR$/e2e/test-results" />
+      <excludeFolder url="file://$MODULE_DIR$/e2e/playwright-report" />
+      <excludeFolder url="file://$MODULE_DIR$/pipeline/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/.pytest_cache" />
+      <excludeFolder url="file://$MODULE_DIR$/pipeline/.pytest_cache" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

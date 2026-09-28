@@ -1,0 +1,20 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="admin set-backup" type="GoApplicationRunConfiguration" factoryName="Go Application" folderName="Admin">
+    <module name="thymeandplace" />
+    <working_directory value="$PROJECT_DIR$" />
+    <parameters value="set-backup" />
+    <envs>
+      <env name="DATABASE_URL" value="postgres://tp_app:tp_app@localhost:55432/thymeandplace?sslmode=disable" />
+      <env name="ADMIN_SECRET_KEY" value="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" />
+      <env name="ADMIN_RP_ID" value="localhost" />
+      <env name="ADMIN_ORIGIN" value="http://localhost:8080" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="thymeandplace/cmd/admin" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/cmd/admin/main.go" />
+    <!-- set-backup reads the password with term.ReadPassword, which needs a terminal. -->
+    <pty_enabled value="true" />
+    <method v="2" />
+  </configuration>
+</component>

@@ -16,8 +16,7 @@ pipeline/.venv/
 # ingest scratch (blob store + workdir for local/manual runs)
 .blob/
 .work/
-# editor
-.idea/
+# editor (.idea is shared; .idea/.gitignore keeps the per-user files out)
 .vscode/
 # e2e
 /e2e/node_modules/

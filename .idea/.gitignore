@@ -1,0 +1,22 @@
+# Shared: run configurations, code style, scopes, the data source definition,
+# SQL dialects, the templ file watcher and the project dictionary.
+# Everything below is per-user or per-machine.
+/shelf/
+/workspace.xml
+/usage.statistics.xml
+/tasks.xml
+/contentModel.xml
+# Datasource credentials and local storage
+/dataSources/
+/dataSources.local.xml
+/queries/
+# Editor-based HTTP Client requests
+/httpRequests/
+# Personal dictionaries (dictionaries/project.xml is shared)
+/dictionaries/*
+!/dictionaries/project.xml
+# Per-user plugin state
+/discord.xml
+/material_theme_project_new.xml
+/copilot*.xml
+/sonarlint/

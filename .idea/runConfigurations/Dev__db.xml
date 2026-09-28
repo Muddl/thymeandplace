@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="db (compose.dev)" type="docker-deploy" factoryName="docker-compose.yml" server-name="Docker" folderName="Dev">
+    <deployment type="docker-compose.yml">
+      <settings>
+        <option name="sourceFilePath" value="deploy/compose.dev.yaml" />
+      </settings>
+    </deployment>
+    <method v="2" />
+  </configuration>
+</component>

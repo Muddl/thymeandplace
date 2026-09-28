@@ -1,0 +1,21 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="server" type="GoApplicationRunConfiguration" factoryName="Go Application" folderName="Dev">
+    <module name="thymeandplace" />
+    <working_directory value="$PROJECT_DIR$" />
+    <!-- Local development only. ADMIN_SECRET_KEY is the same all-zero,
+         not-secret key as deploy/e2e/app.env; never use it anywhere else. -->
+    <envs>
+      <env name="DATABASE_URL" value="postgres://tp_app:tp_app@localhost:55432/thymeandplace?sslmode=disable" />
+      <env name="ADMIN_SECRET_KEY" value="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" />
+      <env name="ADMIN_RP_ID" value="localhost" />
+      <env name="ADMIN_ORIGIN" value="http://localhost:8080" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="thymeandplace/cmd/server" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/cmd/server/main.go" />
+    <method v="2">
+      <option name="RunConfigurationTask" enabled="true" run_configuration_name="templ generate" run_configuration_type="GoApplicationRunConfiguration" />
+    </method>
+  </configuration>
+</component>

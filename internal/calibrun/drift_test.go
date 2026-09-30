@@ -132,11 +132,23 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 }
 
-func startLoop(d *Drift, s jobs.Schedule) (stop func()) {
+// startLoop runs d.Loop until stop, which the test's cleanup also calls
+// (a second call is harmless). stop fails the test if Loop doesn't return.
+func startLoop(t *testing.T, d *Drift, s jobs.Schedule) (stop func()) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { d.Loop(ctx, s); close(done) }()
-	return func() { cancel(); <-done }
+	stop = func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Loop did not stop after cancel")
+		}
+	}
+	t.Cleanup(stop)
+	return stop
 }
 
 // No snapshot yet: wait quietly, then run once.
@@ -144,8 +156,7 @@ func TestLoopWaitsForSnapshot(t *testing.T) {
 	pool := dbtest.New(t)
 	var snap atomic.Pointer[catalog.Snapshot]
 	var log syncLog
-	stop := startLoop(loopDrift(t, pool, &snap, oneCase(t), &log), fast)
-	defer stop()
+	startLoop(t, loopDrift(t, pool, &snap, oneCase(t), &log), fast)
 	time.Sleep(40 * time.Millisecond) // several RetryMin periods with no snapshot
 	if runs(t, pool) != 0 {
 		t.Fatal("ran without a snapshot")
@@ -168,13 +179,12 @@ func TestLoopRetriesFailures(t *testing.T) {
 	var calls atomic.Int32
 	ok := oneCase(t)
 	var log syncLog
-	stop := startLoop(loopDrift(t, pool, &snap, func(ctx context.Context) ([]calibration.Case, error) {
+	startLoop(t, loopDrift(t, pool, &snap, func(ctx context.Context) ([]calibration.Case, error) {
 		if calls.Add(1) <= 2 {
 			return nil, errors.New("cases unavailable")
 		}
 		return ok(ctx)
 	}, &log), fast)
-	defer stop()
 	waitFor(t, func() bool { return runs(t, pool) == 1 })
 	if n := strings.Count(log.String(), "calibration drift check failed"); calls.Load() != 3 || n != 2 {
 		t.Fatalf("calls=%d failures logged=%d; want 3 and 2\n%s", calls.Load(), n, log.String())
@@ -202,13 +212,13 @@ func TestLoopAnchorsToLastRun(t *testing.T) {
 			var log syncLog
 			d := loopDrift(t, pool, &snap, oneCase(t), &log)
 			d.Now = func() time.Time { return now }
-			stop := startLoop(d, day)
-			defer stop()
-			if tc.want == 2 {
+			stop := startLoop(t, d, day)
+					if tc.want == 2 {
 				waitFor(t, func() bool { return runs(t, pool) == 2 })
 			} else {
 				time.Sleep(200 * time.Millisecond)
 			}
+			stop() // count every row the loop ever inserts
 			if got := runs(t, pool); got != tc.want {
 				t.Fatalf("last run %v ago: %d rows, want %d", tc.ago, got, tc.want)
 			}
@@ -231,11 +241,10 @@ func TestLoopRetriesUnreadableLastRun(t *testing.T) {
 	var calls atomic.Int32
 	ok := oneCase(t)
 	var log syncLog
-	stop := startLoop(loopDrift(t, broken, &snap, func(ctx context.Context) ([]calibration.Case, error) {
+	startLoop(t, loopDrift(t, broken, &snap, func(ctx context.Context) ([]calibration.Case, error) {
 		calls.Add(1)
 		return ok(ctx)
 	}, &log), fast)
-	defer stop()
 	waitFor(t, func() bool { return strings.Count(log.String(), "calibration drift check failed") >= 2 })
 	if n := calls.Load(); n != 0 {
 		t.Fatalf("drift check ran %d times with the last run unreadable", n)

@@ -68,7 +68,10 @@ func (d *Drift) RunOnce(ctx context.Context) (calibration.Report, error) {
 // Loop runs the drift check on schedule s (core spec §13.2). It waits,
 // quietly, until a catalog snapshot is loaded; then runs s.Every after the
 // last recorded run (at once if there is none that recent); and retries
-// failures after s.RetryMin, doubling to s.RetryMax. It returns when ctx ends.
+// failures after s.RetryMin, doubling to s.RetryMax. A failed read of the
+// last run backs off the same way; once a read succeeds the database is
+// back, so a failed check after it retries from s.RetryMin again. It
+// returns when ctx ends.
 func (d *Drift) Loop(ctx context.Context, s jobs.Schedule) {
 	for d.Snapshot() == nil {
 		select {

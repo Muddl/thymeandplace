@@ -183,3 +183,30 @@ func TestFailedValidationLeavesLiveUnchanged(t *testing.T) {
 		t.Fatal("failed swap changed live data")
 	}
 }
+
+// Spec §4.5: an approval covers exact bytes.
+func TestReviewCarriesOverOnlyForSameBytes(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	files := map[string][]byte{"cities1000.zip": []byte("v1 zip"), "admin1CodesASCII.txt": []byte("v1 admin")}
+	p := newPipeline(t, pool, pinnedPlaces(t, files, nil))
+	reviewed := func(v int64) bool { dv, _ := p.version(ctx, v); return dv.LicenseReviewed }
+
+	v1, err := p.Fetch(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.ApproveLicense(ctx, v1); err != nil {
+		t.Fatal(err)
+	}
+	files["admin1CodesASCII.txt"] = []byte("v2 admin, changed")
+	v2, err := p.Fetch(ctx)
+	if err != nil || reviewed(v2) {
+		t.Fatalf("changed bytes must not inherit the review: v2=%d reviewed=%v err=%v", v2, reviewed(v2), err)
+	}
+	files["admin1CodesASCII.txt"] = []byte("v1 admin")
+	v3, err := p.Fetch(ctx)
+	if err != nil || !reviewed(v3) {
+		t.Fatalf("v1's exact bytes again must inherit the review: v3=%d reviewed=%v err=%v", v3, reviewed(v3), err)
+	}
+}

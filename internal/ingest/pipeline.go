@@ -140,13 +140,14 @@ func (p *Pipeline) Fetch(ctx context.Context) (int64, error) {
 		sums = append(sums, src.File+"="+sum)
 	}
 	sourceURL := strings.Join(urls, "\n")
+	checksum := "sha256:" + strings.Join(sums, ";")
 	reviewed, err := p.q().LicenseReviewedBefore(ctx, store.LicenseReviewedBeforeParams{
-		Dataset: name, License: p.DS.License(), SourceUrl: sourceURL})
+		Dataset: name, License: p.DS.License(), SourceUrl: sourceURL, SourceChecksum: checksum})
 	if err != nil {
 		return 0, err
 	}
 	id, err := p.q().CreateDatasetVersion(ctx, store.CreateDatasetVersionParams{
-		Dataset: name, SourceUrl: sourceURL, SourceChecksum: "sha256:" + strings.Join(sums, ";"),
+		Dataset: name, SourceUrl: sourceURL, SourceChecksum: checksum,
 		License: p.DS.License(), LicenseReviewed: reviewed,
 	})
 	if err != nil {

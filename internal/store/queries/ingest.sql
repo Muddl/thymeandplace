@@ -27,9 +27,11 @@ ORDER BY id DESC LIMIT 1;
 UPDATE dataset_versions SET license_reviewed = true WHERE id = @id;
 
 -- name: LicenseReviewedBefore :one
+-- An approval covers exact bytes: same license, same URLs, same checksums.
 SELECT EXISTS (
   SELECT 1 FROM dataset_versions
-  WHERE dataset = @dataset AND license = @license AND source_url = @source_url AND license_reviewed
+  WHERE dataset = @dataset AND license = @license AND source_url = @source_url
+    AND source_checksum = @source_checksum AND license_reviewed
 );
 
 -- name: MarkDatasetLoaded :exec

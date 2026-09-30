@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Source:** Architectural audit, 2026-09-27 (finding F13)
 - **Related issues:** [#13](https://github.com/Muddl/thymeandplace/issues/13) (F13)
-- **Amends:** core spec §11.1 (the `/readyz` row), §11.6 (the "No catalog snapshot loaded" row), §16 (new value: readiness ping reuse)
+- **Amends:** core spec §8.4 (startup without a snapshot), §11.1 (the `/readyz` row), §11.6 (the "No catalog snapshot loaded" row), §14 (the Health bullet), §16 (new value: readiness ping reuse)
 
 ---
 
@@ -85,8 +85,10 @@ If the observability plan has landed, `readyz` calls `CheckReady(r.Context(), s.
 
 | § | Change |
 |---|---|
+| §8.4 | Startup: "the server doesn't listen until a valid load succeeds (§11.6)" |
 | §11.1 | `/readyz` row: "…catalog loaded and a database ping succeeded within the last second (one shared ping, reused for 1 s)" |
 | §11.6 | "No catalog snapshot loaded" row: "The server doesn't listen until a snapshot loads, so Caddy serves the maintenance page" |
+| §14 | Health bullet: "Docker and Caddy probe `/healthz`. `/readyz` is for monitoring and does not gate traffic." |
 | §16 | New row: "Readiness ping reuse: 1 s" |
 
 ## 5. Implementation outline

@@ -332,7 +332,7 @@ CREATE TABLE catalog_meta (
 
 ### 8.4 In-memory snapshot
 
-At startup, and on each version change, `catalog` loads all three tables into an immutable `Snapshot`, validates it at the app level, and swaps it in atomically. If a reload fails validation, the previous snapshot stays live and an error is logged. At startup there is no previous snapshot, so `/readyz` returns 503 until a valid load succeeds.
+At startup, and on each version change, `catalog` loads all three tables into an immutable `Snapshot`, validates it at the app level, and swaps it in atomically. If a reload fails validation, the previous snapshot stays live and an error is logged. At startup there is no previous snapshot, so the server doesn't listen until a valid load succeeds (§11.6).
 
 ### 8.5 Launch catalog
 
@@ -665,7 +665,7 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 - Migrations: `goose` runs in the one-shot `migrate` service as `tp_owner`, before the app starts; the app refuses to serve while migrations are pending. Migrations must be backward-compatible with the previous app version.
 - Backups: nightly `pg_dump` (including the catalog and admin tables) to the S3-compatible bucket, keeping 7 daily and 4 weekly copies. A restore test is run manually before launch. Catalog JSON exports are a convenience, not the backup.
 - Connection budget: app pool 16 (2 kept open; `DB_MAX_CONNS` overrides) + the app's `LISTEN` connection 1 + `ingest` or `devseed` 4 + admin CLI 4 + backup 1 + `psql` sessions, about 30 in all, well under Postgres's default `max_connections` of 100. A `pool_max_conns` in `DATABASE_URL` wins over a binary's default. A k6 load test (`deploy/loadtest/`) checks the §1 latency targets before launch; results go in `docs/capacity-baseline.md`.
-- Health: Compose health checks on `/healthz` (restart) and `/readyz` (traffic).
+- Health: Docker and Caddy probe `/healthz`. `/readyz` is for monitoring and does not gate traffic.
 - Logs: JSON `slog` to stdout. Public request lat/lng is logged only as `cell_id`.
 - The app prunes admin audit (90 days), session and enrollment-token rows daily, starting at boot.
 

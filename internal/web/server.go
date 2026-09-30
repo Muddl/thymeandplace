@@ -358,19 +358,35 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
+var (
+	ErrCatalogNotLoaded    = errors.New("catalog not loaded")
+	ErrDatabaseUnavailable = errors.New("database unavailable")
+)
+
+// CheckReady is /readyz's check, shared with the monitoring watchdog so the
+// two can't drift apart: a catalog snapshot is loaded and the database
+// answers a ping within 500 ms.
+func CheckReady(ctx context.Context, snapshot func() *catalog.Snapshot, ping func(context.Context) error) error {
+	if snapshot() == nil {
+		return ErrCatalogNotLoaded
+	}
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if err := ping(ctx); err != nil {
+		return ErrDatabaseUnavailable
+	}
+	return nil
+}
+
 // readyz answers ready when a catalog snapshot is loaded and the database
-// answered a ping in the last second (sharedPing). The snapshot check is
-// free and never cached.
+// answered a ping in the last second. The snapshot check is free and never
+// cached. The ping goes through sharedPing (#13), which detaches from the
+// request's cancellation, so its own 500 ms timeout is the one that bounds it.
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	if s.d.Snapshot() == nil {
+	if err := CheckReady(r.Context(), s.d.Snapshot, s.sharedPing); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte("catalog not loaded"))
-		return
-	}
-	if err := s.sharedPing(r.Context()); err != nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte("database unavailable"))
+		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
 	_, _ = w.Write([]byte("ready"))

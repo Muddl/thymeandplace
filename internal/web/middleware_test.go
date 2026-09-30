@@ -305,3 +305,25 @@ func TestRateLimitIgnoresSpoofedForwardedFor(t *testing.T) {
 		t.Fatal("a different real client is independent")
 	}
 }
+
+// Healthy probes don't reach the log; failing ones do.
+func TestAccessLogSkipsHealthyProbes(t *testing.T) {
+	var out bytes.Buffer
+	status := http.StatusOK
+	h := AccessLog(slog.New(slog.NewTextHandler(&out, nil)))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+	}))
+	for _, p := range []string{"/healthz", "/readyz"} {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", p, nil))
+	}
+	if out.Len() != 0 {
+		t.Fatalf("healthy probes logged:\n%s", out.String())
+	}
+	status = http.StatusServiceUnavailable
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/readyz", nil))
+	status = http.StatusOK
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/season", nil))
+	if s := out.String(); !strings.Contains(s, "path=/readyz") || !strings.Contains(s, "status=503") || !strings.Contains(s, "path=/season") {
+		t.Fatalf("failing probe or page request not logged:\n%s", s)
+	}
+}

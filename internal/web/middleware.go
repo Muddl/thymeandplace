@@ -91,6 +91,11 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 			if rec.status == 0 {
 				rec.status = http.StatusOK
 			}
+			// Caddy and Docker probe every 10–15 s; healthy probes would
+			// otherwise be most of the log. Failing probes are still logged.
+			if (r.URL.Path == "/healthz" || r.URL.Path == "/readyz") && rec.status < 300 {
+				return
+			}
 			attrs := []any{
 				"method", r.Method, "path", r.URL.Path, "status", rec.status,
 				"duration_ms", time.Since(start).Milliseconds(), "request_id", RequestIDFrom(r.Context()),

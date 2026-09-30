@@ -90,6 +90,7 @@ thymeandplace/
     climate/           # lat/lng → cell ID → monthly normals
     ocean/             # lat/lng → nearby marine ecoregions
     places/            # city search, reverse lookup
+    cellinput/         # query cell → engine inputs, looked up at the cell centre
     season/            # pure engine + Adjuster interface
     auth/              # WebAuthn, password+TOTP, sessions, CSRF
     store/             # sqlc-generated queries behind small interfaces
@@ -118,6 +119,7 @@ thymeandplace/
 | `changeset` | Represents a set of upserts/deletes; validates against constraints and live ecoregions; computes the field-level diff; runs the preview; applies in one transaction | `catalog`, `calibration`, `season`, `store` |
 | `calibration` | Scores a catalog snapshot against fixtures (mean Jaccard) | `season`, embedded fixtures |
 | `climate` / `ocean` / `places` | As in §6 | `store` |
+| `cellinput` | Query cell → engine inputs (normals with fallback, nearby ecoregions), looked up at the cell centre. `/season`, `/ingredient` and calibration all resolve through it | `climate`, `ocean`, `season` types |
 | `season` | `Estimate(input, snapshot, month) []Result`; pure, no I/O | `catalog` types only |
 | `auth` | Passkey registration and login, backup login, sessions, CSRF, enrollment tokens | `store` |
 | `store` | All SQL via `sqlc`; exposes narrow interfaces | `pgx` |
@@ -155,7 +157,7 @@ CREATE TABLE climate_cell_v{N} (
 CREATE VIEW climate_cell AS SELECT * FROM climate_cell_v{N};
 ```
 
-Nearest-land fallback: if `cell_id` is absent, check the 8 neighboring cells and use the one whose center is nearest the query point. If none exist, the location is unsupported (§11).
+Nearest-land fallback: if `cell_id` is absent, check the 8 neighboring cells and use the one whose center is nearest **the centre of the query cell** (ties to the lower cell ID). If none exist, the location is unsupported (§11).
 
 ### 6.2 Marine ecoregions
 
@@ -169,7 +171,7 @@ CREATE INDEX ON ocean_ecoregion_v{N} USING gist (geom);
 CREATE VIEW ocean_ecoregion AS SELECT * FROM ocean_ecoregion_v{N};
 ```
 
-"Nearby" means `ST_DWithin(geom, point, 100000)`, i.e. within **100 km**. Inland points return none, and the seafood section is omitted.
+"Nearby" means `ST_DWithin(geom, centre, 100000)`, i.e. within **100 km**, where centre is the centre of the query cell. Inland points return none, and the seafood section is omitted.
 
 ### 6.3 Places
 
@@ -454,7 +456,7 @@ The audit tables are append-only for the app's database role: it can read `catal
 | `GET /` | Full page: search box, "Use my location" button, empty results region |
 | `GET /places?q=` | Partial: up to 8 matches (`hx-trigger="keyup changed delay:250ms"`) |
 | `GET /season?lat=&lng=&date=` | Partial: location header + in-season list grouped Peak / In season / From storage / Year-round, with seafood as its own group |
-| `GET /ingredient/{slug}?cell=&date=` | Partial: tips, pairings, 12-month season bar, disclaimer or note |
+| `GET /ingredient/{slug}?cell=&date=` | Partial: tips, pairings, 12-month season bar, disclaimer or note. `cell` is the query cell of the `/season` page that linked it |
 | `GET /about/data` | Full page: sources, licenses, attribution, how estimates work, privacy |
 | `GET /robots.txt` | Plain text: disallows `/admin`, `/places` and the health checks; points to the sitemap |
 | `GET /sitemap.xml` | The home and About pages, plus a season page for each calibration city |
@@ -468,13 +470,14 @@ Requests without an `HX-Request` header get full-page versions of `/season` and 
 
 1. Validate lat/lng; compute `cell_id`.
 2. Cache lookup on `(cell_id, month, dataVersion)`. On a hit, render.
-3. On a miss: `climate.Normals` (with fallback), `ocean.Nearby`, `season.Estimate` against the current snapshot, `Adjuster.Adjust`, then cache and render. The miss's queries run while holding one public DB slot (§11.4).
-4. Place label: from the search selection if present, otherwise `places.Nearest`. The selection lookup also takes a DB slot; if none is free it falls back like any failed lookup.
+3. On a miss: resolve the query cell's inputs at its centre (`cellinput`: `climate.Normals` with fallback, `ocean.Nearby`), through the per-cell input cache (§11.3); then `season.Estimate` against the current snapshot, `Adjuster.Adjust`, cache and render. The input lookup holds one public DB slot (§11.4).
+4. Place label, per request and never cached: the search selection if it is within 50 km of the point, else `places.Nearest` of the requested point within 50 km, else coordinates; one 300 ms budget. The label's lookups share one DB slot; if none is free it falls back to coordinates like any failed lookup.
 
 ### 11.3 Caching
 
 - In-process LRU, **50,000 entries**.
-- `/ingredient` keeps a second LRU of **20,000** per-cell inputs (climate normals and ecoregions, including cells with no normals), keyed by `(cell_id, dataVersion)`. Failures aren't cached.
+- A second LRU of **20,000** per-cell inputs (climate normals and ecoregions, including cells with no normals), keyed by `(cell_id, dataVersion)`, serves `/ingredient` and `/season` misses. Failures aren't cached.
+- The cached value depends only on its key. No lookup behind it uses the request's exact coordinates.
 - The data version refreshes on `LISTEN data_version_changed`, with a 5-minute poll as a fallback for missed notifications. The `LISTEN` session uses its own connection, outside the pool.
 - A version change makes older keys unreachable, and LRU eviction reclaims them.
 
@@ -506,6 +509,7 @@ Principle: the surrounding page stays usable, and every message says what happen
 | Inland | 200 | Seafood group omitted, with no message |
 | Harsh climate, little in season | 200 | "Not much grows locally this time of year. Here's what's still around." + year-round, storage, and seafood items |
 | Invalid lat/lng/date | 400 | Same panel as the unsupported spot |
+| DB unavailable on cache hit | 200 | Results as normal; the heading shows coordinates |
 | DB unavailable on cache miss | 503 | Warning panel in the results area: "Couldn't load seasonal picks right now. Try again in a moment." + "Try again" (re-issues the same request). Location header stays. |
 | Overloaded (no public DB slot within 250 ms) | 503 + `Retry-After: 5` | Same panel as a DB outage, returned at once. `/places` shows "Search isn't available right now. Try again in a moment." |
 | Unexpected error or panic | 500 | Same panel as 503. Logged with request ID. |
@@ -605,6 +609,7 @@ Property tests:
 
 - About 15 real locations across both hemispheres and several climate types. Each fixture holds per-ingredient months from a published seasonal guide, with the source recorded in the fixture file.
 - Score: mean per-ingredient Jaccard overlap between engine months and guide months, over ingredients present in both.
+- Each fixture's point selects its cell. Inputs are resolved exactly as for `/season`.
 - **Where it runs:** the catalog lives in the database, so calibration gates changes at **apply time** in the admin preview (§9.2), not in CI. CI tests the scoring code itself against a fixed test catalog in `testdata/`.
 - **Production drift check:** a daily in-app job scores the live snapshot, stores the result in `calibration_run` (time, data version, score), and logs at `WARN` if the score is lower than the previous run by more than 0.02. This catches score changes that come from reference-data swaps rather than catalog edits.
 
@@ -639,7 +644,7 @@ Property tests:
 
 ### 13.7 Cache tests
 
-A version change (from a catalog edit or a dataset swap) makes old keys unreachable. A missed notification is corrected by the poll.
+A version change (from a catalog edit or a dataset swap) makes old keys unreachable. A missed notification is corrected by the poll. Two points in one cell get identical results in either request order.
 
 ### 13.8 Web tests
 

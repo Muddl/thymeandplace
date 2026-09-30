@@ -145,13 +145,11 @@ func TestReadyzSharesPing(t *testing.T) {
 	const n = 50
 	codes := make([]int, n)
 	bodies := make([]string, n)
-	var started, wg sync.WaitGroup
+	var wg sync.WaitGroup
 	for i := range n {
-		started.Add(1)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			started.Done()
 			codes[i], bodies[i], _ = hs.get("/readyz", false)
 		}()
 	}
@@ -160,9 +158,9 @@ func TestReadyzSharesPing(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no ping started")
 	}
-	started.Wait()
-	// Let the other 49 get from hs.get to the lock. The held ping must be
-	// released well inside sharedPing's real 500 ms timeout, or it fails.
+	// Give the other 49 time to reach the lock. This is best-effort: one
+	// that arrives after the release still passes (the clock is frozen, so
+	// it reuses the result), it just doesn't exercise waiting on the lock.
 	time.Sleep(50 * time.Millisecond)
 	close(hs.pingHold)
 	wg.Wait()

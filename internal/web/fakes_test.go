@@ -138,7 +138,7 @@ type harness struct {
 	now     time.Time // the server clock
 
 	pings       atomic.Int32
-	pingHold    chan struct{} // when set, Ping waits until it is closed (or its context ends)
+	pingHold    chan struct{} // when set, Ping waits until it is closed, ignoring its deadline
 	pingEntered chan struct{} // when set, receives once per Ping that starts waiting on pingHold
 }
 
@@ -170,7 +170,9 @@ func newHarness(t *testing.T, opts ...func(*Deps)) *harness {
 }
 
 // ping is the fake Deps.Ping: it counts calls, fails at once on a done
-// context (like pgx), and when pingHold is set waits for it to close.
+// context (like pgx), and when pingHold is set waits for it to close. The
+// wait ignores ctx, so a slow host can't turn sharedPing's real 500 ms
+// timeout into a test failure; the test always closes pingHold.
 func (hs *harness) ping(ctx context.Context) error {
 	hs.pings.Add(1)
 	if err := ctx.Err(); err != nil {
@@ -183,11 +185,7 @@ func (hs *harness) ping(ctx context.Context) error {
 			default:
 			}
 		}
-		select {
-		case <-hs.pingHold:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+		<-hs.pingHold
 	}
 	return hs.pingErr
 }

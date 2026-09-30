@@ -606,7 +606,7 @@ Property tests:
 - About 15 real locations across both hemispheres and several climate types. Each fixture holds per-ingredient months from a published seasonal guide, with the source recorded in the fixture file.
 - Score: mean per-ingredient Jaccard overlap between engine months and guide months, over ingredients present in both.
 - **Where it runs:** the catalog lives in the database, so calibration gates changes at **apply time** in the admin preview (§9.2), not in CI. CI tests the scoring code itself against a fixed test catalog in `testdata/`.
-- **Production drift check:** a daily in-app job scores the live snapshot, stores the result in `calibration_run` (time, data version, score), and logs at `WARN` if the score is lower than the previous run by more than 0.02. This catches score changes that come from reference-data swaps rather than catalog edits.
+- **Production drift check:** a daily in-app drift check runs 24 h after the last recorded run (or at once if none is that recent), waits for the catalog snapshot, and retries failures after 1 min, doubling to 1 h. It scores the live snapshot, stores the result in `calibration_run` (time, data version, score), and logs at `WARN` if the score is lower than the previous run by more than 0.02. This catches score changes that come from reference-data swaps rather than catalog edits.
 
 ### 13.3 Catalog and changeset tests
 
@@ -667,7 +667,7 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 - Connection budget: app pool 16 (2 kept open; `DB_MAX_CONNS` overrides) + the app's `LISTEN` connection 1 + `ingest` or `devseed` 4 + admin CLI 4 + backup 1 + `psql` sessions, about 30 in all, well under Postgres's default `max_connections` of 100. A `pool_max_conns` in `DATABASE_URL` wins over a binary's default. A k6 load test (`deploy/loadtest/`) checks the §1 latency targets before launch; results go in `docs/capacity-baseline.md`.
 - Health: Compose health checks on `/healthz` (restart) and `/readyz` (traffic).
 - Logs: JSON `slog` to stdout. Public request lat/lng is logged only as `cell_id`.
-- The app prunes admin audit (90 days), session and enrollment-token rows daily, starting at boot.
+- The app prunes admin audit (90 days), session and enrollment-token rows daily, starting at boot; failures retry after 1 min, doubling to 1 h.
 
 ## 15. Privacy
 
@@ -694,6 +694,7 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Public request timeout | 2 s |
 | Public rate limits | `/places` 10/s burst 20; `/season`, `/ingredient` 2/s burst 10 |
 | Calibration override threshold | score drop > 0.02 |
+| Drift check | every 24 h from the last recorded run; retry 1 min doubling to 1 h |
 | Pending changeset expiry | 1 hour |
 | Import size limit | 5 MB |
 | Enrollment link TTL | 15 minutes |

@@ -139,3 +139,41 @@ func TestSeafoodOffNeverQueriesOcean(t *testing.T) {
 		t.Fatalf("ocean queried %d times with seafood off", n)
 	}
 }
+
+var listItemRE = regexp.MustCompile(`<li class="item ([^"]+)">\s*<a href="([^"]+)"`)
+
+// Spec §6: every item on /season opens a detail page that agrees with it:
+// never "not local", and the current month has the list's status.
+func TestIngredientAgreesWithSeasonList(t *testing.T) {
+	rows := []struct {
+		name  string
+		setup func(*harness)
+	}{
+		{"fallback neighbour", withFallbackCells},
+		{"reach edge between A and the centre", func(hs *harness) {
+			hs.climate.cells = map[int]climate.MonthlyNormals{fallbackCell: climatetest.Temperate()}
+			hs.ocean.reach = reachWestOf(-8.15) // A in reach, centre and B not
+		}},
+	}
+	for _, row := range rows {
+		for _, q := range []string{qA, qB} {
+			t.Run(row.name+" "+q, func(t *testing.T) {
+				hs := newHarness(t)
+				february(hs)
+				row.setup(hs)
+				_, list, _ := hs.get(q, true)
+				items := listItemRE.FindAllStringSubmatch(list, -1)
+				if len(items) == 0 {
+					t.Fatalf("no items:\n%s", list)
+				}
+				for _, it := range items {
+					status, link := it[1], it[2]
+					code, detail, _ := hs.get(link, true)
+					if code != 200 || strings.Contains(detail, views.CopyNotLocal) || !strings.Contains(detail, `class="m `+status+` now"`) {
+						t.Fatalf("%s (list status %s): %d\n%s", link, status, code, detail)
+					}
+				}
+			})
+		}
+	}
+}

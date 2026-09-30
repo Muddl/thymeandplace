@@ -24,6 +24,7 @@ const (
 	CopyPaused             = "Search is pausing for a few seconds. Keep typing and results will catch up."
 	CopySearchUnavailable  = "Search isn't available right now. Try again in a moment."
 	CopyNotFound           = "We couldn't find that page."
+	CopyKeepTyping         = "Keep typing: enter at least 2 letters of your town's name."
 	WildMushroomDisclaimer = "Look for wild mushrooms at markets and from sellers who can identify them. We don't give foraging advice: many edible mushrooms have deadly look-alikes."
 	CopyLandEstimate       = "Estimated from local climate normals."
 )

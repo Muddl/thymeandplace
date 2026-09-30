@@ -35,6 +35,11 @@ func (s *Server) places(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusOK, "Search", "", views.PlaceList(nil), nil)
 		return
 	}
+	// Too short to search usefully (#14): answer with a hint and no DB work.
+	if places.TooShort(places.Normalize(q)) {
+		s.render(w, r, http.StatusOK, "Search", q, views.PlacesKeepTyping(), nil)
+		return
+	}
 	var found []places.Place
 	err := s.withDB(r.Context(), func(ctx context.Context) error {
 		var err error

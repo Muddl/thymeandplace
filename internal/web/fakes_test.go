@@ -128,11 +128,13 @@ type fakePlaces struct {
 	down      bool
 	blockByID bool                                        // ByID hangs until its context ends
 	nearest   func(lat, lng float64) (places.Place, bool) // when set, answers Nearest
+	searches  atomic.Int32
 }
 
 var lisbon = places.Place{ID: 1, Name: "Lisbon", Admin1: "Lisbon", Country: "PT", Lat: 38.72, Lng: -9.14}
 
 func (f *fakePlaces) Search(_ context.Context, q string) ([]places.Place, error) {
+	f.searches.Add(1)
 	if f.down {
 		return nil, errDown
 	}

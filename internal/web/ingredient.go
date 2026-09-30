@@ -61,7 +61,7 @@ func (s *Server) ingredient(w http.ResponseWriter, r *http.Request) {
 	version := s.d.DataVersion()
 	snap := s.d.Snapshot()
 	if snap == nil {
-		s.render(w, r, http.StatusServiceUnavailable, "Ingredient", "", nil, views.LoadError("", retryPath(r.URL.Path)))
+		s.render(w, r, http.StatusServiceUnavailable, "Ingredient", "", nil, views.LoadError("", s.retryURL(r)))
 		return
 	}
 	ing, ok := snap.Get(r.PathValue("slug"))

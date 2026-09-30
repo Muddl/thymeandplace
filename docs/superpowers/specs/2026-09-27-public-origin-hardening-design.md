@@ -104,9 +104,9 @@ Nothing in either UI depends on the disabled features:
 ### 4.3 Retry URLs (F15)
 
 - `views.LoadError(label, retryURL string)` renders `href={ templ.URL(retryURL) }`. `hx-get` keeps the plain string. HTMX already limits requests to the same origin (§4.2).
-- `/season` passes `seasonRetryURL(lat, lng, place, date)`. It is built like `seasonURL` (`internal/web/places.go:11-13`) from the parsed floats, the numeric place ID when present, and the validated date.
+- `/season` passes `seasonRetryURL(lat, lng, place, date)`. It is built like `seasonURL` (`internal/web/places.go:11-13`) from the parsed floats, the numeric place ID when present, and the validated date. Unlike `seasonURL` it writes the floats exactly, not with `%.4f`, so rounding can't move the retry into a neighbouring 0.25° cell.
 - `/ingredient` passes `ingredientURL(slug, cell, date)` (`internal/web/season.go:88-94`), using the snapshot slug and validated cell.
-- The early `/ingredient` failure, before `cell` is parsed (`ingredient.go:18`), and the panic handler (`server.go:95`) pass `r.URL.Path` when it is `/season` or starts with `/ingredient/`, and `/` otherwise. A panic retry then reloads the page without echoing any query.
+- The early `/ingredient` failure, before `cell` is parsed (`ingredient.go:18`), and the panic handler (`server.go:95`) validate the query the way the handler would and rebuild the URL from the parsed values: `seasonRetryURL` for `/season` with a valid `lat`/`lng`, `ingredientURL` for `/ingredient/<slug>` with a valid `cell`. If the query doesn't validate they fall back to the escaped path (`/season`, `/ingredient/<slug>`), or `/` for any other path. A panic retry then reloads the page without echoing any raw query value. A bare path alone is not enough: `/season` and `/ingredient/<slug>` with no query are 400s.
 - Other `templ.SafeURL` uses in public views, whose URLs are built from server values (`places.templ:7`, `ingredient.templ:5` and `:35`, `season.templ:50`), switch to `templ.URL` too. This costs nothing and leaves one rule: no `SafeURL` in `internal/web/views`.
 
 ### 4.4 Guarding against regressions

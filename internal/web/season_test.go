@@ -176,9 +176,11 @@ func TestSeasonWarmCacheSurvivesOutage(t *testing.T) {
 func TestSeasonPanicRendersPanel(t *testing.T) {
 	hs := newHarness(t)
 	hs.climate.panic = true
-	code, body, _ := hs.get(lisbonQ+"&x=junk", true)
-	// #15: a panic's retry link is the page path with no query.
-	if code != 500 || !strings.Contains(body, views.CopyLoadError) || !strings.Contains(body, `href="/season"`) || strings.Contains(body, "junk") {
+	code, body, _ := hs.get(lisbonQ+"&date=2026-08-15&x=junk", true)
+	// #15: a panic's retry link is rebuilt from the validated query, so it
+	// reloads the page rather than landing on a bare /season 400.
+	if code != 500 || !strings.Contains(body, views.CopyLoadError) ||
+		!strings.Contains(body, `href="/season?lat=38.72&lng=-9.14&place=1&date=2026-08-15"`) || strings.Contains(body, "junk") {
 		t.Fatalf("%d\n%s", code, body)
 	}
 }

@@ -147,7 +147,7 @@ func New(d Deps) http.Handler {
 	h = Timeout(d.timeout)(h)
 	h = NewRateLimiter(nil).Middleware(d.TrustProxy, PublicLimits, s.tooMany)(h)
 	h = Recover(d.Log, func(w http.ResponseWriter, r *http.Request) {
-		s.render(w, r, http.StatusInternalServerError, "Something went wrong", "", nil, views.LoadError("", retryPath(r.URL.Path)))
+		s.render(w, r, http.StatusInternalServerError, "Something went wrong", "", nil, views.LoadError("", s.retryURL(r)))
 	})(h)
 	return h
 }

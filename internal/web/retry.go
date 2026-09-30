@@ -1,9 +1,12 @@
 package web
 
 import (
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"thymeandplace/internal/climate"
 )
 
 // seasonRetryURL rebuilds a /season URL for an error panel's retry link from
@@ -21,9 +24,28 @@ func seasonRetryURL(lat, lng float64, placeParam, date string) string {
 	return u
 }
 
-// retryPath is the retry link for failures that happen before the request's
-// parameters are validated (no snapshot yet, or a panic): the page's own
-// path with no query, or the home page.
+// retryURL is the retry link for failures that happen before the handler has
+// validated the request (no snapshot yet, or a panic). It validates the query
+// the way the handler would and rebuilds the page URL from the parsed values,
+// so the retry reloads the same page; if that fails, it falls back to
+// retryPath.
+func (s *Server) retryURL(r *http.Request) string {
+	path, q := r.URL.Path, r.URL.Query()
+	switch {
+	case path == "/season":
+		if lat, lng, ok := parseLatLng(q.Get("lat"), q.Get("lng")); ok {
+			return seasonRetryURL(lat, lng, q.Get("place"), s.validDate(q.Get("date")))
+		}
+	case strings.HasPrefix(path, "/ingredient/"):
+		if cell, err := strconv.Atoi(q.Get("cell")); err == nil && climate.ValidCellID(cell) {
+			return ingredientURL(strings.TrimPrefix(path, "/ingredient/"), cell, s.validDate(q.Get("date")))
+		}
+	}
+	return retryPath(path)
+}
+
+// retryPath is the fallback retry link when the query can't be validated:
+// the page's own path with no query, or the home page.
 func retryPath(path string) string {
 	switch {
 	case path == "/season":

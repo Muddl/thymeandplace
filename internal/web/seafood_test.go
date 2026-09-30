@@ -105,3 +105,14 @@ func TestSeafoodOnShowsSeafood(t *testing.T) {
 		t.Errorf("/ingredient/mackerel with seafood on: %d", code)
 	}
 }
+
+// Seafood on with no Ocean is a wiring mistake: New refuses it rather than
+// serving a site that silently has no seafood.
+func TestSeafoodNeedsOcean(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("New must panic with Seafood on and a nil Ocean")
+		}
+	}()
+	newHarness(t, func(d *Deps) { d.Ocean = nil })
+}

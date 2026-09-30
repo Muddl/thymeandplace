@@ -129,6 +129,11 @@ func New(d Deps) http.Handler {
 	// With seafood off there is no ocean lookup: no ecoregion is ever in
 	// reach, so only land cells are supported.
 	if d.Seafood {
+		// Resolve skips a nil finder, so a missing Ocean would quietly turn
+		// seafood off; fail at startup instead.
+		if d.Ocean == nil {
+			panic("web: Seafood needs an Ocean")
+		}
 		s.inputs.Ocean = d.Ocean
 	}
 	assetVersionOnce.Do(func() { views.AssetVersion = hashFS(static.FS) })

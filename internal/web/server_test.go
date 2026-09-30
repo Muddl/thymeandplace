@@ -145,11 +145,13 @@ func TestReadyzSharesPing(t *testing.T) {
 	const n = 50
 	codes := make([]int, n)
 	bodies := make([]string, n)
-	var wg sync.WaitGroup
+	var started, wg sync.WaitGroup
 	for i := range n {
+		started.Add(1)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			started.Done()
 			codes[i], bodies[i], _ = hs.get("/readyz", false)
 		}()
 	}
@@ -158,7 +160,10 @@ func TestReadyzSharesPing(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no ping started")
 	}
-	time.Sleep(50 * time.Millisecond) // let the other 49 reach the lock
+	started.Wait()
+	// Let the other 49 get from hs.get to the lock. The held ping must be
+	// released well inside sharedPing's real 500 ms timeout, or it fails.
+	time.Sleep(50 * time.Millisecond)
 	close(hs.pingHold)
 	wg.Wait()
 	for i := range n {
@@ -206,9 +211,13 @@ func TestReadyzIgnoresCancelledCaller(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	r := httptest.NewRequest("GET", "/readyz", nil).WithContext(ctx)
-	hs.h.ServeHTTP(httptest.NewRecorder(), r)
-	if code, body, _ := hs.get("/readyz", false); code != 200 || body != "ready" {
-		t.Fatalf("after a cancelled caller: %d %q", code, body)
+	rec := httptest.NewRecorder()
+	hs.h.ServeHTTP(rec, r)
+	if rec.Code != 200 || rec.Body.String() != "ready" || hs.pings.Load() != 1 {
+		t.Fatalf("cancelled caller: %d %q pings=%d", rec.Code, rec.Body.String(), hs.pings.Load())
+	}
+	if code, body, _ := hs.get("/readyz", false); code != 200 || body != "ready" || hs.pings.Load() != 1 {
+		t.Fatalf("after a cancelled caller: %d %q pings=%d", code, body, hs.pings.Load())
 	}
 }
 

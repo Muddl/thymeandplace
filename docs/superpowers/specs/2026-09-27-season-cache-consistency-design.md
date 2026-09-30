@@ -101,7 +101,7 @@ func (r Resolver) Resolve(ctx context.Context, cell int) (Inputs, error)
 ### 4.3 `/season`
 
 - `seasonCore` becomes `{QueryCell int; HasNormals, Supported bool; Results []season.Result}`. `NearLabel` is removed. The normals cell is used only for `Adjuster.Adjust` inside `compute`, so it isn't cached.
-- `compute(ctx, cell, month, snap)` calls `in, err := s.inputs.Resolve(ctx, cell)`, then `s.d.Adjuster.Adjust(ctx, in.NormalsCell, season.Estimate(in.Engine(month), snap))`. The cache key and the version-before-snapshot ordering (`season.go:108-112`) don't change.
+- On a cache miss, `/season` gets the inputs with `in, err := s.inputsFor(ctx, queryCell, version)` (`internal/web/inputs.go`). This is the per-cell input cache shared with `/ingredient`; on its own miss it calls `s.inputs.Resolve(ctx, cell)` under one DB gate slot. Then `compute(ctx, in, month, snap)` runs `s.d.Adjuster.Adjust(ctx, in.NormalsCell, season.Estimate(in.Engine(month), snap))` and makes no lookups of its own, so its result is a function of the cache key. The cache key and the version-before-snapshot ordering (`season.go:108-112`) don't change.
 - Item links use `ingredientURL(slug, core.QueryCell, date)`.
 - The label runs per request, only for supported results (as today, `season.go:129-133`), under **one** `placeLookupTimeout` (300 ms) context:
 

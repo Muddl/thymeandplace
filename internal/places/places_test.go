@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"thymeandplace/internal/dbtest"
 	"thymeandplace/internal/places"
 )
@@ -52,7 +55,7 @@ func TestSearchAccentsAndTypos(t *testing.T) {
 func TestSearchHostileInput(t *testing.T) {
 	s := svc(t)
 	ctx := context.Background()
-	for _, q := range []string{"", "   ", strings.Repeat("a", 5000), "%", "_", "'; DROP TABLE place; --", `\`, "%_%", "a\x00b", "\xff", "Lis\xffbon"} {
+	for _, q := range []string{"", "   ", strings.Repeat("a", 5000), "%", "_", "'; DROP TABLE place; --", `\`, "%_%", "a\x00b", "\xff", "Lis\xffbon", "%%lis", "li_s", "lis\\"} {
 		if _, err := s.Search(ctx, q); err != nil {
 			t.Fatalf("%q: %v", q[:min(len(q), 20)], err)
 		}
@@ -84,5 +87,66 @@ func TestNearestAndByID(t *testing.T) {
 	}
 	if _, ok, err := s.ByID(ctx, 424242); ok || err != nil {
 		t.Fatalf("missing ID: %v %v", ok, err)
+	}
+}
+
+func TestTooShort(t *testing.T) {
+	// "a\u0301" is a decomposed á: the combining accent is neither a letter
+	// nor a digit, so it does not count.
+	short := []string{"", "a", "é", "a\u0301", "1", "%", "--", "a.", " a ", "á", "_a_", "a\x00", "\ta\n"}
+	long := []string{"bo", "Ii", "Aš", "12", "東京", "Αθ", "lis", "áb", "a\u0301b", "a1"}
+	for _, q := range short {
+		if !places.TooShort(places.Normalize(q)) {
+			t.Errorf("TooShort(%q) = false, want true", q)
+		}
+	}
+	for _, q := range long {
+		if places.TooShort(places.Normalize(q)) {
+			t.Errorf("TooShort(%q) = true, want false", q)
+		}
+	}
+}
+
+func TestNormalize(t *testing.T) {
+	for in, want := range map[string]string{
+		"  Lisbon ":  "Lisbon",
+		"Lis\xffbon": "Lisbon",
+		"a\x00b":     "ab",
+		"\ta\n":      "a",
+	} {
+		if got := places.Normalize(in); got != want {
+			t.Errorf("Normalize(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := places.Normalize(strings.Repeat("é", 500)); len([]rune(got)) != places.MaxQueryRunes {
+		t.Fatalf("not truncated: %d runes", len([]rune(got)))
+	}
+}
+
+// noQueryDB fails the test on any SQL: short queries must never reach it.
+// Test-local copy of the pattern in internal/ingest/places_test.go:15-32.
+type noQueryDB struct{ t *testing.T }
+
+func (d noQueryDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	d.t.Fatal("unexpected Exec")
+	return pgconn.CommandTag{}, nil
+}
+
+func (d noQueryDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	d.t.Fatal("unexpected Query")
+	return nil, nil
+}
+
+func (d noQueryDB) QueryRow(context.Context, string, ...any) pgx.Row {
+	d.t.Fatal("unexpected QueryRow")
+	return nil
+}
+
+func TestSearchTooShortSkipsDB(t *testing.T) {
+	s := places.NewService(noQueryDB{t})
+	for _, q := range []string{"a", "é", "1", "%", "--", "a.", " a ", "_", `\`} {
+		if got, err := s.Search(context.Background(), q); got != nil || err != nil {
+			t.Fatalf("%q: %v %v", q, got, err)
+		}
 	}
 }

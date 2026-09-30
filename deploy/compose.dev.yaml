@@ -21,7 +21,7 @@ services:
       - dbdata:/var/lib/postgresql/data
       - ./db/initdb/20-roles.sh:/docker-entrypoint-initdb.d/20-roles.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tp -d thymeandplace"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U tp -d thymeandplace"]
       interval: 5s
       retries: 20
 volumes:

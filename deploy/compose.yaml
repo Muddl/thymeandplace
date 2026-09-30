@@ -31,7 +31,9 @@ services:
       # Runs once, on an empty data directory, after the image's 10_postgis.sh.
       - ./db/initdb/20-roles.sh:/docker-entrypoint-initdb.d/20-roles.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      # Over TCP: on first boot the entrypoint's init-only server listens on
+      # the socket alone, so a socket check passes before migrate can connect.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       retries: 20
 

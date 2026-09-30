@@ -19,7 +19,9 @@ func DistanceKm(lat1, lng1, lat2, lng2 float64) float64 {
 }
 
 // PickNearest returns own if it has data, otherwise the neighbour of own
-// whose centre is nearest (lat, lng). Ties go to the lower cell ID.
+// whose centre is nearest (lat, lng). Ties go to the lower cell ID. Public
+// callers pass the centre of the query cell (internal/cellinput), so the
+// result depends only on the cell.
 func PickNearest(lat, lng float64, own int, cells map[int]MonthlyNormals) (int, bool) {
 	if _, ok := cells[own]; ok {
 		return own, true

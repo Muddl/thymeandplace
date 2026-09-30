@@ -213,7 +213,7 @@ func TestLoopAnchorsToLastRun(t *testing.T) {
 			d := loopDrift(t, pool, &snap, oneCase(t), &log)
 			d.Now = func() time.Time { return now }
 			stop := startLoop(t, d, day)
-					if tc.want == 2 {
+			if tc.want == 2 {
 				waitFor(t, func() bool { return runs(t, pool) == 2 })
 			} else {
 				time.Sleep(200 * time.Millisecond)

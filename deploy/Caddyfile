@@ -20,11 +20,12 @@ thymeand.place {
 	# trusted_proxies configured, Caddy discards any inbound X-Forwarded-For and
 	# writes its own peer address, so that entry is the real client. Setting
 	# trusted_proxies (for a CDN in front) makes Caddy keep the inbound values
-	# and append the CDN edge, so every visitor would share one rate-limit
-	# bucket. Change web.ClientIP before putting anything in front of Caddy,
-	# and pair trusted_proxies with trusted_proxies_strict: without it Caddy
-	# reads X-Forwarded-For left to right and {client_ip} is the entry the
-	# client controls (docs/operations.md, "Reverse proxy trust and logging").
+	# and append the CDN edge, so every visitor behind one CDN edge would share
+	# a rate-limit bucket. Change web.ClientIP before putting anything in front
+	# of Caddy, and pair trusted_proxies with trusted_proxies_strict: without
+	# it Caddy reads X-Forwarded-For left to right and {client_ip} is the entry
+	# the client controls (docs/operations.md, "Reverse proxy trust and
+	# logging").
 	# Route on liveness. The app itself refuses to listen until its catalog
 	# snapshot loads and shows its own retry panel during DB outages.
 	reverse_proxy app:8080 {

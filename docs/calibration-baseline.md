@@ -140,3 +140,4 @@ These come from the engine rules or the data, not from tuning, and were checked 
   | 3 | 0.6707 | 528 | final: mango and fig changed, with the new Montevideo fixture; data version `4bc01f4a2a770d63` |
 
 - The committed `content/catalog/launch.json` matches the live catalog item for item.
+- As of the season-consistency change (#6), fixtures resolve at their cell centre, exactly as `/season` does. Measured on the dev stack with the reference data above and the committed `content/catalog/launch.json`: score before 0.671 over 528 pairs; after: 0.671 over 528 pairs. All 15 fixture cells have their own normals (no fallback). Only Tokyo's ecoregions changed (48 and 51 from the point, 51 from the centre), which affects seafood preview bars, not the score.

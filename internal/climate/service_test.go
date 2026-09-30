@@ -39,6 +39,17 @@ func TestPickNearest(t *testing.T) {
 	if _, ok := climate.PickNearest(lat, lng, own, map[int]climate.MonthlyNormals{own + 5: n}); ok {
 		t.Fatal("non-neighbour used")
 	}
+	// From the centre, opposite neighbours are exactly equidistant (centres
+	// are multiples of 0.125°): ties go to the lower cell ID. Public callers
+	// always pass the query cell's centre (cellinput), so this is routine.
+	clat, clng := climate.CellCenter(own)
+	if id, ok := climate.PickNearest(clat, clng, own, map[int]climate.MonthlyNormals{east: n, west: n}); !ok || id != west {
+		t.Fatalf("east/west tie: got %d, want west %d", id, west)
+	}
+	north, south := own-climate.GridCols, own+climate.GridCols
+	if id, ok := climate.PickNearest(clat, clng, own, map[int]climate.MonthlyNormals{north: n, south: n}); !ok || id != north {
+		t.Fatalf("north/south tie: got %d, want north %d", id, north)
+	}
 }
 
 func TestServiceNormals(t *testing.T) {
@@ -64,13 +75,5 @@ func TestServiceNormals(t *testing.T) {
 	sea, err := svc.Normals(ctx, dbtest.MidAtlantic.Lat, dbtest.MidAtlantic.Lng)
 	if err != nil || sea.Normals != nil {
 		t.Fatalf("mid-ocean: %+v %v", sea, err)
-	}
-
-	n, err := svc.ForCell(ctx, l.Cell)
-	if err != nil || n == nil {
-		t.Fatalf("ForCell: %v %v", n, err)
-	}
-	if n, err := svc.ForCell(ctx, sea.QueryCell); err != nil || n != nil {
-		t.Fatalf("ForCell(absent) = %v %v", n, err)
 	}
 }

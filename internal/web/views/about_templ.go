@@ -50,7 +50,7 @@ func About(seafood bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if seafood {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p>Seafood is different: it depends on spawning seasons and fishing rules, so we use hand-curated months for marine regions within 100 km of the coast. Treat it as general guidance and check local fishing rules.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p>Seafood is different: it depends on spawning seasons and fishing rules, so we use hand-curated months for marine regions within about 100 km of the grid cell around your location. Treat it as general guidance and check local fishing rules.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

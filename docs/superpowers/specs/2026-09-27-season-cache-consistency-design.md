@@ -100,7 +100,7 @@ func (r Resolver) Resolve(ctx context.Context, cell int) (Inputs, error)
 
 ### 4.3 `/season`
 
-- `seasonCore` becomes `{QueryCell, NormalsCell int; HasNormals, Supported bool; Results []season.Result}`. `NearLabel` is removed.
+- `seasonCore` becomes `{QueryCell int; HasNormals, Supported bool; Results []season.Result}`. `NearLabel` is removed. The normals cell is used only for `Adjuster.Adjust` inside `compute`, so it isn't cached.
 - `compute(ctx, cell, month, snap)` calls `in, err := s.inputs.Resolve(ctx, cell)`, then `s.d.Adjuster.Adjust(ctx, in.NormalsCell, season.Estimate(in.Engine(month), snap))`. The cache key and the version-before-snapshot ordering (`season.go:108-112`) don't change.
 - Item links use `ingredientURL(slug, core.QueryCell, date)`.
 - The label runs per request, only for supported results (as today, `season.go:129-133`), under **one** `placeLookupTimeout` (300 ms) context:

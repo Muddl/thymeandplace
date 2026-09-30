@@ -190,7 +190,8 @@ func (p *Pipeline) finishFetch(ctx context.Context, id int64, name, incoming str
 
 // Transform produces the load-ready CSV once per version.
 func (p *Pipeline) Transform(ctx context.Context, v int64) error {
-	if _, err := p.version(ctx, v); err != nil {
+	dv, err := p.version(ctx, v)
+	if err != nil {
 		return err
 	}
 	name, key := p.DS.Name(), csvKey(p.DS.Name(), v)
@@ -207,6 +208,21 @@ func (p *Pipeline) Transform(ctx context.Context, v int64) error {
 			if err := p.Blob.GetFile(ctx, rawKey(name, v, src.File), local); err != nil {
 				return fmt.Errorf("download raw %s: %w", src.File, err)
 			}
+		}
+	}
+	// The bytes about to be transformed must be the ones fetched and
+	// reviewed; the bucket copy could have changed since.
+	want, err := parseChecksums(dv.SourceChecksum)
+	if err != nil {
+		return fmt.Errorf("version %d: %w", v, err)
+	}
+	for _, src := range p.DS.Sources() {
+		got, err := hashFile(filepath.Join(dir, "raw", src.File))
+		if err != nil {
+			return err
+		}
+		if w, ok := want[src.File]; !ok || got != w {
+			return fmt.Errorf("raw file %s differs from what was fetched and reviewed (sha256 %s, recorded %q)", src.File, got, w)
 		}
 	}
 	out := filepath.Join(dir, "data.csv")

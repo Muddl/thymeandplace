@@ -167,3 +167,44 @@ func TestRedirectPolicy(t *testing.T) {
 		t.Fatalf("11 redirects must be refused: %v", err)
 	}
 }
+
+func TestTransformRejectsTamperedRaw(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	p := newPipeline(t, pool, placesSource(t, 20))
+	v, err := p.Fetch(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Change the bucket copy and drop the local one, so Transform pulls the
+	// changed bytes back.
+	root := p.Blob.(FSBlob).Root
+	if err := os.WriteFile(filepath.Join(root, "raw", "places", "v"+strconv.FormatInt(v, 10), "admin1CodesASCII.txt"), []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(p.WorkDir, "places", "v"+strconv.FormatInt(v, 10), "raw")); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Transform(ctx, v); err == nil || !strings.Contains(err.Error(), "differs from what was fetched and reviewed") {
+		t.Fatalf("want tamper refusal, got %v", err)
+	}
+}
+
+func TestTransformRejectsUnrecordedFile(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	p := newPipeline(t, pool, placesSource(t, 20))
+	v, err := p.Fetch(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep cities1000.zip's real checksum and drop admin1CodesASCII.txt's
+	// entry, so the first file verifies and the second has nothing recorded.
+	if _, err := pool.Exec(ctx, `UPDATE dataset_versions SET source_checksum = split_part(source_checksum, ';', 1) WHERE id = $1`, v); err != nil {
+		t.Fatal(err)
+	}
+	err = p.Transform(ctx, v)
+	if err == nil || !strings.Contains(err.Error(), "admin1CodesASCII.txt") || !strings.Contains(err.Error(), "differs from what was fetched and reviewed") {
+		t.Fatalf("a file with no recorded checksum must not be treated as verified; got %v", err)
+	}
+}

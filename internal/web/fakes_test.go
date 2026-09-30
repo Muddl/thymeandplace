@@ -136,6 +136,10 @@ type harness struct {
 	pingErr error
 	version string
 	now     time.Time // the server clock
+
+	pings       atomic.Int32
+	pingHold    chan struct{} // when set, Ping waits until it is closed (or its context ends)
+	pingEntered chan struct{} // when set, receives once per Ping that starts waiting on pingHold
 }
 
 // newHarness builds the public handler over fakes. The server clock defaults
@@ -152,7 +156,7 @@ func newHarness(t *testing.T, opts ...func(*Deps)) *harness {
 		Climate: hs.climate, Ocean: hs.ocean, Places: hs.places,
 		Snapshot:    func() *catalog.Snapshot { return hs.snap },
 		DataVersion: func() string { return hs.version },
-		Ping:        func(context.Context) error { return hs.pingErr },
+		Ping:        hs.ping,
 		Now:         func() time.Time { return hs.now },
 		Log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		// Most tests cover the full site; seafoodOff gives the launch setup.
@@ -163,6 +167,29 @@ func newHarness(t *testing.T, opts ...func(*Deps)) *harness {
 	}
 	hs.h = New(d)
 	return hs
+}
+
+// ping is the fake Deps.Ping: it counts calls, fails at once on a done
+// context (like pgx), and when pingHold is set waits for it to close.
+func (hs *harness) ping(ctx context.Context) error {
+	hs.pings.Add(1)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if hs.pingHold != nil {
+		if hs.pingEntered != nil {
+			select { // never block: without sharing, 50 pings would arrive here
+			case hs.pingEntered <- struct{}{}:
+			default:
+			}
+		}
+		select {
+		case <-hs.pingHold:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return hs.pingErr
 }
 
 // seafoodOff turns the seafood feature off, as at launch (FEATURE_SEAFOOD unset).

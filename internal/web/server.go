@@ -97,6 +97,8 @@ type Server struct {
 	shedMu   sync.Mutex
 	shedN    int       // requests shed since the last log line
 	shedLast time.Time // when the last "public DB gate full" line went out
+
+	ready pingCache // #13: one shared DB ping for /readyz
 }
 
 // New returns the public handler with its own middleware (§11.4):
@@ -341,16 +343,17 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
+// readyz answers ready when a catalog snapshot is loaded and the database
+// answered a ping in the last second (sharedPing). The snapshot check is
+// free and never cached.
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
-	defer cancel()
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if s.d.Snapshot() == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("catalog not loaded"))
 		return
 	}
-	if err := s.d.Ping(ctx); err != nil {
+	if err := s.sharedPing(r.Context()); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("database unavailable"))
 		return

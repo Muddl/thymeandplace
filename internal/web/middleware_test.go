@@ -83,12 +83,37 @@ func TestRecover(t *testing.T) {
 	}
 }
 
+// ClientIP trusts exactly one proxy hop (Caddy): the rightmost
+// X-Forwarded-For entry is the peer Caddy saw. Anything a client sent sits to
+// its left and is ignored. A garbled rightmost entry falls back to RemoteAddr.
 func TestClientIP(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "10.0.0.5:5555"
-	r.Header.Set("X-Forwarded-For", "203.0.113.9, 10.0.0.1")
-	if ClientIP(r, false) != "10.0.0.5" || ClientIP(r, true) != "203.0.113.9" {
-		t.Fatalf("got %q / %q", ClientIP(r, false), ClientIP(r, true))
+	for _, tc := range []struct {
+		name       string
+		remoteAddr string
+		xff        []string // one element per header line
+		trust      bool
+		want       string
+	}{
+		{"untrusted ignores the header", "10.0.0.5:5555", []string{"203.0.113.9"}, false, "10.0.0.5"},
+		{"rightmost entry wins", "10.0.0.5:5555", []string{"198.51.100.1, 203.0.113.9"}, true, "203.0.113.9"},
+		{"last entry of the last line", "10.0.0.5:5555", []string{"198.51.100.1", "192.0.2.7, 203.0.113.9"}, true, "203.0.113.9"},
+		{"garbled rightmost falls back", "10.0.0.5:5555", []string{"198.51.100.1, garbage"}, true, "10.0.0.5"},
+		{"empty rightmost falls back", "10.0.0.5:5555", []string{"203.0.113.9, "}, true, "10.0.0.5"},
+		{"no header falls back", "10.0.0.5:5555", nil, true, "10.0.0.5"},
+		{"IPv6 canonical form", "10.0.0.5:5555", []string{"2001:DB8::1"}, true, "2001:db8::1"},
+		{"IPv6 zone dropped", "10.0.0.5:5555", []string{"fe80::1%eth0"}, true, "fe80::1"},
+		{"RemoteAddr without port", "10.0.0.5", nil, true, "10.0.0.5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/", nil)
+			r.RemoteAddr = tc.remoteAddr
+			for _, v := range tc.xff {
+				r.Header.Add("X-Forwarded-For", v)
+			}
+			if got := ClientIP(r, tc.trust); got != tc.want {
+				t.Fatalf("ClientIP = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

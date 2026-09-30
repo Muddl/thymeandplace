@@ -100,11 +100,22 @@ func TestCSPViolationsCatchesInlineContent(t *testing.T) {
 }
 
 // #15: public views never bypass templ's URL sanitizer. Every href goes
-// through templ.URL, even when the URL is built from server values.
+// through templ.URL, even when the URL is built from server values. The
+// hand-written Go (view models) is checked too, since it could build a
+// SafeURL and pass it in; generated and test files are not.
 func TestNoSafeURLInPublicViews(t *testing.T) {
 	files, err := filepath.Glob("*.templ")
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no templ files: %v", err)
+	}
+	goFiles, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range goFiles {
+		if !strings.HasSuffix(f, "_templ.go") && !strings.HasSuffix(f, "_test.go") {
+			files = append(files, f)
+		}
 	}
 	for _, f := range files {
 		b, err := os.ReadFile(f)

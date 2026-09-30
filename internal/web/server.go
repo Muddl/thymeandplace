@@ -17,6 +17,7 @@ import (
 
 	"thymeandplace/internal/cache"
 	"thymeandplace/internal/catalog"
+	"thymeandplace/internal/cellinput"
 	"thymeandplace/internal/climate"
 	"thymeandplace/internal/ocean"
 	"thymeandplace/internal/places"
@@ -27,7 +28,6 @@ import (
 
 type Climate interface {
 	Normals(ctx context.Context, lat, lng float64) (climate.Lookup, error)
-	ForCell(ctx context.Context, id int) (*climate.MonthlyNormals, error)
 }
 
 type Ocean interface {
@@ -89,10 +89,11 @@ const (
 var errBusy = errors.New("public DB gate full")
 
 type Server struct {
-	d     Deps
-	cache *cache.Cache[cache.Key, seasonCore]
-	cells *cache.Cache[cache.CellKey, cellInputs]
-	gate  chan struct{} // one token per public DB slot
+	d      Deps
+	cache  *cache.Cache[cache.Key, seasonCore]
+	cells  *cache.Cache[cache.CellKey, cellinput.Inputs]
+	inputs cellinput.Resolver
+	gate   chan struct{} // one token per public DB slot
 
 	shedMu   sync.Mutex
 	shedN    int       // requests shed since the last log line
@@ -121,8 +122,14 @@ func New(d Deps) http.Handler {
 	s := &Server{
 		d:     d,
 		cache: cache.New[cache.Key, seasonCore](cache.DefaultSize),
-		cells: cache.New[cache.CellKey, cellInputs](cache.CellSize),
+		cells: cache.New[cache.CellKey, cellinput.Inputs](cache.CellSize),
 		gate:  make(chan struct{}, d.DBSlots),
+	}
+	s.inputs = cellinput.Resolver{Climate: d.Climate}
+	// With seafood off there is no ocean lookup: no ecoregion is ever in
+	// reach, so only land cells are supported.
+	if d.Seafood {
+		s.inputs.Ocean = d.Ocean
 	}
 	assetVersionOnce.Do(func() { views.AssetVersion = hashFS(static.FS) })
 

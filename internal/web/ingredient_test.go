@@ -2,10 +2,13 @@ package web
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"thymeandplace/internal/climate"
+	"thymeandplace/internal/climate/climatetest"
 	"thymeandplace/internal/web/views"
 )
 
@@ -73,5 +76,66 @@ func TestIngredientFullPage(t *testing.T) {
 	_, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d", lisbonCell), false)
 	if !strings.Contains(body, "<!doctype html>") || !strings.Contains(body, "Tomato") {
 		t.Fatal("full page expected")
+	}
+}
+
+// A cell with no land row whose west and east neighbours both have normals.
+// From its centre the two are tied, so the west (lower ID) wins.
+var fallbackCell = climate.CellID(40.1, -8.2) // lat 40.0–40.25, lng −8.25 to −8.0
+
+func withFallbackCells(hs *harness) {
+	hs.climate.cells = map[int]climate.MonthlyNormals{fallbackCell - 1: climatetest.Temperate(), fallbackCell + 1: climatetest.Polar()}
+}
+
+var backURLRE = regexp.MustCompile(`href="/season\?lat=(-?[0-9.]+)&lng=(-?[0-9.]+)`)
+
+// /ingredient?cell= is the query cell: it resolves with the fallback, and
+// Back and the pairings keep the same cell.
+func TestIngredientUsesQueryCell(t *testing.T) {
+	hs := newHarness(t)
+	withFallbackCells(hs)
+	code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&date=2026-08-15", fallbackCell), true)
+	if code != 200 || strings.Contains(body, views.CopyNotLocal) {
+		t.Fatalf("fallback cell must use the west neighbour's normals: %d\n%s", code, body)
+	}
+	m := backURLRE.FindStringSubmatch(body)
+	if m == nil {
+		t.Fatalf("no Back link:\n%s", body)
+	}
+	lat, _ := strconv.ParseFloat(m[1], 64)
+	lng, _ := strconv.ParseFloat(m[2], 64)
+	if climate.CellID(lat, lng) != fallbackCell {
+		t.Fatalf("Back goes to cell %d, want %d", climate.CellID(lat, lng), fallbackCell)
+	}
+	if !strings.Contains(body, fmt.Sprintf("/ingredient/basil?cell=%d", fallbackCell)) {
+		t.Fatalf("pairing must carry the query cell:\n%s", body)
+	}
+	lat0, lng0 := climate.CellCenter(fallbackCell)
+	for _, p := range append(hs.climate.points(), hs.ocean.points()...) {
+		if p != [2]float64{lat0, lng0} {
+			t.Fatalf("lookup at %v, want the cell centre (%v, %v)", p, lat0, lng0)
+		}
+	}
+}
+
+// Review Focus 3: links issued before this change carry the normals cell, a
+// land cell, which resolves to itself: they render exactly as before.
+func TestIngredientOldLandCellLink(t *testing.T) {
+	hs := newHarness(t)
+	withFallbackCells(hs)
+	west := fallbackCell - 1
+	code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&date=2026-08-15", west), true)
+	if code != 200 || strings.Contains(body, views.CopyNotLocal) || !strings.Contains(body, fmt.Sprintf("/ingredient/basil?cell=%d", west)) {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
+// Review Focus 4: with seafood off, neither page ever asks the ocean.
+func TestSeafoodOffNeverQueriesOcean(t *testing.T) {
+	hs := newHarness(t, seafoodOff)
+	hs.get(lisbonQ+"&date=2026-08-15", true)
+	hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d", climate.CellID(10, 10)), true)
+	if n := hs.ocean.calls.Load(); n != 0 {
+		t.Fatalf("ocean queried %d times with seafood off", n)
 	}
 }

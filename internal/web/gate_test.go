@@ -95,7 +95,7 @@ func TestIngredientInputsCachedPerCell(t *testing.T) {
 		}
 	}
 	if c, o := calls(); c != 1 || o != 1 {
-		t.Fatalf("one cell and version: ForCell %d, Nearby %d calls; want 1 each", c, o)
+		t.Fatalf("one cell and version: Normals %d, Nearby %d calls; want 1 each", c, o)
 	}
 
 	hs.version = "v2"
@@ -103,7 +103,7 @@ func TestIngredientInputsCachedPerCell(t *testing.T) {
 		t.Fatal(code)
 	}
 	if c, o := calls(); c != 2 || o != 2 {
-		t.Fatalf("new version: ForCell %d, Nearby %d calls; want 2 each", c, o)
+		t.Fatalf("new version: Normals %d, Nearby %d calls; want 2 each", c, o)
 	}
 
 	hs.version = "v3"
@@ -116,7 +116,7 @@ func TestIngredientInputsCachedPerCell(t *testing.T) {
 		t.Fatalf("after outage: %d", code)
 	}
 	if c, o := calls(); c != 4 || o != 4 {
-		t.Fatalf("a failed lookup must not be cached: ForCell %d, Nearby %d calls; want 4 each", c, o)
+		t.Fatalf("a failed lookup must not be cached: Normals %d, Nearby %d calls; want 4 each", c, o)
 	}
 
 	south := fmt.Sprintf("/ingredient/tomato?cell=%d", climate.CellID(-60, 20)) // no normals there
@@ -126,6 +126,6 @@ func TestIngredientInputsCachedPerCell(t *testing.T) {
 		}
 	}
 	if c, _ := calls(); c != 5 {
-		t.Fatalf("a cell with no normals must be cached too: ForCell %d calls; want 5", c)
+		t.Fatalf("a cell with no normals must be cached too: Normals %d calls; want 5", c)
 	}
 }

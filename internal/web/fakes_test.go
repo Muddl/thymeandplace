@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,10 +32,18 @@ type fakeClimate struct {
 	hold    chan struct{} // when set, wait until it is closed (or the context ends)
 	entered chan struct{} // when set, receives once per call that starts waiting on hold
 	calls   atomic.Int32
+	// cells, when set, holds the only cells with normals, and Normals
+	// applies the real nearest-land fallback (climate.PickNearest) to them.
+	cells map[int]climate.MonthlyNormals
+	mu    sync.Mutex
+	seen  [][2]float64 // every point Normals was asked about
 }
 
 func (f *fakeClimate) Normals(ctx context.Context, lat, lng float64) (climate.Lookup, error) {
 	f.calls.Add(1)
+	f.mu.Lock()
+	f.seen = append(f.seen, [2]float64{lat, lng})
+	f.mu.Unlock()
 	if f.panic {
 		panic("climate exploded")
 	}
@@ -55,6 +64,15 @@ func (f *fakeClimate) Normals(ctx context.Context, lat, lng float64) (climate.Lo
 	if f.down {
 		return climate.Lookup{}, errDown
 	}
+	if f.cells != nil {
+		own := climate.CellID(lat, lng)
+		id, ok := climate.PickNearest(lat, lng, own, f.cells)
+		if !ok {
+			return climate.Lookup{QueryCell: own, Cell: own}, nil
+		}
+		n := f.cells[id]
+		return climate.Lookup{QueryCell: own, Cell: id, Normals: &n}, nil
+	}
 	cell := climate.CellID(lat, lng)
 	switch {
 	case lat < -50:
@@ -67,22 +85,32 @@ func (f *fakeClimate) Normals(ctx context.Context, lat, lng float64) (climate.Lo
 	return climate.Lookup{QueryCell: cell, Cell: cell, Normals: &n}, nil
 }
 
-func (f *fakeClimate) ForCell(ctx context.Context, id int) (*climate.MonthlyNormals, error) {
-	lat, lng := climate.CellCenter(id)
-	l, err := f.Normals(ctx, lat, lng)
-	return l.Normals, err
+func (f *fakeClimate) points() [][2]float64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][2]float64(nil), f.seen...)
 }
 
-// fakeOcean: ecoregions 25 and 30 west of the prime meridian.
+// fakeOcean: ecoregions 25 and 30 west of the prime meridian, unless reach
+// is set.
 type fakeOcean struct {
 	down  bool
+	reach func(lat, lng float64) []ocean.EcoregionID
 	calls atomic.Int32
+	mu    sync.Mutex
+	seen  [][2]float64
 }
 
-func (f *fakeOcean) Nearby(_ context.Context, _, lng float64) ([]ocean.EcoregionID, error) {
+func (f *fakeOcean) Nearby(_ context.Context, lat, lng float64) ([]ocean.EcoregionID, error) {
 	f.calls.Add(1)
+	f.mu.Lock()
+	f.seen = append(f.seen, [2]float64{lat, lng})
+	f.mu.Unlock()
 	if f.down {
 		return nil, errDown
+	}
+	if f.reach != nil {
+		return f.reach(lat, lng), nil
 	}
 	if lng < 0 {
 		return []ocean.EcoregionID{25, 30}, nil
@@ -90,9 +118,16 @@ func (f *fakeOcean) Nearby(_ context.Context, _, lng float64) ([]ocean.Ecoregion
 	return nil, nil
 }
 
+func (f *fakeOcean) points() [][2]float64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][2]float64(nil), f.seen...)
+}
+
 type fakePlaces struct {
 	down      bool
-	blockByID bool // ByID hangs until its context ends
+	blockByID bool                                        // ByID hangs until its context ends
+	nearest   func(lat, lng float64) (places.Place, bool) // when set, answers Nearest
 }
 
 var lisbon = places.Place{ID: 1, Name: "Lisbon", Admin1: "Lisbon", Country: "PT", Lat: 38.72, Lng: -9.14}
@@ -110,6 +145,10 @@ func (f *fakePlaces) Search(_ context.Context, q string) ([]places.Place, error)
 func (f *fakePlaces) Nearest(_ context.Context, lat, lng float64) (places.Place, bool, error) {
 	if f.down {
 		return places.Place{}, false, errDown
+	}
+	if f.nearest != nil {
+		p, ok := f.nearest(lat, lng)
+		return p, ok, nil
 	}
 	p := lisbon
 	p.DistanceKm = climate.DistanceKm(lat, lng, p.Lat, p.Lng)

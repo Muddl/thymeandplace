@@ -13,9 +13,8 @@ import (
 
 	"thymeandplace/internal/cache"
 	"thymeandplace/internal/catalog"
+	"thymeandplace/internal/cellinput"
 	"thymeandplace/internal/climate"
-	"thymeandplace/internal/ocean"
-	"thymeandplace/internal/places"
 	"thymeandplace/internal/season"
 	"thymeandplace/internal/web/views"
 )
@@ -25,13 +24,15 @@ const (
 	nearKm         = 50 // "near X" only when X is this close
 )
 
-// seasonCore is the cached, location-and-month specific part of /season.
+// seasonCore is the cached part of /season. It depends only on its key
+// (query cell, month, data version): every input comes from the query cell
+// (internal/cellinput), never from the request's exact point. The heading
+// label is not part of it; it is looked up per request.
 type seasonCore struct {
-	Cell       int
+	QueryCell  int
 	HasNormals bool
 	Supported  bool
 	Results    []season.Result
-	NearLabel  string
 }
 
 func parseLatLng(latS, lngS string) (float64, float64, bool) {
@@ -105,6 +106,8 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	month := s.monthFor(q.Get("date"))
+	date := s.validDate(q.Get("date"))
+	retry := seasonRetryURL(lat, lng, q.Get("place"), date)
 	queryCell := climate.CellID(lat, lng)
 	SetCellID(ctx, queryCell)
 
@@ -114,88 +117,76 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 	version := s.d.DataVersion()
 	snap := s.d.Snapshot()
 	if snap == nil {
-		s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), r.URL.RequestURI()))
+		s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), retry))
 		return
 	}
 	key := cache.Key{CellID: queryCell, Month: month, DataVersion: version}
 	core, hit := s.cache.Get(key)
 	if !hit {
-		// One slot covers compute's sequential queries.
-		err := s.withDB(ctx, func(ctx context.Context) error {
-			var err error
-			core, err = s.compute(ctx, lat, lng, month, snap)
-			return err
-		})
+		in, err := s.inputsFor(ctx, queryCell, version)
 		if errors.Is(err, errBusy) {
-			s.overloaded(w, r, "Seasons", coords(lat, lng), r.URL.RequestURI())
+			s.overloaded(w, r, "Seasons", coords(lat, lng), retry)
 			return
 		}
 		if err != nil {
 			s.d.Log.Warn("season lookup failed", "err", err, "request_id", RequestIDFrom(ctx), "cell_id", queryCell)
-			s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), r.URL.RequestURI()))
+			s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), retry))
 			return
 		}
+		core = s.compute(ctx, in, month, snap)
 		s.cache.Add(key, core)
 	}
 	if !core.Supported {
 		s.render(w, r, http.StatusOK, "Seasons", "", nil, s.unsupported())
 		return
 	}
-	vm := s.seasonVM(ctx, core, snap, month, q.Get("place"), lat, lng, s.validDate(q.Get("date")))
+	vm := s.seasonVM(ctx, core, snap, month, q.Get("place"), lat, lng, date)
 	s.renderPage(w, r, http.StatusOK, vm.Label, views.SeasonDescription(vm.Label, vm.MonthName), "", nil, views.Season(vm))
 }
 
-func (s *Server) compute(ctx context.Context, lat, lng float64, month time.Month, snap *catalog.Snapshot) (seasonCore, error) {
-	l, err := s.d.Climate.Normals(ctx, lat, lng)
-	if err != nil {
-		return seasonCore{}, err
+// compute runs the engine on a cell's inputs. It makes no lookups of its
+// own, so the result is a function of the cache key.
+func (s *Server) compute(ctx context.Context, in cellinput.Inputs, month time.Month, snap *catalog.Snapshot) seasonCore {
+	results := s.d.Adjuster.Adjust(ctx, in.NormalsCell, season.Estimate(in.Engine(month), snap))
+	return seasonCore{
+		QueryCell: in.QueryCell, HasNormals: in.Normals != nil, Supported: in.Supported(), Results: results,
 	}
-	// With seafood off there is no ocean lookup: no ecoregion is ever in
-	// reach, so only land cells are supported.
-	var eco []ocean.EcoregionID
-	if s.d.Seafood {
-		if eco, err = s.d.Ocean.Nearby(ctx, lat, lng); err != nil {
-			return seasonCore{}, err
-		}
-	}
-	in := season.Input{Normals: l.Normals, Ecoregions: eco, Month: month}
-	results := s.d.Adjuster.Adjust(ctx, l.Cell, season.Estimate(in, snap))
-	core := seasonCore{
-		Cell: l.Cell, HasNormals: l.Normals != nil, Supported: l.Normals != nil || len(eco) > 0, Results: results,
-	}
-	if p, ok, err := s.d.Places.Nearest(ctx, lat, lng); err == nil && ok && p.DistanceKm <= nearKm {
-		core.NearLabel = "near " + p.Label()
-	}
-	return core, nil
 }
 
-// placeLookupTimeout bounds the ?place= lookup so a hung places query can't
-// eat the whole request budget; on failure the label falls back.
+// placeLookupTimeout bounds the label's place lookups so a hung places query
+// can't eat the whole request budget; on failure the label falls back.
 const placeLookupTimeout = 300 * time.Millisecond
 
-func (s *Server) label(ctx context.Context, placeParam string, core seasonCore, lat, lng float64) string {
-	if id, err := strconv.ParseInt(placeParam, 10, 32); err == nil {
-		pctx, cancel := context.WithTimeout(ctx, placeLookupTimeout)
-		var p places.Place
-		var ok bool
-		// A full DB gate (errBusy) just falls back, like any lookup failure:
-		// the label never fails the request.
-		err := s.withDB(pctx, func(ctx context.Context) error {
-			var err error
-			p, ok, err = s.d.Places.ByID(ctx, int32(id))
-			return err
-		})
-		cancel()
-		// Only a place near the requested point may label it (a crafted or
-		// mismatched URL must not call mid-ocean results "Lisbon").
-		if err == nil && ok && climate.DistanceKm(lat, lng, p.Lat, p.Lng) <= nearKm {
-			return p.Label()
+// label names the requested point: the ?place= selection if it is within
+// nearKm of the point, else the nearest place within nearKm ("near X"), else
+// coordinates. It runs per request and is never cached. Both lookups share
+// one placeLookupTimeout and one DB gate slot. A full gate, a hung query or
+// an outage falls back to coordinates and never fails the request.
+func (s *Server) label(ctx context.Context, placeParam string, lat, lng float64) string {
+	pctx, cancel := context.WithTimeout(ctx, placeLookupTimeout)
+	defer cancel()
+	name := ""
+	_ = s.withDB(pctx, func(ctx context.Context) error {
+		if id, err := strconv.ParseInt(placeParam, 10, 32); err == nil {
+			// Only a place near the requested point may label it (a crafted
+			// or mismatched URL must not call mid-ocean results "Lisbon").
+			if p, ok, err := s.d.Places.ByID(ctx, int32(id)); err == nil && ok && climate.DistanceKm(lat, lng, p.Lat, p.Lng) <= nearKm {
+				name = p.Label()
+				return nil
+			}
 		}
+		if ctx.Err() != nil { // the shared budget is spent; don't start another query
+			return nil
+		}
+		if p, ok, err := s.d.Places.Nearest(ctx, lat, lng); err == nil && ok && p.DistanceKm <= nearKm {
+			name = "near " + p.Label()
+		}
+		return nil
+	})
+	if name == "" {
+		return coords(lat, lng)
 	}
-	if core.NearLabel != "" {
-		return core.NearLabel
-	}
-	return coords(lat, lng)
+	return name
 }
 
 var groupOrder = []struct {
@@ -206,7 +197,7 @@ var groupOrder = []struct {
 }
 
 func (s *Server) seasonVM(ctx context.Context, core seasonCore, snap *catalog.Snapshot, month time.Month, placeParam string, lat, lng float64, date string) views.SeasonVM {
-	vm := views.SeasonVM{Label: s.label(ctx, placeParam, core, lat, lng), MonthName: month.String()}
+	vm := views.SeasonVM{Label: s.label(ctx, placeParam, lat, lng), MonthName: month.String()}
 	byStatus := map[season.Status][]views.Item{}
 	var seafood []views.Item
 	growing := 0
@@ -217,7 +208,7 @@ func (s *Server) seasonVM(ctx context.Context, core seasonCore, snap *catalog.Sn
 		}
 		it := views.Item{
 			Name: ing.Name, StatusClass: views.StatusClass(res.Status), Basis: res.Basis,
-			URL: ingredientURL(res.Slug, core.Cell, date), Estimate: res.Estimate,
+			URL: ingredientURL(res.Slug, core.QueryCell, date), Estimate: res.Estimate,
 		}
 		if ing.Kind == catalog.KindSeafood {
 			seafood = append(seafood, it)

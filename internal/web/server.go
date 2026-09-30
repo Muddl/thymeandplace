@@ -17,6 +17,7 @@ import (
 
 	"thymeandplace/internal/cache"
 	"thymeandplace/internal/catalog"
+	"thymeandplace/internal/cellinput"
 	"thymeandplace/internal/climate"
 	"thymeandplace/internal/ocean"
 	"thymeandplace/internal/places"
@@ -27,7 +28,6 @@ import (
 
 type Climate interface {
 	Normals(ctx context.Context, lat, lng float64) (climate.Lookup, error)
-	ForCell(ctx context.Context, id int) (*climate.MonthlyNormals, error)
 }
 
 type Ocean interface {
@@ -89,14 +89,17 @@ const (
 var errBusy = errors.New("public DB gate full")
 
 type Server struct {
-	d     Deps
-	cache *cache.Cache[cache.Key, seasonCore]
-	cells *cache.Cache[cache.CellKey, cellInputs]
-	gate  chan struct{} // one token per public DB slot
+	d      Deps
+	cache  *cache.Cache[cache.Key, seasonCore]
+	cells  *cache.Cache[cache.CellKey, cellinput.Inputs]
+	inputs cellinput.Resolver
+	gate   chan struct{} // one token per public DB slot
 
 	shedMu   sync.Mutex
 	shedN    int       // requests shed since the last log line
 	shedLast time.Time // when the last "public DB gate full" line went out
+
+	ready pingCache // #13: one shared DB ping for /readyz
 }
 
 // New returns the public handler with its own middleware (§11.4):
@@ -121,8 +124,19 @@ func New(d Deps) http.Handler {
 	s := &Server{
 		d:     d,
 		cache: cache.New[cache.Key, seasonCore](cache.DefaultSize),
-		cells: cache.New[cache.CellKey, cellInputs](cache.CellSize),
+		cells: cache.New[cache.CellKey, cellinput.Inputs](cache.CellSize),
 		gate:  make(chan struct{}, d.DBSlots),
+	}
+	s.inputs = cellinput.Resolver{Climate: d.Climate}
+	// With seafood off there is no ocean lookup: no ecoregion is ever in
+	// reach, so only land cells are supported.
+	if d.Seafood {
+		// Resolve skips a nil finder, so a missing Ocean would quietly turn
+		// seafood off; fail at startup instead.
+		if d.Ocean == nil {
+			panic("web: Seafood needs an Ocean")
+		}
+		s.inputs.Ocean = d.Ocean
 	}
 	assetVersionOnce.Do(func() { views.AssetVersion = hashFS(static.FS) })
 
@@ -147,7 +161,7 @@ func New(d Deps) http.Handler {
 	h = Timeout(d.timeout)(h)
 	h = NewRateLimiter(nil).Middleware(d.TrustProxy, PublicLimits, s.tooMany)(h)
 	h = Recover(d.Log, func(w http.ResponseWriter, r *http.Request) {
-		s.render(w, r, http.StatusInternalServerError, "Something went wrong", "", nil, views.LoadError("", r.URL.RequestURI()))
+		s.render(w, r, http.StatusInternalServerError, "Something went wrong", "", nil, views.LoadError("", s.retryURL(r)))
 	})(h)
 	return h
 }
@@ -296,7 +310,9 @@ func (s *Server) tooMany(w http.ResponseWriter, r *http.Request) {
 
 // withDB runs f while holding a public DB slot. It waits at most gateWait
 // (or until ctx ends) for a slot, then returns errBusy without calling f.
-// Cache hits, health checks, static files and /admin never go through it.
+// The /season label goes through it on every request, cache hits included,
+// and falls back on errBusy. Other cache hits, health checks, static files
+// and /admin never go through it.
 func (s *Server) withDB(ctx context.Context, f func(context.Context) error) error {
 	select {
 	case s.gate <- struct{}{}:
@@ -317,8 +333,9 @@ func (s *Server) withDB(ctx context.Context, f func(context.Context) error) erro
 	return f(ctx)
 }
 
-// shed counts a shed request and logs at most one line a minute with the
-// count, so an overload never floods the log.
+// shed counts a lookup the gate turned away (a 503, or a label that fell
+// back) and logs at most one line a minute with the count, so an overload
+// never floods the log.
 func (s *Server) shed() {
 	s.shedMu.Lock()
 	defer s.shedMu.Unlock()
@@ -341,16 +358,17 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
+// readyz answers ready when a catalog snapshot is loaded and the database
+// answered a ping in the last second (sharedPing). The snapshot check is
+// free and never cached.
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
-	defer cancel()
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if s.d.Snapshot() == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("catalog not loaded"))
 		return
 	}
-	if err := s.d.Ping(ctx); err != nil {
+	if err := s.sharedPing(r.Context()); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("database unavailable"))
 		return

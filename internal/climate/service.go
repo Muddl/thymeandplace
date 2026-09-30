@@ -19,7 +19,9 @@ func DistanceKm(lat1, lng1, lat2, lng2 float64) float64 {
 }
 
 // PickNearest returns own if it has data, otherwise the neighbour of own
-// whose centre is nearest (lat, lng). Ties go to the lower cell ID.
+// whose centre is nearest (lat, lng). Ties go to the lower cell ID. Public
+// callers pass the centre of the query cell (internal/cellinput), so the
+// result depends only on the cell.
 func PickNearest(lat, lng float64, own int, cells map[int]MonthlyNormals) (int, bool) {
 	if _, ok := cells[own]; ok {
 		return own, true
@@ -73,23 +75,6 @@ func (s *Service) Normals(ctx context.Context, lat, lng float64) (Lookup, error)
 	}
 	n := cells[id]
 	return Lookup{QueryCell: own, Cell: id, Normals: &n}, nil
-}
-
-// ForCell returns the normals stored for exactly one cell, or nil.
-func (s *Service) ForCell(ctx context.Context, id int) (*MonthlyNormals, error) {
-	rows, err := store.CellsIn(ctx, s.db, liveView, []int32{int32(id)})
-	if err != nil {
-		return nil, fmt.Errorf("climate cell: %w", err)
-	}
-	cells, err := CellsToNormals(rows)
-	if err != nil {
-		return nil, err
-	}
-	n, ok := cells[id]
-	if !ok {
-		return nil, nil
-	}
-	return &n, nil
 }
 
 // CellsToNormals converts rows, rejecting arrays that are not 12 long.

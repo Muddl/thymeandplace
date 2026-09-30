@@ -90,6 +90,7 @@ thymeandplace/
     climate/           # lat/lng → cell ID → monthly normals
     ocean/             # lat/lng → nearby marine ecoregions
     places/            # city search, reverse lookup
+    cellinput/         # query cell → engine inputs, looked up at the cell centre
     season/            # pure engine + Adjuster interface
     auth/              # WebAuthn, password+TOTP, sessions, CSRF
     store/             # sqlc-generated queries behind small interfaces
@@ -118,6 +119,7 @@ thymeandplace/
 | `changeset` | Represents a set of upserts/deletes; validates against constraints and live ecoregions; computes the field-level diff; runs the preview; applies in one transaction | `catalog`, `calibration`, `season`, `store` |
 | `calibration` | Scores a catalog snapshot against fixtures (mean Jaccard) | `season`, embedded fixtures |
 | `climate` / `ocean` / `places` | As in §6 | `store` |
+| `cellinput` | Query cell → engine inputs (normals with fallback, nearby ecoregions), looked up at the cell centre. `/season`, `/ingredient` and calibration all resolve through it | `climate`, `ocean`, `season` types |
 | `season` | `Estimate(input, snapshot, month) []Result`; pure, no I/O | `catalog` types only |
 | `auth` | Passkey registration and login, backup login, sessions, CSRF, enrollment tokens | `store` |
 | `store` | All SQL via `sqlc`; exposes narrow interfaces | `pgx` |
@@ -155,7 +157,7 @@ CREATE TABLE climate_cell_v{N} (
 CREATE VIEW climate_cell AS SELECT * FROM climate_cell_v{N};
 ```
 
-Nearest-land fallback: if `cell_id` is absent, check the 8 neighboring cells and use the one whose center is nearest the query point. If none exist, the location is unsupported (§11).
+Nearest-land fallback: if `cell_id` is absent, check the 8 neighboring cells and use the one whose center is nearest **the centre of the query cell** (ties to the lower cell ID). If none exist, the location is unsupported (§11).
 
 ### 6.2 Marine ecoregions
 
@@ -169,7 +171,7 @@ CREATE INDEX ON ocean_ecoregion_v{N} USING gist (geom);
 CREATE VIEW ocean_ecoregion AS SELECT * FROM ocean_ecoregion_v{N};
 ```
 
-"Nearby" means `ST_DWithin(geom, point, 100000)`, i.e. within **100 km**. Inland points return none, and the seafood section is omitted.
+"Nearby" means `ST_DWithin(geom, centre, 100000)`, i.e. within **100 km**, where centre is the centre of the query cell. Inland points return none, and the seafood section is omitted.
 
 ### 6.3 Places
 
@@ -332,7 +334,7 @@ CREATE TABLE catalog_meta (
 
 ### 8.4 In-memory snapshot
 
-At startup, and on each version change, `catalog` loads all three tables into an immutable `Snapshot`, validates it at the app level, and swaps it in atomically. If a reload fails validation, the previous snapshot stays live and an error is logged. At startup there is no previous snapshot, so `/readyz` returns 503 until a valid load succeeds.
+At startup, and on each version change, `catalog` loads all three tables into an immutable `Snapshot`, validates it at the app level, and swaps it in atomically. If a reload fails validation, the previous snapshot stays live and an error is logged. At startup there is no previous snapshot, so the server doesn't listen until a valid load succeeds (§11.6).
 
 ### 8.5 Launch catalog
 
@@ -454,13 +456,13 @@ The audit tables are append-only for the app's database role: it can read `catal
 | `GET /` | Full page: search box, "Use my location" button, empty results region |
 | `GET /places?q=` | Partial: up to 8 matches (`hx-trigger="keyup changed delay:250ms"`) |
 | `GET /season?lat=&lng=&date=` | Partial: location header + in-season list grouped Peak / In season / From storage / Year-round, with seafood as its own group |
-| `GET /ingredient/{slug}?cell=&date=` | Partial: tips, pairings, 12-month season bar, disclaimer or note |
+| `GET /ingredient/{slug}?cell=&date=` | Partial: tips, pairings, 12-month season bar, disclaimer or note. `cell` is the query cell of the `/season` page that linked it |
 | `GET /about/data` | Full page: sources, licenses, attribution, how estimates work, privacy |
 | `GET /robots.txt` | Plain text: disallows `/admin`, `/places` and the health checks; points to the sitemap |
 | `GET /sitemap.xml` | The home and About pages, plus a season page for each calibration city |
 | `GET /llms.txt` | Markdown summary for language models (llmstxt.org): what the site does, how far to trust it, featured season pages and the ingredient list. Follows the seafood flag (§11.7) |
 | `GET /healthz` | 200 if the process is up |
-| `GET /readyz` | 200 if the DB ping succeeds within 500 ms and a catalog snapshot is loaded |
+| `GET /readyz` | 200 if a catalog snapshot is loaded and a database ping succeeded within the last second (one shared ping, reused for 1 s; each ping times out after 500 ms) |
 
 Requests without an `HX-Request` header get full-page versions of `/season` and `/ingredient`, so URLs are shareable and indexable. The absolute URLs in `robots.txt`, `sitemap.xml` and `llms.txt` use `PUBLIC_BASE_URL` (default: the admin origin, `https://thymeand.place`).
 
@@ -468,13 +470,14 @@ Requests without an `HX-Request` header get full-page versions of `/season` and 
 
 1. Validate lat/lng; compute `cell_id`.
 2. Cache lookup on `(cell_id, month, dataVersion)`. On a hit, render.
-3. On a miss: `climate.Normals` (with fallback), `ocean.Nearby`, `season.Estimate` against the current snapshot, `Adjuster.Adjust`, then cache and render. The miss's queries run while holding one public DB slot (§11.4).
-4. Place label: from the search selection if present, otherwise `places.Nearest`. The selection lookup also takes a DB slot; if none is free it falls back like any failed lookup.
+3. On a miss: resolve the query cell's inputs at its centre (`cellinput`: `climate.Normals` with fallback, `ocean.Nearby`), through the per-cell input cache (§11.3); then `season.Estimate` against the current snapshot, `Adjuster.Adjust`, cache and render. The input lookup holds one public DB slot (§11.4).
+4. Place label, per request and never cached: the search selection if it is within 50 km of the point, else `places.Nearest` of the requested point within 50 km, else coordinates; one 300 ms budget. The label's lookups share one DB slot; if none is free it falls back to coordinates like any failed lookup.
 
 ### 11.3 Caching
 
 - In-process LRU, **50,000 entries**.
-- `/ingredient` keeps a second LRU of **20,000** per-cell inputs (climate normals and ecoregions, including cells with no normals), keyed by `(cell_id, dataVersion)`. Failures aren't cached.
+- A second LRU of **20,000** per-cell inputs (climate normals and ecoregions, including cells with no normals), keyed by `(cell_id, dataVersion)`, serves `/ingredient` and `/season` misses. Failures aren't cached.
+- The cached value depends only on its key. No lookup behind it uses the request's exact coordinates.
 - The data version refreshes on `LISTEN data_version_changed`, with a 5-minute poll as a fallback for missed notifications. The `LISTEN` session uses its own connection, outside the pool.
 - A version change makes older keys unreachable, and LRU eviction reclaims them.
 
@@ -488,7 +491,7 @@ Public rate limits (token bucket, per IP):
 
 Over the limit returns 429 with `Retry-After`.
 
-**Load shedding (public DB gate).** Public database work (cache misses on `/season` and `/ingredient`, `/places` searches, the `/season` place label) holds one of a fixed number of slots: three quarters of the server pool, **12 of 16**. A request waits at most **250 ms** for a slot, then gets the retry panel with **503** and `Retry-After: 5`. Cache hits, health checks, static files and `/admin` don't use the gate, so a public spike can't starve the owner. Shedding logs one sampled `INFO "public DB gate full"` line a minute at most.
+**Load shedding (public DB gate).** Public database work (cache misses on `/season` and `/ingredient`, `/places` searches, the `/season` place label) holds one of a fixed number of slots: three quarters of the server pool, **12 of 16**. A request waits at most **250 ms** for a slot, then gets the retry panel with **503** and `Retry-After: 5`. The place label runs on every supported `/season` request, cache hits included (§11.2 step 4); when no slot is free it falls back to coordinates instead of failing. Other cache hits, health checks, static files and `/admin` don't use the gate, so a public spike can't starve the owner. Shedding, including label fallbacks, logs one sampled `INFO "public DB gate full"` line a minute at most.
 
 ### 11.5 HTMX
 
@@ -506,11 +509,12 @@ Principle: the surrounding page stays usable, and every message says what happen
 | Inland | 200 | Seafood group omitted, with no message |
 | Harsh climate, little in season | 200 | "Not much grows locally this time of year. Here's what's still around." + year-round, storage, and seafood items |
 | Invalid lat/lng/date | 400 | Same panel as the unsupported spot |
+| DB unavailable on cache hit | 200 | Results as normal; the heading shows coordinates |
 | DB unavailable on cache miss | 503 | Warning panel in the results area: "Couldn't load seasonal picks right now. Try again in a moment." + "Try again" (re-issues the same request). Location header stays. |
 | Overloaded (no public DB slot within 250 ms) | 503 + `Retry-After: 5` | Same panel as a DB outage, returned at once. `/places` shows "Search isn't available right now. Try again in a moment." |
 | Unexpected error or panic | 500 | Same panel as 503. Logged with request ID. |
 | Rate limited | 429 | Under the search box: "Search is pausing for a few seconds. Keep typing and results will catch up." Resumes automatically. |
-| No catalog snapshot loaded | 503 | `/readyz` fails, so Compose holds traffic. The site is not served. |
+| No catalog snapshot loaded | 503 | The server doesn't listen until a snapshot loads, so Caddy serves the maintenance page. |
 | Ingestion validation failure | — | Pipeline exits non-zero naming dataset and step. Live data unchanged. |
 
 Admin errors follow the same style: validation errors appear inline next to their fields, and a stale changeset shows "The catalog changed since this preview. Preview again."
@@ -605,8 +609,9 @@ Property tests:
 
 - About 15 real locations across both hemispheres and several climate types. Each fixture holds per-ingredient months from a published seasonal guide, with the source recorded in the fixture file.
 - Score: mean per-ingredient Jaccard overlap between engine months and guide months, over ingredients present in both.
+- Each fixture's point selects its cell. Inputs are resolved exactly as for `/season`.
 - **Where it runs:** the catalog lives in the database, so calibration gates changes at **apply time** in the admin preview (§9.2), not in CI. CI tests the scoring code itself against a fixed test catalog in `testdata/`.
-- **Production drift check:** a daily in-app job scores the live snapshot, stores the result in `calibration_run` (time, data version, score), and logs at `WARN` if the score is lower than the previous run by more than 0.02. This catches score changes that come from reference-data swaps rather than catalog edits.
+- **Production drift check:** a daily in-app drift check runs 24 h after the last recorded run (or at once if none is that recent), waits for the catalog snapshot, and retries failures after 1 min, doubling to 1 h. It scores the live snapshot, stores the result in `calibration_run` (time, data version, score), and logs at `WARN` if the score is lower than the previous run by more than 0.02. This catches score changes that come from reference-data swaps rather than catalog edits.
 
 ### 13.3 Catalog and changeset tests
 
@@ -639,7 +644,7 @@ Property tests:
 
 ### 13.7 Cache tests
 
-A version change (from a catalog edit or a dataset swap) makes old keys unreachable. A missed notification is corrected by the poll.
+A version change (from a catalog edit or a dataset swap) makes old keys unreachable. A missed notification is corrected by the poll. Two points in one cell get identical results in either request order.
 
 ### 13.8 Web tests
 
@@ -665,9 +670,10 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 - Migrations: `goose` runs in the one-shot `migrate` service as `tp_owner`, before the app starts; the app refuses to serve while migrations are pending. Migrations must be backward-compatible with the previous app version.
 - Backups: nightly `pg_dump` (including the catalog and admin tables) to the S3-compatible bucket, keeping 7 daily and 4 weekly copies. A restore test is run manually before launch. Catalog JSON exports are a convenience, not the backup.
 - Connection budget: app pool 16 (2 kept open; `DB_MAX_CONNS` overrides) + the app's `LISTEN` connection 1 + `ingest` or `devseed` 4 + admin CLI 4 + backup 1 + `psql` sessions, about 30 in all, well under Postgres's default `max_connections` of 100. A `pool_max_conns` in `DATABASE_URL` wins over a binary's default. A k6 load test (`deploy/loadtest/`) checks the §1 latency targets before launch; results go in `docs/capacity-baseline.md`.
-- Health: Compose health checks on `/healthz` (restart) and `/readyz` (traffic).
+- Health: Docker and Caddy probe `/healthz`. `/readyz` is for monitoring and does not gate traffic.
+- Client IP: the app trusts exactly one proxy hop (Caddy) and uses the rightmost `X-Forwarded-For` entry. Putting any proxy in front of Caddy requires changing that first.
 - Logs: JSON `slog` to stdout. Public request lat/lng is logged only as `cell_id`.
-- The app prunes admin audit (90 days), session and enrollment-token rows daily, starting at boot.
+- The app prunes admin audit (90 days), session and enrollment-token rows daily, starting at boot; failures retry after 1 min, doubling to 1 h.
 
 ## 15. Privacy
 
@@ -693,7 +699,9 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Ocean query target | p95 ≤ 25 ms (else subdivide polygons at ingest) |
 | Public request timeout | 2 s |
 | Public rate limits | `/places` 10/s burst 20; `/season`, `/ingredient` 2/s burst 10 |
+| Readiness ping reuse | 1 s |
 | Calibration override threshold | score drop > 0.02 |
+| Drift check | every 24 h from the last recorded run; retry 1 min doubling to 1 h |
 | Pending changeset expiry | 1 hour |
 | Import size limit | 5 MB |
 | Enrollment link TTL | 15 minutes |

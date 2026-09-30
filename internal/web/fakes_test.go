@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,10 +32,18 @@ type fakeClimate struct {
 	hold    chan struct{} // when set, wait until it is closed (or the context ends)
 	entered chan struct{} // when set, receives once per call that starts waiting on hold
 	calls   atomic.Int32
+	// cells, when set, holds the only cells with normals, and Normals
+	// applies the real nearest-land fallback (climate.PickNearest) to them.
+	cells map[int]climate.MonthlyNormals
+	mu    sync.Mutex
+	seen  [][2]float64 // every point Normals was asked about
 }
 
 func (f *fakeClimate) Normals(ctx context.Context, lat, lng float64) (climate.Lookup, error) {
 	f.calls.Add(1)
+	f.mu.Lock()
+	f.seen = append(f.seen, [2]float64{lat, lng})
+	f.mu.Unlock()
 	if f.panic {
 		panic("climate exploded")
 	}
@@ -55,6 +64,15 @@ func (f *fakeClimate) Normals(ctx context.Context, lat, lng float64) (climate.Lo
 	if f.down {
 		return climate.Lookup{}, errDown
 	}
+	if f.cells != nil {
+		own := climate.CellID(lat, lng)
+		id, ok := climate.PickNearest(lat, lng, own, f.cells)
+		if !ok {
+			return climate.Lookup{QueryCell: own, Cell: own}, nil
+		}
+		n := f.cells[id]
+		return climate.Lookup{QueryCell: own, Cell: id, Normals: &n}, nil
+	}
 	cell := climate.CellID(lat, lng)
 	switch {
 	case lat < -50:
@@ -67,22 +85,32 @@ func (f *fakeClimate) Normals(ctx context.Context, lat, lng float64) (climate.Lo
 	return climate.Lookup{QueryCell: cell, Cell: cell, Normals: &n}, nil
 }
 
-func (f *fakeClimate) ForCell(ctx context.Context, id int) (*climate.MonthlyNormals, error) {
-	lat, lng := climate.CellCenter(id)
-	l, err := f.Normals(ctx, lat, lng)
-	return l.Normals, err
+func (f *fakeClimate) points() [][2]float64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][2]float64(nil), f.seen...)
 }
 
-// fakeOcean: ecoregions 25 and 30 west of the prime meridian.
+// fakeOcean: ecoregions 25 and 30 west of the prime meridian, unless reach
+// is set.
 type fakeOcean struct {
 	down  bool
+	reach func(lat, lng float64) []ocean.EcoregionID
 	calls atomic.Int32
+	mu    sync.Mutex
+	seen  [][2]float64
 }
 
-func (f *fakeOcean) Nearby(_ context.Context, _, lng float64) ([]ocean.EcoregionID, error) {
+func (f *fakeOcean) Nearby(_ context.Context, lat, lng float64) ([]ocean.EcoregionID, error) {
 	f.calls.Add(1)
+	f.mu.Lock()
+	f.seen = append(f.seen, [2]float64{lat, lng})
+	f.mu.Unlock()
 	if f.down {
 		return nil, errDown
+	}
+	if f.reach != nil {
+		return f.reach(lat, lng), nil
 	}
 	if lng < 0 {
 		return []ocean.EcoregionID{25, 30}, nil
@@ -90,9 +118,16 @@ func (f *fakeOcean) Nearby(_ context.Context, _, lng float64) ([]ocean.Ecoregion
 	return nil, nil
 }
 
+func (f *fakeOcean) points() [][2]float64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][2]float64(nil), f.seen...)
+}
+
 type fakePlaces struct {
 	down      bool
-	blockByID bool // ByID hangs until its context ends
+	blockByID bool                                        // ByID hangs until its context ends
+	nearest   func(lat, lng float64) (places.Place, bool) // when set, answers Nearest
 }
 
 var lisbon = places.Place{ID: 1, Name: "Lisbon", Admin1: "Lisbon", Country: "PT", Lat: 38.72, Lng: -9.14}
@@ -110,6 +145,10 @@ func (f *fakePlaces) Search(_ context.Context, q string) ([]places.Place, error)
 func (f *fakePlaces) Nearest(_ context.Context, lat, lng float64) (places.Place, bool, error) {
 	if f.down {
 		return places.Place{}, false, errDown
+	}
+	if f.nearest != nil {
+		p, ok := f.nearest(lat, lng)
+		return p, ok, nil
 	}
 	p := lisbon
 	p.DistanceKm = climate.DistanceKm(lat, lng, p.Lat, p.Lng)
@@ -136,6 +175,10 @@ type harness struct {
 	pingErr error
 	version string
 	now     time.Time // the server clock
+
+	pings       atomic.Int32
+	pingHold    chan struct{} // when set, Ping waits until it is closed, ignoring its deadline
+	pingEntered chan struct{} // when set, receives once per Ping that starts waiting on pingHold
 }
 
 // newHarness builds the public handler over fakes. The server clock defaults
@@ -152,7 +195,7 @@ func newHarness(t *testing.T, opts ...func(*Deps)) *harness {
 		Climate: hs.climate, Ocean: hs.ocean, Places: hs.places,
 		Snapshot:    func() *catalog.Snapshot { return hs.snap },
 		DataVersion: func() string { return hs.version },
-		Ping:        func(context.Context) error { return hs.pingErr },
+		Ping:        hs.ping,
 		Now:         func() time.Time { return hs.now },
 		Log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		// Most tests cover the full site; seafoodOff gives the launch setup.
@@ -163,6 +206,27 @@ func newHarness(t *testing.T, opts ...func(*Deps)) *harness {
 	}
 	hs.h = New(d)
 	return hs
+}
+
+// ping is the fake Deps.Ping: it counts calls, fails at once on a done
+// context (like pgx), and when pingHold is set waits for it to close. The
+// wait ignores ctx, so a slow host can't turn sharedPing's real 500 ms
+// timeout into a test failure; the test always closes pingHold.
+func (hs *harness) ping(ctx context.Context) error {
+	hs.pings.Add(1)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if hs.pingHold != nil {
+		if hs.pingEntered != nil {
+			select { // never block: without sharing, 50 pings would arrive here
+			case hs.pingEntered <- struct{}{}:
+			default:
+			}
+		}
+		<-hs.pingHold
+	}
+	return hs.pingErr
 }
 
 // seafoodOff turns the seafood feature off, as at launch (FEATURE_SEAFOOD unset).

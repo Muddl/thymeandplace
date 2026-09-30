@@ -1,10 +1,16 @@
 package web
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"thymeandplace/internal/climate"
+	"thymeandplace/internal/climate/climatetest"
+	"thymeandplace/internal/ocean"
+	"thymeandplace/internal/places"
 	"thymeandplace/internal/web/views"
 )
 
@@ -117,8 +123,40 @@ func TestSeasonDatabaseDown(t *testing.T) {
 	hs.climate.down = true
 	code, body, _ := hs.get(lisbonQ+"&date=2026-08-15", true)
 	if code != 503 || !strings.Contains(body, views.CopyLoadError) || !strings.Contains(body, views.CopyTryAgain) ||
-		!strings.Contains(body, `hx-get="/season?lat=38.7200&lng=-9.1400&place=1&date=2026-08-15"`) ||
+		!strings.Contains(body, `hx-get="/season?lat=38.72&lng=-9.14&place=1&date=2026-08-15"`) ||
 		!strings.Contains(body, "38.72°N, 9.14°W") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
+// #15: the retry link carries only validated values, never the raw query.
+func TestSeasonRetryLinkDropsJunk(t *testing.T) {
+	hs := newHarness(t)
+	hs.climate.down = true
+	code, body, _ := hs.get("/season?lat=38.72&lng=-9.14&place=1&date=2026-08-15&x=javascript:alert(1)&utm=%22%3E", true)
+	want := `href="/season?lat=38.72&lng=-9.14&place=1&date=2026-08-15"`
+	if code != 503 || !strings.Contains(body, want) || strings.Contains(body, "javascript") || strings.Contains(body, "utm") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
+// #15: a stale date is dropped from the retry link, as it is from item links.
+func TestSeasonRetryLinkDropsStaleDate(t *testing.T) {
+	hs := newHarness(t)
+	hs.climate.down = true
+	code, body, _ := hs.get("/season?lat=38.72&lng=-9.14&date=1999-01-01", true)
+	if code != 503 || !strings.Contains(body, `href="/season?lat=38.72&lng=-9.14"`) || strings.Contains(body, "1999") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
+// #15: before the catalog loads, the coordinates are already validated, so
+// the retry link is rebuilt from them.
+func TestSeasonNoSnapshotRetryLink(t *testing.T) {
+	hs := newHarness(t)
+	hs.snap = nil
+	code, body, _ := hs.get("/season?lat=38.72&lng=-9.14&x=junk", true)
+	if code != 503 || !strings.Contains(body, `href="/season?lat=38.72&lng=-9.14"`) || strings.Contains(body, "junk") {
 		t.Fatalf("%d\n%s", code, body)
 	}
 }
@@ -129,11 +167,14 @@ func TestSeasonWarmCacheSurvivesOutage(t *testing.T) {
 	if code, _, _ := hs.get(lisbonQ+"&date=2026-08-15", true); code != 200 {
 		t.Fatal("warm-up failed")
 	}
-	calls := hs.climate.calls.Load()
+	calls, oceanCalls := hs.climate.calls.Load(), hs.ocean.calls.Load()
 	hs.climate.down, hs.ocean.down, hs.places.down = true, true, true
 	code, body, _ := hs.get(lisbonQ+"&date=2026-08-16", true)
-	if code != 200 || !strings.Contains(body, "Tomato") || hs.climate.calls.Load() != calls {
+	if code != 200 || !strings.Contains(body, "Tomato") || hs.climate.calls.Load() != calls || hs.ocean.calls.Load() != oceanCalls {
 		t.Fatalf("cached result not served during outage: %d", code)
+	}
+	if !strings.Contains(body, "38.72°N, 9.14°W") { // core spec §11.6: the label falls back
+		t.Fatalf("heading must fall back to coordinates during an outage:\n%s", body)
 	}
 	hs.version = "v2" // a data-version change makes the entry unreachable
 	if code, _, _ := hs.get(lisbonQ+"&date=2026-08-16", true); code != 503 {
@@ -144,8 +185,11 @@ func TestSeasonWarmCacheSurvivesOutage(t *testing.T) {
 func TestSeasonPanicRendersPanel(t *testing.T) {
 	hs := newHarness(t)
 	hs.climate.panic = true
-	code, body, _ := hs.get(lisbonQ, true)
-	if code != 500 || !strings.Contains(body, views.CopyLoadError) {
+	code, body, _ := hs.get(lisbonQ+"&date=2026-08-15&x=junk", true)
+	// #15: a panic's retry link is rebuilt from the validated query, so it
+	// reloads the page rather than landing on a bare /season 400.
+	if code != 500 || !strings.Contains(body, views.CopyLoadError) ||
+		!strings.Contains(body, `href="/season?lat=38.72&lng=-9.14&place=1&date=2026-08-15"`) || strings.Contains(body, "junk") {
 		t.Fatalf("%d\n%s", code, body)
 	}
 }
@@ -161,8 +205,15 @@ func TestSeasonFullPage(t *testing.T) {
 func TestSeasonItemLinksCarryCellAndDate(t *testing.T) {
 	hs := newHarness(t)
 	_, body, _ := hs.get(lisbonQ+"&date=2026-08-15", true)
-	if !strings.Contains(body, "/ingredient/tomato?cell=") || !strings.Contains(body, "&date=2026-08-15") {
+	if !strings.Contains(body, fmt.Sprintf("/ingredient/tomato?cell=%d&date=2026-08-15", lisbonCell)) {
 		t.Fatalf("item link:\n%s", body)
+	}
+	// A cell that falls back still links its own (query) cell.
+	hs = newHarness(t)
+	withFallbackCells(hs)
+	_, body, _ = hs.get("/season?lat=40.1&lng=-8.2&date=2026-08-15", true)
+	if !strings.Contains(body, fmt.Sprintf("?cell=%d&", fallbackCell)) || strings.Contains(body, fmt.Sprintf("?cell=%d&", fallbackCell-1)) {
+		t.Fatalf("fallback item link must carry the query cell:\n%s", body)
 	}
 }
 
@@ -178,7 +229,8 @@ func TestSeasonTimeoutRendersLoadError(t *testing.T) {
 }
 
 // Final review 1: a hung place lookup must not eat the whole budget; the
-// label falls back and the cached results still render.
+// label falls back and the cached results still render. The shared budget
+// runs out inside ByID, so Nearest is never tried.
 func TestSeasonHungPlaceLookupFallsBack(t *testing.T) {
 	hs := newHarness(t, shortTimeout)
 	if code, _, _ := hs.get(lisbonQ+"&date=2026-08-15", true); code != 200 {
@@ -186,7 +238,7 @@ func TestSeasonHungPlaceLookupFallsBack(t *testing.T) {
 	}
 	hs.places.blockByID = true
 	code, body, _ := hs.get(lisbonQ+"&date=2026-08-15", true)
-	if code != 200 || !strings.Contains(body, "Tomato") || !strings.Contains(body, "near Lisbon, PT") {
+	if code != 200 || !strings.Contains(body, "Tomato") || !strings.Contains(body, "38.72°N, 9.14°W") {
 		t.Fatalf("%d\n%q", code, body)
 	}
 }
@@ -202,5 +254,117 @@ func TestSeasonIgnoresDistantPlaceLabel(t *testing.T) {
 	_, body, _ = hs.get("/season?lat=38.80&lng=-9.10&place=1&date=2026-08-15", true)
 	if !strings.Contains(body, "<h2>Lisbon, PT</h2>") {
 		t.Fatalf("a nearby place keeps its own label:\n%s", body)
+	}
+}
+
+// Two points in fallbackCell (centre 40.125, −8.125): A in the west half,
+// B in the east half. February, so the small catalog's cod (months 1–4) is
+// in season wherever its ecoregion 25 is in reach.
+const (
+	qA = "/season?lat=40.1&lng=-8.2&date=2026-02-15"
+	qB = "/season?lat=40.1&lng=-8.05&date=2026-02-15"
+)
+
+func february(hs *harness) { hs.now = time.Date(2026, 2, 15, 12, 0, 0, 0, time.UTC) }
+
+// reachWestOf puts the edge of seafood reach at lng inside fallbackCell.
+func reachWestOf(edge float64) func(float64, float64) []ocean.EcoregionID {
+	return func(_, lng float64) []ocean.EcoregionID {
+		if lng < edge {
+			return []ocean.EcoregionID{25}
+		}
+		return nil
+	}
+}
+
+// Each row puts a boundary between A and B, which a result computed from
+// the first visitor's point would expose.
+var sameCellRows = []struct {
+	name  string
+	setup func(*harness)
+}{
+	{"fallback neighbour", withFallbackCells},
+	{"seafood reach", func(hs *harness) {
+		hs.climate.cells = map[int]climate.MonthlyNormals{fallbackCell: climatetest.Temperate()}
+		hs.ocean.reach = reachWestOf(-8.1) // centre and A in reach, B not
+	}},
+	{"supported", func(hs *harness) {
+		hs.climate.cells = map[int]climate.MonthlyNormals{}
+		hs.ocean.reach = reachWestOf(-8.1)
+	}},
+}
+
+var headingRE = regexp.MustCompile(`<h2>[^<]*</h2>`)
+
+// Spec §6: two points in one cell get identical results in either order.
+func TestSeasonSameCellSameResults(t *testing.T) {
+	for _, row := range sameCellRows {
+		t.Run(row.name, func(t *testing.T) {
+			var bodies []string
+			for _, order := range [][2]string{{qA, qB}, {qB, qA}} {
+				hs := newHarness(t)
+				february(hs)
+				row.setup(hs)
+				for _, q := range order {
+					code, body, _ := hs.get(q, true)
+					if code != 200 {
+						t.Fatalf("%s: %d", q, code)
+					}
+					bodies = append(bodies, headingRE.ReplaceAllString(body, ""))
+				}
+			}
+			for i, b := range bodies[1:] {
+				if b != bodies[0] {
+					t.Fatalf("response %d differs from response 0:\n%s\n----\n%s", i+1, bodies[0], b)
+				}
+			}
+		})
+	}
+}
+
+// Every reference-data lookup behind a result is at the query cell's centre.
+func TestSeasonLookupsUseCellCentre(t *testing.T) {
+	for _, p := range [][2]float64{{40.1, -8.2}, {40.1, -8.05}, {-33.87, 151.21}, {69.65, 18.96}, {0.01, -179.99}} {
+		hs := newHarness(t)
+		if code, _, _ := hs.get(fmt.Sprintf("/season?lat=%v&lng=%v&date=2026-08-15", p[0], p[1]), true); code != 200 {
+			t.Fatalf("%v: %d", p, code)
+		}
+		lat, lng := climate.CellCenter(climate.CellID(p[0], p[1]))
+		if len(hs.climate.points()) == 0 || len(hs.ocean.points()) == 0 {
+			t.Fatalf("%v: climate %v, ocean %v: want both looked up", p, hs.climate.points(), hs.ocean.points())
+		}
+		for _, got := range append(hs.climate.points(), hs.ocean.points()...) {
+			if got != [2]float64{lat, lng} {
+				t.Fatalf("point %v: lookup at %v, want centre (%v, %v)", p, got, lat, lng)
+			}
+		}
+	}
+}
+
+// The heading is this request's nearest place, never the first visitor's.
+func TestSeasonLabelPerRequest(t *testing.T) {
+	hs := newHarness(t)
+	x := places.Place{ID: 7, Name: "Xville", Country: "PT", Lat: 40.1, Lng: -8.2}
+	y := places.Place{ID: 8, Name: "Yton", Country: "PT", Lat: 40.1, Lng: -8.05}
+	hs.places.nearest = func(lat, lng float64) (places.Place, bool) {
+		p := y
+		if lng < -8.125 {
+			p = x
+		}
+		p.DistanceKm = climate.DistanceKm(lat, lng, p.Lat, p.Lng)
+		return p, true
+	}
+	if _, body, _ := hs.get("/season?lat=40.1&lng=-8.2&date=2026-08-15", true); !strings.Contains(body, "near Xville, PT") {
+		t.Fatalf("A:\n%s", body)
+	}
+	_, body, _ := hs.get("/season?lat=40.1&lng=-8.05&date=2026-08-15", true)
+	if !strings.Contains(body, "near Yton, PT") || strings.Contains(body, "Xville") {
+		t.Fatalf("B must get its own label:\n%s", body)
+	}
+	// Review Focus 1: places down on a cache hit.
+	hs.places.down = true
+	code, body, _ := hs.get("/season?lat=40.1&lng=-8.05&date=2026-08-15", true)
+	if code != 200 || !strings.Contains(body, "40.10°N, 8.05°W") || !strings.Contains(body, "Tomato") {
+		t.Fatalf("places down on a cache hit: %d\n%s", code, body)
 	}
 }

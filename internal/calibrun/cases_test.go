@@ -33,3 +33,36 @@ func TestCases(t *testing.T) {
 		t.Fatalf("sea = %+v", cases[2].Input)
 	}
 }
+
+type centreProbe struct{ got [][2]float64 }
+
+func (c *centreProbe) Normals(_ context.Context, lat, lng float64) (climate.Lookup, error) {
+	c.got = append(c.got, [2]float64{lat, lng})
+	return climate.Lookup{QueryCell: climate.CellID(lat, lng), Cell: climate.CellID(lat, lng)}, nil
+}
+
+func (c *centreProbe) Nearby(_ context.Context, lat, lng float64) ([]ocean.EcoregionID, error) {
+	c.got = append(c.got, [2]float64{lat, lng})
+	return nil, nil
+}
+
+// Spec §4.5: each fixture's point selects its cell, and inputs are resolved
+// at the cell centre exactly as /season does.
+func TestCasesResolveAtCellCentre(t *testing.T) {
+	fx := []calibration.Fixture{{ID: "a", Name: "A", Lat: 40.1, Lng: -8.2, Source: "s"}, {ID: "b", Name: "B", Lat: -33.87, Lng: 151.21, Source: "s"}}
+	p := &centreProbe{}
+	if _, err := Cases(context.Background(), fx, p, p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.got) != 4 {
+		t.Fatalf("lookups: %v", p.got)
+	}
+	for i, f := range fx {
+		lat, lng := climate.CellCenter(climate.CellID(f.Lat, f.Lng))
+		for _, got := range p.got[2*i : 2*i+2] {
+			if got != [2]float64{lat, lng} {
+				t.Fatalf("fixture %s looked up at %v, want (%v, %v)", f.ID, got, lat, lng)
+			}
+		}
+	}
+}

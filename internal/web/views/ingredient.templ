@@ -2,7 +2,7 @@ package views
 
 templ Ingredient(vm IngredientVM) {
 	<article class="ingredient">
-		<p><a href={ templ.SafeURL(vm.BackURL) } hx-get={ vm.BackURL } hx-target="#results" hx-push-url="true">Back to the list</a></p>
+		<p><a href={ templ.URL(vm.BackURL) } hx-get={ vm.BackURL } hx-target="#results" hx-push-url="true">Back to the list</a></p>
 		<h2>{ vm.Name }</h2>
 		<p class="category">{ vm.Category }</p>
 		<ol class="bar" aria-label="Season by month">
@@ -32,7 +32,7 @@ templ Ingredient(vm IngredientVM) {
 			<h3>Goes well with</h3>
 			<ul class="pairings">
 				for _, p := range vm.Pairings {
-					<li><a href={ templ.SafeURL(p.URL) } hx-get={ p.URL } hx-target="#results" hx-push-url="true">{ p.Name }</a></li>
+					<li><a href={ templ.URL(p.URL) } hx-get={ p.URL } hx-target="#results" hx-push-url="true">{ p.Name }</a></li>
 				}
 			</ul>
 		}

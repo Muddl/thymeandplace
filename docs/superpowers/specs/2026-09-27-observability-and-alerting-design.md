@@ -185,7 +185,7 @@ A future metrics endpoint must use its own port. Caddy must never proxy that por
 ### 4.8 Related findings
 
 - **F13 (`/readyz` exposure).** The watchdog calls `web.CheckReady` in-process and needs no route. Only the external monitor's URL depends on F13 (§4.6).
-- **F23 (drift loop timing).** The `drift` check's period follows what F23 ships: 1 day with 2 h grace, or a cron schedule if F23 pins a time of day. Until then, a restart that starts the loop before the snapshot loads sends a truthful `drift check failed: ... no catalog snapshot loaded`, and the check stays down until the next run.
+- **F23 (drift loop timing).** The `drift` check's period follows what F23 ships: 1 day with 2 h grace, or a cron schedule if F23 pins a time of day. Until then, a restart that starts the loop before the snapshot loads sends a truthful `drift check failed: ... no catalog snapshot loaded`, and the check stays down until the next run. Once #23 lands (`2026-09-28-scheduled-jobs-retry-design.md`), the loop waits quietly for the snapshot, runs 24 h after the last recorded run rather than at each start, and retries failures after 1 min, doubling to 1 h. The 1-day period with 2 h grace still fits.
 - **S4 (janitor).** The admin abuse resistance design (`2026-09-27-admin-abuse-resistance-design.md` §4.5) proposes it as an in-app daily prune. It needs no new check:
   - A prune failure logs `ERROR`, which fails `app`.
   - Its `WARN "admin login log growing fast"` also calls `OnEvent("login_log_growth")`, which fails `admin-auth`.
@@ -292,7 +292,7 @@ A future metrics endpoint must use its own port. Caddy must never proxy that por
 3. Configure the external monitor (§4.6), and turn on the VPS provider's disk and CPU alerts.
 4. `docker compose up -d --build`. Compose recreates containers whose configuration changed (verified), so the new log options take effect. Check:
    - `docker inspect --format '{{.HostConfig.LogConfig}}' thymeandplace-app-1` shows `compress:true`.
-   - `app` and `admin-auth` go green within a few minutes, and `drift` goes green after the startup run.
+   - `app` and `admin-auth` go green within a few minutes, and `drift` goes green after the startup run. Once #23 has landed, a deploy doesn't trigger a drift run: `drift` goes green at the next scheduled run, 24 h after `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1`.
    - A week later, `ls -l /var/lib/docker/containers/*/` shows the real compressed sizes.
 5. Run a backup by hand. Expect start, then success. Then run one with `-e BUCKET_NAME=missing` and expect a failure alert.
 6. Drill on a quiet evening: `docker compose stop app` for 12 minutes. Expect `site` and `app` alerts, then recovery after `start`.

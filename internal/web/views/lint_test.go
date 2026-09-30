@@ -3,7 +3,10 @@ package views
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,5 +96,45 @@ func TestCSPViolationsCatchesInlineContent(t *testing.T) {
 	}
 	if v := CSPViolations(`<script src="/static/app.js" defer></script><section aria-live="polite">Location</section>`); len(v) > 0 {
 		t.Errorf("false positive: %v", v)
+	}
+}
+
+// #15: public views never bypass templ's URL sanitizer. Every href goes
+// through templ.URL, even when the URL is built from server values. The
+// hand-written Go (view models) is checked too, since it could build a
+// SafeURL and pass it in; generated and test files are not.
+func TestNoSafeURLInPublicViews(t *testing.T) {
+	files, err := filepath.Glob("*.templ")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no templ files: %v", err)
+	}
+	goFiles, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range goFiles {
+		if !strings.HasSuffix(f, "_templ.go") && !strings.HasSuffix(f, "_test.go") {
+			files = append(files, f)
+		}
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "templ.SafeURL") {
+			t.Errorf("%s uses templ.SafeURL; use templ.URL", f)
+		}
+	}
+}
+
+// The retry link is sanitized: a script URL renders as templ's placeholder.
+func TestLoadErrorSanitizesRetryURL(t *testing.T) {
+	var buf bytes.Buffer
+	if err := LoadError("", "javascript:alert(1)").Render(context.Background(), &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `href="about:invalid#TemplFailedSanitizationURL"`) {
+		t.Fatalf("retry href not sanitized:\n%s", buf.String())
 	}
 }

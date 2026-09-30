@@ -51,25 +51,28 @@ func TestDBGateShedsWhenFull(t *testing.T) {
 	}
 
 	start := time.Now()
-	code, body, hdr := hs.get("/season?lat=30&lng=30&date=2026-08-15", true)
+	code, body, hdr := hs.get("/season?lat=30&lng=30&date=2026-08-15&x=junk", true)
 	if took := time.Since(start); took > 400*time.Millisecond {
 		t.Fatalf("shedding took %v; it must answer within the gate wait", took)
 	}
-	if code != 503 || hdr.Get("Retry-After") != "5" || !strings.Contains(body, views.CopyLoadError) || !strings.Contains(body, "30.00°N, 30.00°E") {
+	if code != 503 || hdr.Get("Retry-After") != "5" || !strings.Contains(body, views.CopyLoadError) || !strings.Contains(body, "30.00°N, 30.00°E") ||
+		!strings.Contains(body, `href="/season?lat=30&lng=30&date=2026-08-15"`) || strings.Contains(body, "junk") {
 		t.Fatalf("shed miss: %d Retry-After=%q\n%s", code, hdr.Get("Retry-After"), body)
 	}
 
-	// A warmed cell is still served. Its ?place= label needs the gate too, so
-	// it falls back instead of failing the request.
+	// A warmed cell is still served. Its label needs the gate too, so it
+	// falls back to coordinates instead of failing the request.
 	code, body, _ = hs.get(lisbonQ+"&date=2026-08-15", true)
-	if code != 200 || !strings.Contains(body, "Tomato") || strings.Contains(body, "<h2>Lisbon, PT</h2>") || !strings.Contains(body, "near Lisbon, PT") {
+	if code != 200 || !strings.Contains(body, "Tomato") || !strings.Contains(body, "38.72°N, 9.14°W") {
 		t.Fatalf("cache hit while the gate is full: %d\n%s", code, body)
 	}
 
 	if code, body, _ := hs.get("/places?q=lis", true); code != 503 || !strings.Contains(body, views.CopySearchUnavailable) {
 		t.Fatalf("/places while the gate is full: %d\n%s", code, body)
 	}
-	if code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d", climate.CellID(30, 30)), true); code != 503 || !strings.Contains(body, views.CopyLoadError) {
+	cell30 := climate.CellID(30, 30)
+	if code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&x=junk", cell30), true); code != 503 || !strings.Contains(body, views.CopyLoadError) ||
+		!strings.Contains(body, fmt.Sprintf(`href="/ingredient/tomato?cell=%d"`, cell30)) || strings.Contains(body, "junk") {
 		t.Fatalf("/ingredient miss while the gate is full: %d\n%s", code, body)
 	}
 
@@ -95,7 +98,7 @@ func TestIngredientInputsCachedPerCell(t *testing.T) {
 		}
 	}
 	if c, o := calls(); c != 1 || o != 1 {
-		t.Fatalf("one cell and version: ForCell %d, Nearby %d calls; want 1 each", c, o)
+		t.Fatalf("one cell and version: Normals %d, Nearby %d calls; want 1 each", c, o)
 	}
 
 	hs.version = "v2"
@@ -103,7 +106,7 @@ func TestIngredientInputsCachedPerCell(t *testing.T) {
 		t.Fatal(code)
 	}
 	if c, o := calls(); c != 2 || o != 2 {
-		t.Fatalf("new version: ForCell %d, Nearby %d calls; want 2 each", c, o)
+		t.Fatalf("new version: Normals %d, Nearby %d calls; want 2 each", c, o)
 	}
 
 	hs.version = "v3"
@@ -116,7 +119,7 @@ func TestIngredientInputsCachedPerCell(t *testing.T) {
 		t.Fatalf("after outage: %d", code)
 	}
 	if c, o := calls(); c != 4 || o != 4 {
-		t.Fatalf("a failed lookup must not be cached: ForCell %d, Nearby %d calls; want 4 each", c, o)
+		t.Fatalf("a failed lookup must not be cached: Normals %d, Nearby %d calls; want 4 each", c, o)
 	}
 
 	south := fmt.Sprintf("/ingredient/tomato?cell=%d", climate.CellID(-60, 20)) // no normals there
@@ -126,6 +129,6 @@ func TestIngredientInputsCachedPerCell(t *testing.T) {
 		}
 	}
 	if c, _ := calls(); c != 5 {
-		t.Fatalf("a cell with no normals must be cached too: ForCell %d calls; want 5", c)
+		t.Fatalf("a cell with no normals must be cached too: Normals %d calls; want 5", c)
 	}
 }

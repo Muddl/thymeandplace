@@ -100,8 +100,8 @@ func (r Resolver) Resolve(ctx context.Context, cell int) (Inputs, error)
 
 ### 4.3 `/season`
 
-- `seasonCore` becomes `{QueryCell, NormalsCell int; HasNormals, Supported bool; Results []season.Result}`. `NearLabel` is removed.
-- `compute(ctx, cell, month, snap)` calls `in, err := s.inputs.Resolve(ctx, cell)`, then `s.d.Adjuster.Adjust(ctx, in.NormalsCell, season.Estimate(in.Engine(month), snap))`. The cache key and the version-before-snapshot ordering (`season.go:108-112`) don't change.
+- `seasonCore` becomes `{QueryCell int; HasNormals, Supported bool; Results []season.Result}`. `NearLabel` is removed. The normals cell is used only for `Adjuster.Adjust` inside `compute`, so it isn't cached.
+- On a cache miss, `/season` gets the inputs with `in, err := s.inputsFor(ctx, queryCell, version)` (`internal/web/inputs.go`). This is the per-cell input cache shared with `/ingredient`; on its own miss it calls `s.inputs.Resolve(ctx, cell)` under one DB gate slot. Then `compute(ctx, in, month, snap)` runs `s.d.Adjuster.Adjust(ctx, in.NormalsCell, season.Estimate(in.Engine(month), snap))` and makes no lookups of its own, so its result is a function of the cache key. The cache key and the version-before-snapshot ordering (`season.go:108-112`) don't change.
 - Item links use `ingredientURL(slug, core.QueryCell, date)`.
 - The label runs per request, only for supported results (as today, `season.go:129-133`), under **one** `placeLookupTimeout` (300 ms) context:
 
@@ -202,7 +202,7 @@ The admin preview's season bars (`internal/changeset/preview.go:60-69`) use `Cas
 ## 7. Rollout, operations and rollback
 
 - **Deploy.** Code only: no migration, config or data change. Deploy as in `docs/operations.md`, "Updating the app". The LRU is in-process, so the restart drops every entry computed under the old rule, and old and new entries never mix.
-- **Check after deploy.** The drift check runs once at startup (`cmd/server/app.go:183`, `internal/calibrun/drift.go:59-65`), and a code deploy doesn't change the data version. Confirm that the `calibration drift check` log line shows the previous score and that there is no `calibration score dropped` warning. A drop would mean some fixture cell falls back, and it needs investigating before new catalog edits.
+- **Check after deploy.** The drift check runs once at startup (`cmd/server/app.go:183`, `internal/calibrun/drift.go:59-65`), and a code deploy doesn't change the data version. Confirm that the `calibration drift check` log line shows the previous score and that there is no `calibration score dropped` warning. A drop would mean some fixture cell falls back, and it needs investigating before new catalog edits. Once #23 lands, the drift check runs 24 h after the last recorded run instead of at startup, so read the next scheduled run (plan Task 7 Step 3).
 - **`docs/operations.md`, "Health and logs":** add that a logged `cell_id`, with the month and the live data version, now determines everything a cook saw except the heading. To reproduce it, open `/season?lat=<90 − (⌊id/1440⌋ + 0.5) × 0.25>&lng=<−180 + (id mod 1440 + 0.5) × 0.25>`, or `/ingredient/{slug}?cell=<id>`.
 - **`docs/calibration-baseline.md`, "How this was measured":** add one line saying that fixtures resolve at their cell centre as of the implementing commit, with the before and after scores from step 7.
 - **Rollback.** Redeploy the previous image. Links issued by the new version carry the query cell. The old `/ingredient` reads that cell with no fallback, so in the rare query cells without land data, land items show "Not grown or landed near here" until the cook goes back to `/season`. Links for land cells are unaffected. There is no data to restore.

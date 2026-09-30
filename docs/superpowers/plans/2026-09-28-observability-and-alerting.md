@@ -1471,7 +1471,7 @@ In `cmd/server/app.go`:
   ```
 - In the `auth.Config{...}` literal, add `OnEvent: a.watchdog.Event,`.
 - Replace `a.handler = web.Common(log)(a.mux)` with `a.handler = monitor.CountResponses(window)(web.Common(log)(a.mux))`.
-- In `start`, after `go a.drift.Loop(ctx, 24*time.Hour)`, add `go a.watchdog.Run(ctx)`.
+- In `start`, after `go a.drift.Loop(ctx, 24*time.Hour)` (`go a.drift.Loop(ctx, jobSchedule)` once #23 has landed), add `go a.watchdog.Run(ctx)`.
 - Import `"thymeandplace/internal/monitor"`.
 
 - [ ] **Step 4: Run the server tests**

@@ -83,12 +83,38 @@ func TestRecover(t *testing.T) {
 	}
 }
 
+// ClientIP trusts exactly one proxy hop (Caddy): the rightmost
+// X-Forwarded-For entry is the peer Caddy saw. Anything a client sent sits to
+// its left and is ignored. A garbled rightmost entry falls back to RemoteAddr.
 func TestClientIP(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "10.0.0.5:5555"
-	r.Header.Set("X-Forwarded-For", "203.0.113.9, 10.0.0.1")
-	if ClientIP(r, false) != "10.0.0.5" || ClientIP(r, true) != "203.0.113.9" {
-		t.Fatalf("got %q / %q", ClientIP(r, false), ClientIP(r, true))
+	for _, tc := range []struct {
+		name       string
+		remoteAddr string
+		xff        []string // one element per header line
+		trust      bool
+		want       string
+	}{
+		{"untrusted ignores the header", "10.0.0.5:5555", []string{"203.0.113.9"}, false, "10.0.0.5"},
+		{"rightmost entry wins", "10.0.0.5:5555", []string{"198.51.100.1, 203.0.113.9"}, true, "203.0.113.9"},
+		{"last entry of the last line", "10.0.0.5:5555", []string{"198.51.100.1", "192.0.2.7, 203.0.113.9"}, true, "203.0.113.9"},
+		{"garbled rightmost falls back", "10.0.0.5:5555", []string{"198.51.100.1, garbage"}, true, "10.0.0.5"},
+		{"empty rightmost falls back", "10.0.0.5:5555", []string{"203.0.113.9, "}, true, "10.0.0.5"},
+		{"no header falls back", "10.0.0.5:5555", nil, true, "10.0.0.5"},
+		{"IPv6 canonical form", "10.0.0.5:5555", []string{"2001:DB8::1"}, true, "2001:db8::1"},
+		{"IPv6 zone dropped", "10.0.0.5:5555", []string{"fe80::1%eth0"}, true, "fe80::1"},
+		{"RemoteAddr without port", "10.0.0.5", nil, true, "10.0.0.5"},
+		{"RemoteAddr IPv6 zone dropped", "[fe80::1%eth0]:5555", nil, false, "fe80::1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/", nil)
+			r.RemoteAddr = tc.remoteAddr
+			for _, v := range tc.xff {
+				r.Header.Add("X-Forwarded-For", v)
+			}
+			if got := ClientIP(r, tc.trust); got != tc.want {
+				t.Fatalf("ClientIP = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -247,5 +273,35 @@ func TestRateLimitIPv6Prefix(t *testing.T) {
 	}
 	if hit("9.9.9.10:1") != 200 {
 		t.Fatal("IPv4 addresses are keyed individually")
+	}
+}
+
+// Issue #10: behind Caddy the limiter keys on the rightmost X-Forwarded-For
+// entry, so rotating the entries a client controls (to its left) can't buy
+// fresh buckets.
+func TestRateLimitIgnoresSpoofedForwardedFor(t *testing.T) {
+	now := time.Unix(0, 0)
+	rl := NewRateLimiter(func() time.Time { return now })
+	h := rl.Middleware(true, PublicLimits, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	})(ok())
+	hit := func(xff string) int {
+		r := httptest.NewRequest("GET", "/places", nil)
+		r.RemoteAddr = "10.0.0.5:5555" // Caddy
+		r.Header.Set("X-Forwarded-For", xff)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	for i := 0; i < 20; i++ {
+		if code := hit(fmt.Sprintf("198.51.100.%d, 203.0.113.9", i+1)); code != 200 {
+			t.Fatalf("request %d = %d, want 200 within burst", i+1, code)
+		}
+	}
+	if hit("198.51.100.99, 203.0.113.9") != 429 {
+		t.Fatal("rotating the spoofed leftmost entry must not escape the limit")
+	}
+	if hit("203.0.113.10") != 200 {
+		t.Fatal("a different real client is independent")
 	}
 }

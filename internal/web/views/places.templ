@@ -4,7 +4,7 @@ templ PlaceList(items []PlaceItem) {
 	<ul class="places">
 		for _, it := range items {
 			<li>
-				<a href={ templ.SafeURL(it.URL) } hx-get={ it.URL } hx-target="#results" hx-push-url="true">{ it.Label }</a>
+				<a href={ templ.URL(it.URL) } hx-get={ it.URL } hx-target="#results" hx-push-url="true">{ it.Label }</a>
 			</li>
 		}
 	</ul>

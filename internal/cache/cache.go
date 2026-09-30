@@ -10,7 +10,7 @@ import (
 
 const DefaultSize = 50_000
 
-// CellSize is the capacity of the per-cell input cache (/ingredient).
+// CellSize is the capacity of the per-cell input cache (/season misses and /ingredient).
 const CellSize = 20_000
 
 // Key includes the data version, so a version change makes older entries

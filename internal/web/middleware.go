@@ -142,17 +142,32 @@ func Recover(log *slog.Logger, render func(http.ResponseWriter, *http.Request)) 
 	}
 }
 
-// ClientIP returns the caller's IP. With trustProxy, the first
-// X-Forwarded-For entry (set by Caddy) wins.
+// ClientIP returns the caller's IP. The app trusts exactly one proxy hop,
+// Caddy: with trustProxy, the rightmost X-Forwarded-For entry (the last entry
+// of the last header line) is the peer Caddy saw, and anything a client sent
+// sits to its left and is ignored. If that entry doesn't parse as an IP, or
+// there is no header, the RemoteAddr host is used. Behind Caddy that is
+// Caddy's own address, a bucket shared by every garbled request, so the
+// fallback fails closed. Putting any proxy (a CDN) in front of Caddy makes the
+// rightmost entry that proxy's address; change this first (docs/operations.md,
+// "Reverse proxy trust and logging"). Either way a parseable IP comes back in
+// canonical form without a zone, so the audit row's ip matches across paths.
 func ClientIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			return strings.TrimSpace(strings.Split(xff, ",")[0])
+		if lines := r.Header.Values("X-Forwarded-For"); len(lines) > 0 {
+			last := lines[len(lines)-1]
+			entry := strings.TrimSpace(last[strings.LastIndex(last, ",")+1:])
+			if a, err := netip.ParseAddr(entry); err == nil {
+				return a.WithZone("").String()
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if a, err := netip.ParseAddr(host); err == nil {
+		return a.WithZone("").String()
 	}
 	return host
 }

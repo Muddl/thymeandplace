@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -106,8 +105,13 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, da
 	}
 	p := &ingest.Pipeline{
 		DS: mk(), Pool: pool, Blob: blob, WorkDir: work,
-		HTTP: &http.Client{Timeout: 2 * time.Hour},
+		HTTP: ingest.NewHTTPClient(2 * time.Hour),
 		Log:  slog.New(slog.NewJSONHandler(stdout, nil)),
+	}
+	if step == "fetch" || (step == "all" && v == 0) {
+		if err := ingest.CheckTransport(p.DS); err != nil {
+			return fail(err)
+		}
 	}
 
 	needsVersion := map[string]bool{"transform": true, "load": true, "validate": true, "swap": true}

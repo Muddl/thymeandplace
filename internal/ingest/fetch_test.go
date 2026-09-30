@@ -4,10 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"thymeandplace/internal/dbtest"
 )
@@ -93,5 +97,73 @@ func TestParseChecksums(t *testing.T) {
 		if _, err := parseChecksums(bad); err == nil {
 			t.Errorf("%q: want error", bad)
 		}
+	}
+}
+
+func TestCheckTransport(t *testing.T) {
+	pin := strings.Repeat("a", 64)
+	for _, tc := range []struct {
+		src Source
+		ok  bool
+	}{
+		{Source{URL: "https://x/f", File: "f", Unpinned: "r"}, true},
+		{Source{URL: "http://x/f", File: "f", SHA256: pin}, true},
+		{Source{URL: "bucket:pinned/f", File: "f", SHA256: pin}, true},
+		{Source{URL: "http://x/f", File: "f", Unpinned: "r"}, false},
+		{Source{URL: "bucket:pinned/f", File: "f", Unpinned: "r"}, false},
+		{Source{URL: "ftp://x/f", File: "f", SHA256: pin}, false},
+	} {
+		err := CheckTransport(&Places{SourceList: []Source{tc.src}})
+		if (err == nil) != tc.ok {
+			t.Errorf("%s pinned=%v: err=%v, want ok=%v", tc.src.URL, tc.src.SHA256 != "", err, tc.ok)
+		}
+	}
+	for _, ds := range []Dataset{NewPlaces(), NewOcean(""), NewClimate("")} {
+		if err := CheckTransport(ds); err != nil {
+			t.Errorf("default %s: %v", ds.Name(), err)
+		}
+	}
+}
+
+func TestRedirectPolicy(t *testing.T) {
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }))
+	defer plain.Close()
+	var tlsSrv *httptest.Server
+	tlsSrv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/to-http":
+			http.Redirect(w, r, plain.URL+"/f", http.StatusFound)
+		case "/to-https":
+			http.Redirect(w, r, tlsSrv.URL+"/final", http.StatusFound)
+		case "/hop":
+			http.Redirect(w, r, tlsSrv.URL+"/to-http", http.StatusFound) // https → https → http
+		case "/loop":
+			n, _ := strconv.Atoi(r.URL.Query().Get("n"))
+			http.Redirect(w, r, tlsSrv.URL+"/loop?n="+strconv.Itoa(n+1), http.StatusFound)
+		default:
+			_, _ = w.Write([]byte("ok"))
+		}
+	}))
+	defer tlsSrv.Close()
+	c := NewHTTPClient(5 * time.Second)
+	c.Transport = tlsSrv.Client().Transport
+	get := func(path string) error {
+		resp, err := c.Get(tlsSrv.URL + path)
+		if err == nil {
+			resp.Body.Close()
+		}
+		return err
+	}
+	if err := get("/to-http"); err == nil || !strings.Contains(err.Error(), "HTTPS to http") {
+		t.Fatalf("https → http must be refused: %v", err)
+	}
+	if err := get("/hop"); err == nil {
+		t.Fatal("https → https → http must be refused")
+	}
+	if err := get("/to-https"); err != nil {
+		t.Fatalf("https → https must be followed: %v", err)
+	}
+	if err := get("/loop"); err == nil || !strings.Contains(err.Error(), "10 redirects") {
+		t.Fatalf("11 redirects must be refused: %v", err)
 	}
 }

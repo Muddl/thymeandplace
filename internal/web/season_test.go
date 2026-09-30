@@ -134,6 +134,27 @@ func TestSeasonRetryLinkDropsJunk(t *testing.T) {
 	}
 }
 
+// #15: a stale date is dropped from the retry link, as it is from item links.
+func TestSeasonRetryLinkDropsStaleDate(t *testing.T) {
+	hs := newHarness(t)
+	hs.climate.down = true
+	code, body, _ := hs.get("/season?lat=38.72&lng=-9.14&date=1999-01-01", true)
+	if code != 503 || !strings.Contains(body, `href="/season?lat=38.72&lng=-9.14"`) || strings.Contains(body, "1999") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
+// #15: before the catalog loads, the coordinates are already validated, so
+// the retry link is rebuilt from them.
+func TestSeasonNoSnapshotRetryLink(t *testing.T) {
+	hs := newHarness(t)
+	hs.snap = nil
+	code, body, _ := hs.get("/season?lat=38.72&lng=-9.14&x=junk", true)
+	if code != 503 || !strings.Contains(body, `href="/season?lat=38.72&lng=-9.14"`) || strings.Contains(body, "junk") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
 // Review Focus 3.
 func TestSeasonWarmCacheSurvivesOutage(t *testing.T) {
 	hs := newHarness(t)
@@ -155,8 +176,9 @@ func TestSeasonWarmCacheSurvivesOutage(t *testing.T) {
 func TestSeasonPanicRendersPanel(t *testing.T) {
 	hs := newHarness(t)
 	hs.climate.panic = true
-	code, body, _ := hs.get(lisbonQ, true)
-	if code != 500 || !strings.Contains(body, views.CopyLoadError) {
+	code, body, _ := hs.get(lisbonQ+"&x=junk", true)
+	// #15: a panic's retry link is the page path with no query.
+	if code != 500 || !strings.Contains(body, views.CopyLoadError) || !strings.Contains(body, `href="/season"`) || strings.Contains(body, "junk") {
 		t.Fatalf("%d\n%s", code, body)
 	}
 }

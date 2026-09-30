@@ -228,12 +228,13 @@ func publicDBSlots(poolSize int32) int {
 // failures after 1 min, doubling to 1 h.
 var jobSchedule = jobs.Schedule{Every: 24 * time.Hour, RetryMin: time.Minute, RetryMax: time.Hour}
 
-// start launches background work: the data-version listener and the daily
-// drift check, which runs on jobSchedule anchored to the last recorded run
-// (calibrun.Drift.Loop). It derives its own cancelable context so close() can stop
-// that work before closing the pool. The watcher's LISTEN session uses its
-// own connection outside the pool, so pool.Close() no longer waits on it,
-// but cancelling first still stops the drift check and any Refresh cleanly.
+// start launches background work: the data-version listener, the daily
+// drift check (on jobSchedule, anchored to the last recorded run; see
+// calibrun.Drift.Loop) and the admin prune. It derives its own cancelable
+// context so close() can stop that work before closing the pool. The
+// watcher's LISTEN session uses its own connection outside the pool, so
+// pool.Close() no longer waits on it, but cancelling first still stops the
+// drift check and any Refresh cleanly.
 func (a *app) start(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	a.cancel = cancel

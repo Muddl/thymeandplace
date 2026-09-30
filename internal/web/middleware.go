@@ -150,7 +150,8 @@ func Recover(log *slog.Logger, render func(http.ResponseWriter, *http.Request)) 
 // Caddy's own address, a bucket shared by every garbled request, so the
 // fallback fails closed. Putting any proxy (a CDN) in front of Caddy makes the
 // rightmost entry that proxy's address; change this first (docs/operations.md,
-// "Reverse proxy trust and logging").
+// "Reverse proxy trust and logging"). Either way a parseable IP comes back in
+// canonical form without a zone, so the audit row's ip matches across paths.
 func ClientIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
 		if lines := r.Header.Values("X-Forwarded-For"); len(lines) > 0 {
@@ -163,7 +164,10 @@ func ClientIP(r *http.Request, trustProxy bool) string {
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if a, err := netip.ParseAddr(host); err == nil {
+		return a.WithZone("").String()
 	}
 	return host
 }

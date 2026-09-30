@@ -103,6 +103,7 @@ func TestClientIP(t *testing.T) {
 		{"IPv6 canonical form", "10.0.0.5:5555", []string{"2001:DB8::1"}, true, "2001:db8::1"},
 		{"IPv6 zone dropped", "10.0.0.5:5555", []string{"fe80::1%eth0"}, true, "fe80::1"},
 		{"RemoteAddr without port", "10.0.0.5", nil, true, "10.0.0.5"},
+		{"RemoteAddr IPv6 zone dropped", "[fe80::1%eth0]:5555", nil, false, "fe80::1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest("GET", "/", nil)

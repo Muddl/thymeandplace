@@ -460,7 +460,7 @@ The audit tables are append-only for the app's database role: it can read `catal
 | `GET /sitemap.xml` | The home and About pages, plus a season page for each calibration city |
 | `GET /llms.txt` | Markdown summary for language models (llmstxt.org): what the site does, how far to trust it, featured season pages and the ingredient list. Follows the seafood flag (§11.7) |
 | `GET /healthz` | 200 if the process is up |
-| `GET /readyz` | 200 if the DB ping succeeds within 500 ms and a catalog snapshot is loaded |
+| `GET /readyz` | 200 if a catalog snapshot is loaded and a database ping succeeded within the last second (one shared ping, reused for 1 s; each ping times out after 500 ms) |
 
 Requests without an `HX-Request` header get full-page versions of `/season` and `/ingredient`, so URLs are shareable and indexable. The absolute URLs in `robots.txt`, `sitemap.xml` and `llms.txt` use `PUBLIC_BASE_URL` (default: the admin origin, `https://thymeand.place`).
 
@@ -510,7 +510,7 @@ Principle: the surrounding page stays usable, and every message says what happen
 | Overloaded (no public DB slot within 250 ms) | 503 + `Retry-After: 5` | Same panel as a DB outage, returned at once. `/places` shows "Search isn't available right now. Try again in a moment." |
 | Unexpected error or panic | 500 | Same panel as 503. Logged with request ID. |
 | Rate limited | 429 | Under the search box: "Search is pausing for a few seconds. Keep typing and results will catch up." Resumes automatically. |
-| No catalog snapshot loaded | 503 | `/readyz` fails, so Compose holds traffic. The site is not served. |
+| No catalog snapshot loaded | 503 | The server doesn't listen until a snapshot loads, so Caddy serves the maintenance page. |
 | Ingestion validation failure | — | Pipeline exits non-zero naming dataset and step. Live data unchanged. |
 
 Admin errors follow the same style: validation errors appear inline next to their fields, and a stale changeset shows "The catalog changed since this preview. Preview again."
@@ -693,6 +693,7 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Ocean query target | p95 ≤ 25 ms (else subdivide polygons at ingest) |
 | Public request timeout | 2 s |
 | Public rate limits | `/places` 10/s burst 20; `/season`, `/ingredient` 2/s burst 10 |
+| Readiness ping reuse | 1 s |
 | Calibration override threshold | score drop > 0.02 |
 | Pending changeset expiry | 1 hour |
 | Import size limit | 5 MB |

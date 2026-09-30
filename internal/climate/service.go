@@ -77,23 +77,6 @@ func (s *Service) Normals(ctx context.Context, lat, lng float64) (Lookup, error)
 	return Lookup{QueryCell: own, Cell: id, Normals: &n}, nil
 }
 
-// ForCell returns the normals stored for exactly one cell, or nil.
-func (s *Service) ForCell(ctx context.Context, id int) (*MonthlyNormals, error) {
-	rows, err := store.CellsIn(ctx, s.db, liveView, []int32{int32(id)})
-	if err != nil {
-		return nil, fmt.Errorf("climate cell: %w", err)
-	}
-	cells, err := CellsToNormals(rows)
-	if err != nil {
-		return nil, err
-	}
-	n, ok := cells[id]
-	if !ok {
-		return nil, nil
-	}
-	return &n, nil
-}
-
 // CellsToNormals converts rows, rejecting arrays that are not 12 long.
 func CellsToNormals(rows []store.CellRow) (map[int]MonthlyNormals, error) {
 	out := make(map[int]MonthlyNormals, len(rows))

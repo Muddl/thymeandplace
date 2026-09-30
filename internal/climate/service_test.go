@@ -76,12 +76,4 @@ func TestServiceNormals(t *testing.T) {
 	if err != nil || sea.Normals != nil {
 		t.Fatalf("mid-ocean: %+v %v", sea, err)
 	}
-
-	n, err := svc.ForCell(ctx, l.Cell)
-	if err != nil || n == nil {
-		t.Fatalf("ForCell: %v %v", n, err)
-	}
-	if n, err := svc.ForCell(ctx, sea.QueryCell); err != nil || n != nil {
-		t.Fatalf("ForCell(absent) = %v %v", n, err)
-	}
 }

@@ -292,6 +292,9 @@ func TestSeasonLookupsUseCellCentre(t *testing.T) {
 			t.Fatalf("%v: %d", p, code)
 		}
 		lat, lng := climate.CellCenter(climate.CellID(p[0], p[1]))
+		if len(hs.climate.points()) == 0 || len(hs.ocean.points()) == 0 {
+			t.Fatalf("%v: climate %v, ocean %v: want both looked up", p, hs.climate.points(), hs.ocean.points())
+		}
 		for _, got := range append(hs.climate.points(), hs.ocean.points()...) {
 			if got != [2]float64{lat, lng} {
 				t.Fatalf("point %v: lookup at %v, want centre (%v, %v)", p, got, lat, lng)

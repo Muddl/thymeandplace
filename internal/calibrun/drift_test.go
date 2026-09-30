@@ -182,36 +182,42 @@ func TestLoopRetriesFailures(t *testing.T) {
 }
 
 // Anchored: a run an hour ago means no run now; one 25 h ago means run now.
+// "Now" is Drift.Now, fixed years in the past, so a loop that read the
+// wall clock instead would find both runs stale and run at once.
 func TestLoopAnchorsToLastRun(t *testing.T) {
-	ctx := context.Background()
+	now := time.Date(2020, 6, 1, 12, 0, 0, 0, time.UTC)
 	day := jobs.Schedule{Every: 24 * time.Hour, RetryMin: 5 * time.Millisecond, RetryMax: 20 * time.Millisecond}
 	for _, tc := range []struct {
-		ago  string
+		ago  time.Duration
 		want int
-	}{{"1 hour", 1}, {"25 hours", 2}} {
-		pool := dbtest.New(t)
-		if _, err := pool.Exec(ctx, `INSERT INTO calibration_run (ran_at, data_version, score, compared) VALUES (now() - $1::interval, 'v0', 0.5, 1)`, tc.ago); err != nil {
-			t.Fatal(err)
-		}
-		var snap atomic.Pointer[catalog.Snapshot]
-		s, _ := catalog.NewSnapshot(1, catalogtest.SmallCatalog())
-		snap.Store(s)
-		var log syncLog
-		stop := startLoop(loopDrift(t, pool, &snap, oneCase(t), &log), day)
-		if tc.want == 2 {
-			waitFor(t, func() bool { return runs(t, pool) == 2 })
-		} else {
-			time.Sleep(200 * time.Millisecond)
-		}
-		stop()
-		if got := runs(t, pool); got != tc.want {
-			t.Fatalf("last run %s ago: %d rows, want %d", tc.ago, got, tc.want)
-		}
+	}{{time.Hour, 1}, {25 * time.Hour, 2}} {
+		t.Run(tc.ago.String(), func(t *testing.T) {
+			pool := dbtest.New(t)
+			if _, err := pool.Exec(context.Background(), `INSERT INTO calibration_run (ran_at, data_version, score, compared) VALUES ($1, 'v0', 0.5, 1)`, now.Add(-tc.ago)); err != nil {
+				t.Fatal(err)
+			}
+			var snap atomic.Pointer[catalog.Snapshot]
+			s, _ := catalog.NewSnapshot(1, catalogtest.SmallCatalog())
+			snap.Store(s)
+			var log syncLog
+			d := loopDrift(t, pool, &snap, oneCase(t), &log)
+			d.Now = func() time.Time { return now }
+			stop := startLoop(d, day)
+			defer stop()
+			if tc.want == 2 {
+				waitFor(t, func() bool { return runs(t, pool) == 2 })
+			} else {
+				time.Sleep(200 * time.Millisecond)
+			}
+			if got := runs(t, pool); got != tc.want {
+				t.Fatalf("last run %v ago: %d rows, want %d", tc.ago, got, tc.want)
+			}
+		})
 	}
 }
 
-// If the last run can't be read, that is a failure: retry, log, and stop
-// cleanly on cancel.
+// If the last run can't be read, that is a failure: retry the read, log,
+// never run the check blind, and stop cleanly on cancel.
 func TestLoopRetriesUnreadableLastRun(t *testing.T) {
 	pool := dbtest.New(t)
 	broken, err := pgxpool.New(context.Background(), pool.Config().ConnString())
@@ -222,8 +228,16 @@ func TestLoopRetriesUnreadableLastRun(t *testing.T) {
 	var snap atomic.Pointer[catalog.Snapshot]
 	s, _ := catalog.NewSnapshot(1, catalogtest.SmallCatalog())
 	snap.Store(s)
+	var calls atomic.Int32
+	ok := oneCase(t)
 	var log syncLog
-	stop := startLoop(loopDrift(t, broken, &snap, oneCase(t), &log), fast)
+	stop := startLoop(loopDrift(t, broken, &snap, func(ctx context.Context) ([]calibration.Case, error) {
+		calls.Add(1)
+		return ok(ctx)
+	}, &log), fast)
+	defer stop()
 	waitFor(t, func() bool { return strings.Count(log.String(), "calibration drift check failed") >= 2 })
-	stop() // must return promptly
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("drift check ran %d times with the last run unreadable", n)
+	}
 }

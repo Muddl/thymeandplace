@@ -105,7 +105,8 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	month := s.monthFor(q.Get("date"))
-	retry := seasonRetryURL(lat, lng, q.Get("place"), s.validDate(q.Get("date")))
+	date := s.validDate(q.Get("date"))
+	retry := seasonRetryURL(lat, lng, q.Get("place"), date)
 	queryCell := climate.CellID(lat, lng)
 	SetCellID(ctx, queryCell)
 
@@ -142,7 +143,7 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusOK, "Seasons", "", nil, s.unsupported())
 		return
 	}
-	vm := s.seasonVM(ctx, core, snap, month, q.Get("place"), lat, lng, s.validDate(q.Get("date")))
+	vm := s.seasonVM(ctx, core, snap, month, q.Get("place"), lat, lng, date)
 	s.renderPage(w, r, http.StatusOK, vm.Label, views.SeasonDescription(vm.Label, vm.MonthName), "", nil, views.Season(vm))
 }
 

@@ -275,3 +275,33 @@ func TestRateLimitIPv6Prefix(t *testing.T) {
 		t.Fatal("IPv4 addresses are keyed individually")
 	}
 }
+
+// Issue #10: behind Caddy the limiter keys on the rightmost X-Forwarded-For
+// entry, so rotating the entries a client controls (to its left) can't buy
+// fresh buckets.
+func TestRateLimitIgnoresSpoofedForwardedFor(t *testing.T) {
+	now := time.Unix(0, 0)
+	rl := NewRateLimiter(func() time.Time { return now })
+	h := rl.Middleware(true, PublicLimits, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	})(ok())
+	hit := func(xff string) int {
+		r := httptest.NewRequest("GET", "/places", nil)
+		r.RemoteAddr = "10.0.0.5:5555" // Caddy
+		r.Header.Set("X-Forwarded-For", xff)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	for i := 0; i < 20; i++ {
+		if code := hit(fmt.Sprintf("198.51.100.%d, 203.0.113.9", i+1)); code != 200 {
+			t.Fatalf("request %d = %d, want 200 within burst", i+1, code)
+		}
+	}
+	if hit("198.51.100.99, 203.0.113.9") != 429 {
+		t.Fatal("rotating the spoofed leftmost entry must not escape the limit")
+	}
+	if hit("203.0.113.10") != 200 {
+		t.Fatal("a different real client is independent")
+	}
+}

@@ -22,7 +22,14 @@ import (
 	"thymeandplace/internal/store"
 )
 
-type Source struct{ URL, File string }
+// Source is one file a dataset fetches. Its content is trusted either by a
+// pin (SHA256, checked on every fetch whatever the URL) or not at all, with
+// Unpinned saying why. A test requires exactly one of the two.
+type Source struct {
+	URL, File string
+	SHA256    string // expected hex sha256; empty only when Unpinned is set
+	Unpinned  string // why the content can't be pinned; empty when SHA256 is set
+}
 
 // LicenseUnresolved marks a License() whose terms nobody has confirmed yet.
 // A version whose recorded license contains it can't be approved and never

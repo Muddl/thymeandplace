@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -42,6 +43,11 @@ func TestDriftRecordsAndWarns(t *testing.T) {
 		return s
 	}()
 
+	type note struct {
+		failed  bool
+		summary string
+	}
+	var notes []note
 	var logs bytes.Buffer
 	cur := good
 	d := &Drift{
@@ -50,19 +56,39 @@ func TestDriftRecordsAndWarns(t *testing.T) {
 		Cases:       func(context.Context) ([]calibration.Case, error) { return cases, nil },
 		DataVersion: func() string { return "abc123" },
 		Log:         slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Notify:      func(_ context.Context, failed bool, summary string) { notes = append(notes, note{failed, summary}) },
 	}
-	if _, err := d.RunOnce(ctx); err != nil {
+	first, err := d.RunOnce(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(logs.String(), "level=WARN") {
 		t.Fatal("first run must not warn")
 	}
+	if len(notes) != 1 || notes[0].failed || !strings.Contains(notes[0].summary, "calibration score") {
+		t.Fatalf("first run notes: %+v", notes)
+	}
 	cur = worse
-	if _, err := d.RunOnce(ctx); err != nil {
+	second, err := d.RunOnce(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "calibration score dropped") {
 		t.Fatalf("no drift warning in:\n%s", logs.String())
+	}
+	if len(notes) != 2 {
+		t.Fatalf("want one note per run, got %+v", notes)
+	}
+	last := notes[len(notes)-1]
+	for _, want := range []string{
+		"calibration score dropped",
+		fmt.Sprintf("%.3f", first.Score),
+		fmt.Sprintf("%.3f", second.Score),
+		"(data version abc123 → abc123)",
+	} {
+		if !last.failed || !strings.Contains(last.summary, want) {
+			t.Fatalf("drop note %+v: want failed and %q", last, want)
+		}
 	}
 	var runs int
 	var dv string
@@ -73,9 +99,28 @@ func TestDriftRecordsAndWarns(t *testing.T) {
 }
 
 func TestDriftNeedsSnapshot(t *testing.T) {
-	d := &Drift{Pool: dbtest.New(t), Snapshot: func() *catalog.Snapshot { return nil }}
-	if _, err := d.RunOnce(context.Background()); err == nil {
-		t.Fatal("want error without a snapshot")
+	type note struct {
+		failed  bool
+		summary string
+	}
+	var notes []note
+	d := &Drift{
+		Pool:     dbtest.New(t),
+		Snapshot: func() *catalog.Snapshot { return nil },
+		Notify:   func(_ context.Context, failed bool, summary string) { notes = append(notes, note{failed, summary}) },
+	}
+	if _, err := d.RunOnce(context.Background()); !errors.Is(err, ErrNoSnapshot) {
+		t.Fatalf("want ErrNoSnapshot without a snapshot, got %v", err)
+	}
+	if len(notes) != 1 || !notes[0].failed || notes[0].summary != "drift check failed: no catalog snapshot loaded" {
+		t.Fatalf("notes: %+v", notes)
+	}
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	notes = nil
+	_, _ = d.RunOnce(cctx)
+	if len(notes) != 0 {
+		t.Fatalf("a cancelled run must not notify: %v", notes)
 	}
 }
 

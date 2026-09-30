@@ -29,11 +29,10 @@ const (
 // (internal/cellinput), never from the request's exact point. The heading
 // label is not part of it; it is looked up per request.
 type seasonCore struct {
-	QueryCell   int
-	NormalsCell int
-	HasNormals  bool
-	Supported   bool
-	Results     []season.Result
+	QueryCell  int
+	HasNormals bool
+	Supported  bool
+	Results    []season.Result
 }
 
 func parseLatLng(latS, lngS string) (float64, float64, bool) {
@@ -148,8 +147,7 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 func (s *Server) compute(ctx context.Context, in cellinput.Inputs, month time.Month, snap *catalog.Snapshot) seasonCore {
 	results := s.d.Adjuster.Adjust(ctx, in.NormalsCell, season.Estimate(in.Engine(month), snap))
 	return seasonCore{
-		QueryCell: in.QueryCell, NormalsCell: in.NormalsCell,
-		HasNormals: in.Normals != nil, Supported: in.Supported(), Results: results,
+		QueryCell: in.QueryCell, HasNormals: in.Normals != nil, Supported: in.Supported(), Results: results,
 	}
 }
 

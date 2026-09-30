@@ -127,9 +127,14 @@ func (p *Pipeline) Fetch(ctx context.Context) (int64, error) {
 	}
 	var urls, sums []string
 	for _, src := range p.DS.Sources() {
-		sum, err := download(ctx, p.HTTP, src.URL, filepath.Join(incoming, src.File))
+		sum, err := p.get(ctx, src, filepath.Join(incoming, src.File))
 		if err != nil {
 			return 0, fmt.Errorf("download %s: %w", src.URL, err)
+		}
+		// The pin is checked before any row is written or file uploaded.
+		if src.SHA256 != "" && sum != src.SHA256 {
+			return 0, fmt.Errorf("%s: sha256 %s does not match the pin %s; live data unchanged; if the publisher changed this file on purpose, review it and update the pin in internal/ingest/%s.go",
+				src.File, sum, src.SHA256, name)
 		}
 		urls = append(urls, src.URL)
 		sums = append(sums, src.File+"="+sum)

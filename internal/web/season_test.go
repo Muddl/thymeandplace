@@ -135,11 +135,14 @@ func TestSeasonWarmCacheSurvivesOutage(t *testing.T) {
 	if code, _, _ := hs.get(lisbonQ+"&date=2026-08-15", true); code != 200 {
 		t.Fatal("warm-up failed")
 	}
-	calls := hs.climate.calls.Load()
+	calls, oceanCalls := hs.climate.calls.Load(), hs.ocean.calls.Load()
 	hs.climate.down, hs.ocean.down, hs.places.down = true, true, true
 	code, body, _ := hs.get(lisbonQ+"&date=2026-08-16", true)
-	if code != 200 || !strings.Contains(body, "Tomato") || hs.climate.calls.Load() != calls {
+	if code != 200 || !strings.Contains(body, "Tomato") || hs.climate.calls.Load() != calls || hs.ocean.calls.Load() != oceanCalls {
 		t.Fatalf("cached result not served during outage: %d", code)
+	}
+	if !strings.Contains(body, "38.72°N, 9.14°W") { // core spec §11.6: the label falls back
+		t.Fatalf("heading must fall back to coordinates during an outage:\n%s", body)
 	}
 	hs.version = "v2" // a data-version change makes the entry unreachable
 	if code, _, _ := hs.get(lisbonQ+"&date=2026-08-16", true); code != 503 {

@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -151,16 +152,14 @@ var listItemRE = regexp.MustCompile(`<li class="item ([^"]+)">\s*<a href="([^"]+
 // Spec §6: every item on /season opens a detail page that agrees with it:
 // never "not local", and the current month has the list's status.
 func TestIngredientAgreesWithSeasonList(t *testing.T) {
-	rows := []struct {
+	// The same-cell table, plus a reach edge that falls between A and the centre.
+	rows := append(slices.Clip(sameCellRows), struct {
 		name  string
 		setup func(*harness)
-	}{
-		{"fallback neighbour", withFallbackCells},
-		{"reach edge between A and the centre", func(hs *harness) {
-			hs.climate.cells = map[int]climate.MonthlyNormals{fallbackCell: climatetest.Temperate()}
-			hs.ocean.reach = reachWestOf(-8.15) // A in reach, centre and B not
-		}},
-	}
+	}{"reach edge between A and the centre", func(hs *harness) {
+		hs.climate.cells = map[int]climate.MonthlyNormals{fallbackCell: climatetest.Temperate()}
+		hs.ocean.reach = reachWestOf(-8.15) // A in reach, centre and B not
+	}})
 	for _, row := range rows {
 		for _, q := range []string{qA, qB} {
 			t.Run(row.name+" "+q, func(t *testing.T) {

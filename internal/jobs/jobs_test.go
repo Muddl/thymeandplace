@@ -77,6 +77,44 @@ func TestRunRetriesThenWaitsEvery(t *testing.T) {
 	}
 }
 
+// A success resets the backoff: after nine failures and a success, the
+// next failure retries after RetryMin (1 ms), not the 512 ms a tenth
+// consecutive failure would wait.
+func TestRunSuccessResetsBackoff(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls atomic.Int32
+	var at [12]time.Time // when each call started
+	done := make(chan struct{})
+	go func() {
+		Run(ctx, Schedule{Every: time.Millisecond, RetryMin: time.Millisecond, RetryMax: time.Hour}, 0,
+			func(context.Context) error {
+				n := calls.Add(1)
+				if n <= int32(len(at)) {
+					at[n-1] = time.Now()
+				}
+				if n == 10 {
+					return nil
+				}
+				return errors.New("boom")
+			}, nil)
+		close(done)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for calls.Load() < 12 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done // the job's writes to at happen before this
+	if calls.Load() < 12 {
+		t.Fatalf("calls=%d; want at least 12", calls.Load())
+	}
+	// Call 11 is the first failure after the success; call 12 is its retry.
+	if gap := at[11].Sub(at[10]); gap > 256*time.Millisecond {
+		t.Fatalf("retry after the first failure since a success came %v later; backoff was not reset", gap)
+	}
+}
+
 func TestRunStopsWhileWaiting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var calls atomic.Int32

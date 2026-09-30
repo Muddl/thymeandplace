@@ -61,7 +61,7 @@ func (s *Server) ingredient(w http.ResponseWriter, r *http.Request) {
 	version := s.d.DataVersion()
 	snap := s.d.Snapshot()
 	if snap == nil {
-		s.render(w, r, http.StatusServiceUnavailable, "Ingredient", "", nil, views.LoadError("", r.URL.RequestURI()))
+		s.render(w, r, http.StatusServiceUnavailable, "Ingredient", "", nil, views.LoadError("", s.retryURL(r)))
 		return
 	}
 	ing, ok := snap.Get(r.PathValue("slug"))
@@ -78,15 +78,16 @@ func (s *Server) ingredient(w http.ResponseWriter, r *http.Request) {
 	SetCellID(ctx, cell)
 	month := s.monthFor(q.Get("date"))
 	date := s.validDate(q.Get("date"))
+	retry := ingredientURL(ing.Slug, cell, date)
 
 	in, err := s.inputsFor(ctx, cell, version)
 	if errors.Is(err, errBusy) {
-		s.overloaded(w, r, ing.Name, "", r.URL.RequestURI())
+		s.overloaded(w, r, ing.Name, "", retry)
 		return
 	}
 	if err != nil {
 		s.d.Log.Warn("ingredient lookup failed", "err", err, "request_id", RequestIDFrom(ctx), "cell_id", cell)
-		s.render(w, r, http.StatusServiceUnavailable, ing.Name, "", nil, views.LoadError("", r.URL.RequestURI()))
+		s.render(w, r, http.StatusServiceUnavailable, ing.Name, "", nil, views.LoadError("", retry))
 		return
 	}
 	lat, lng := climate.CellCenter(cell)

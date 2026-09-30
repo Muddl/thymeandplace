@@ -68,6 +68,67 @@ func TestIngredientErrors(t *testing.T) {
 	}
 }
 
+// #15: a panic's retry link is rebuilt from the validated cell and date. The
+// script rides in x because an invalid cell is a 400 before the panic point;
+// TestRetryURL covers cell=javascript:alert(1) directly.
+func TestIngredientPanicRetryLinkRebuilt(t *testing.T) {
+	hs := newHarness(t)
+	hs.climate.panic = true
+	code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&date=2026-08-15&x=javascript:alert(1)", lisbonCell), true)
+	want := fmt.Sprintf(`href="/ingredient/tomato?cell=%d&date=2026-08-15"`, lisbonCell)
+	if code != 500 || !strings.Contains(body, want) || strings.Contains(body, "javascript") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
+// #15: a lookup failure's retry link rebuilds the ingredient URL from the
+// validated cell and date.
+func TestIngredientRetryLinkRebuilt(t *testing.T) {
+	hs := newHarness(t)
+	hs.climate.down = true
+	code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&date=2026-08-15&x=%%22junk", lisbonCell), true)
+	want := fmt.Sprintf(`href="/ingredient/tomato?cell=%d&date=2026-08-15"`, lisbonCell)
+	if code != 503 || !strings.Contains(body, want) || strings.Contains(body, "junk") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
+// #15: a stale or malformed date is dropped from the retry link.
+func TestIngredientRetryLinkDropsBadDate(t *testing.T) {
+	hs := newHarness(t)
+	hs.climate.down = true
+	for _, d := range []string{"1999-01-01", "not-a-date"} {
+		code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&date=%s", lisbonCell, d), true)
+		want := fmt.Sprintf(`href="/ingredient/tomato?cell=%d"`, lisbonCell)
+		if code != 503 || !strings.Contains(body, want) || strings.Contains(body, d) {
+			t.Fatalf("%s: %d\n%s", d, code, body)
+		}
+	}
+}
+
+// #15: before the catalog loads, the retry link is still rebuilt from the
+// validated cell.
+func TestIngredientNoSnapshotRetryLink(t *testing.T) {
+	hs := newHarness(t)
+	hs.snap = nil
+	code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&x=junk", lisbonCell), true)
+	want := fmt.Sprintf(`href="/ingredient/tomato?cell=%d"`, lisbonCell)
+	if code != 503 || !strings.Contains(body, want) || strings.Contains(body, "junk") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
+// #15: with no valid cell to rebuild from, the retry link is the page path
+// with no query, and the raw cell is never echoed.
+func TestIngredientNoSnapshotBadCellRetryLinkIsPathOnly(t *testing.T) {
+	hs := newHarness(t)
+	hs.snap = nil
+	code, body, _ := hs.get("/ingredient/tomato?cell=javascript:alert(1)", true)
+	if code != 503 || !strings.Contains(body, `href="/ingredient/tomato"`) || strings.Contains(body, "javascript") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
 func TestIngredientFullPage(t *testing.T) {
 	hs := newHarness(t)
 	_, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d", lisbonCell), false)

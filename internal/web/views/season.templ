@@ -21,7 +21,7 @@ templ LoadError(label, retryURL string) {
 	}
 	<div class="panel warn" role="alert">
 		<p>{ CopyLoadError }</p>
-		<p><a href={ templ.SafeURL(retryURL) } hx-get={ retryURL } hx-target="#results">{ CopyTryAgain }</a></p>
+		<p><a href={ templ.URL(retryURL) } hx-get={ retryURL } hx-target="#results">{ CopyTryAgain }</a></p>
 	</div>
 }
 
@@ -51,7 +51,7 @@ templ Season(vm SeasonVM) {
 				<ul class="items">
 					for _, it := range g.Items {
 						<li class={ "item", it.StatusClass }>
-							<a href={ templ.SafeURL(it.URL) } hx-get={ it.URL } hx-target="#results" hx-push-url="true">{ it.Name }</a>
+							<a href={ templ.URL(it.URL) } hx-get={ it.URL } hx-target="#results" hx-push-url="true">{ it.Name }</a>
 							<span class="basis">{ it.Basis }</span>
 							if it.Estimate {
 								<span class="badge">Estimate</span>

@@ -51,11 +51,12 @@ func TestDBGateShedsWhenFull(t *testing.T) {
 	}
 
 	start := time.Now()
-	code, body, hdr := hs.get("/season?lat=30&lng=30&date=2026-08-15", true)
+	code, body, hdr := hs.get("/season?lat=30&lng=30&date=2026-08-15&x=junk", true)
 	if took := time.Since(start); took > 400*time.Millisecond {
 		t.Fatalf("shedding took %v; it must answer within the gate wait", took)
 	}
-	if code != 503 || hdr.Get("Retry-After") != "5" || !strings.Contains(body, views.CopyLoadError) || !strings.Contains(body, "30.00°N, 30.00°E") {
+	if code != 503 || hdr.Get("Retry-After") != "5" || !strings.Contains(body, views.CopyLoadError) || !strings.Contains(body, "30.00°N, 30.00°E") ||
+		!strings.Contains(body, `href="/season?lat=30&lng=30&date=2026-08-15"`) || strings.Contains(body, "junk") {
 		t.Fatalf("shed miss: %d Retry-After=%q\n%s", code, hdr.Get("Retry-After"), body)
 	}
 
@@ -69,7 +70,9 @@ func TestDBGateShedsWhenFull(t *testing.T) {
 	if code, body, _ := hs.get("/places?q=lis", true); code != 503 || !strings.Contains(body, views.CopySearchUnavailable) {
 		t.Fatalf("/places while the gate is full: %d\n%s", code, body)
 	}
-	if code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d", climate.CellID(30, 30)), true); code != 503 || !strings.Contains(body, views.CopyLoadError) {
+	cell30 := climate.CellID(30, 30)
+	if code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&x=junk", cell30), true); code != 503 || !strings.Contains(body, views.CopyLoadError) ||
+		!strings.Contains(body, fmt.Sprintf(`href="/ingredient/tomato?cell=%d"`, cell30)) || strings.Contains(body, "junk") {
 		t.Fatalf("/ingredient miss while the gate is full: %d\n%s", code, body)
 	}
 

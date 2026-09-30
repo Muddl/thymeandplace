@@ -491,7 +491,7 @@ Public rate limits (token bucket, per IP):
 
 Over the limit returns 429 with `Retry-After`.
 
-**Load shedding (public DB gate).** Public database work (cache misses on `/season` and `/ingredient`, `/places` searches, the `/season` place label) holds one of a fixed number of slots: three quarters of the server pool, **12 of 16**. A request waits at most **250 ms** for a slot, then gets the retry panel with **503** and `Retry-After: 5`. Cache hits, health checks, static files and `/admin` don't use the gate, so a public spike can't starve the owner. Shedding logs one sampled `INFO "public DB gate full"` line a minute at most.
+**Load shedding (public DB gate).** Public database work (cache misses on `/season` and `/ingredient`, `/places` searches, the `/season` place label) holds one of a fixed number of slots: three quarters of the server pool, **12 of 16**. A request waits at most **250 ms** for a slot, then gets the retry panel with **503** and `Retry-After: 5`. The place label runs on every supported `/season` request, cache hits included (§11.2 step 4); when no slot is free it falls back to coordinates instead of failing. Other cache hits, health checks, static files and `/admin` don't use the gate, so a public spike can't starve the owner. Shedding, including label fallbacks, logs one sampled `INFO "public DB gate full"` line a minute at most.
 
 ### 11.5 HTMX
 

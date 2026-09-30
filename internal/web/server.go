@@ -303,7 +303,9 @@ func (s *Server) tooMany(w http.ResponseWriter, r *http.Request) {
 
 // withDB runs f while holding a public DB slot. It waits at most gateWait
 // (or until ctx ends) for a slot, then returns errBusy without calling f.
-// Cache hits, health checks, static files and /admin never go through it.
+// The /season label goes through it on every request, cache hits included,
+// and falls back on errBusy. Other cache hits, health checks, static files
+// and /admin never go through it.
 func (s *Server) withDB(ctx context.Context, f func(context.Context) error) error {
 	select {
 	case s.gate <- struct{}{}:
@@ -324,8 +326,9 @@ func (s *Server) withDB(ctx context.Context, f func(context.Context) error) erro
 	return f(ctx)
 }
 
-// shed counts a shed request and logs at most one line a minute with the
-// count, so an overload never floods the log.
+// shed counts a lookup the gate turned away (a 503, or a label that fell
+// back) and logs at most one line a minute with the count, so an overload
+// never floods the log.
 func (s *Server) shed() {
 	s.shedMu.Lock()
 	defer s.shedMu.Unlock()

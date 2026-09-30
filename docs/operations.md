@@ -49,7 +49,7 @@
 - **MEOW ecoregions** (`OCEAN_SOURCE_URL`, defaults to the Esri Oceans ArcGIS Online feature service, item `74b6ac5c8fc24dcb8abaad6428a5dfa4`) — Marine Ecoregions of the World (Spalding et al., 2007, *BioScience*). The ArcGIS item states no licence, and the terms have **not** been confirmed. `Ocean.License()` therefore starts with `UNRESOLVED:`, and until the resolution commit removes it, `ingest ocean approve-license` fails with "license terms not confirmed" and `validate`/`swap` report `license unresolved`, even if `license_reviewed` is set by hand. The procedure for confirming the terms is in `docs/reference-data-licenses.md`.
 - **Natural Earth land mask** (optional `OCEAN_LAND_URL`, defaults to `ne_50m_land.geojson`, the 1:50m land polygon layer) — recorded as public domain (naturalearthdata.com). Used only to clip the MEOW polygons to water, since the raw MEOW polygons run well inland along coastlines.
 
-Both licenses are printed together by `ingest ocean fetch`. Once the terms are resolved, both must be read before `approve-license --version N --yes`. A review carries over to later fetches with the same license text and source URLs, so it must only ever be given for confirmed terms.
+Both licenses are printed together by `ingest ocean fetch`. Once the terms are resolved, both must be read before `approve-license --version N --yes`. A review carries over only to later fetches of identical bytes (same license text, source URLs and file checksums), so it must only ever be given for confirmed terms.
 
 ### Launching without seafood
 

@@ -23,6 +23,7 @@ import (
 	"thymeandplace/internal/climate"
 	"thymeandplace/internal/dataversion"
 	"thymeandplace/internal/db"
+	"thymeandplace/internal/jobs"
 	"thymeandplace/internal/ocean"
 	"thymeandplace/internal/places"
 	"thymeandplace/internal/season"
@@ -223,46 +224,38 @@ func publicDBSlots(poolSize int32) int {
 	return max(1, int(poolSize)*3/4)
 }
 
-// start launches background work: the data-version listener and the daily
-// drift check. It derives its own cancelable context so close() can stop
-// that work before closing the pool. The watcher's LISTEN session uses its
-// own connection outside the pool, so pool.Close() no longer waits on it,
-// but cancelling first still stops the drift check and any Refresh cleanly.
+// jobSchedule runs the drift check and the admin prune: daily, retrying
+// failures after 1 min, doubling to 1 h.
+var jobSchedule = jobs.Schedule{Every: 24 * time.Hour, RetryMin: time.Minute, RetryMax: time.Hour}
+
+// start launches background work: the data-version listener, the daily
+// drift check (on jobSchedule, anchored to the last recorded run; see
+// calibrun.Drift.Loop) and the admin prune. It derives its own cancelable
+// context so close() can stop that work before closing the pool. The
+// watcher's LISTEN session uses its own connection outside the pool, so
+// pool.Close() no longer waits on it, but cancelling first still stops the
+// drift check and any Refresh cleanly.
 func (a *app) start(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	a.cancel = cancel
 	go a.watcher.Run(ctx)
-	go a.drift.Loop(ctx, 24*time.Hour)
+	go a.drift.Loop(ctx, jobSchedule)
 	if a.auth != nil {
-		go a.pruneLoop(ctx, 24*time.Hour)
+		go a.pruneLoop(ctx, jobSchedule)
 	}
 }
 
-// pruneLoop prunes the admin audit, session and enrollment-token tables once
-// right away, then every `every`, until ctx ends. A failed run is logged and
-// retried at the next tick; nothing depends on prompt pruning.
-func (a *app) pruneLoop(ctx context.Context, every time.Duration) {
-	run := func() {
+// pruneLoop prunes the admin audit, session and enrollment-token tables at
+// once, then every s.Every, retrying failures with backoff, until ctx ends.
+func (a *app) pruneLoop(ctx context.Context, s jobs.Schedule) {
+	jobs.Run(ctx, s, 0, func(ctx context.Context) error {
 		r, err := a.auth.Prune(ctx)
 		if err != nil {
-			if ctx.Err() == nil {
-				a.log.Error("admin prune failed", "err", err)
-			}
-			return
+			return err
 		}
 		a.log.Info("admin prune", "login_log", r.LoginLog, "sessions", r.Sessions, "enrollment_tokens", r.EnrollmentTokens)
-	}
-	run()
-	t := time.NewTicker(every)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			run()
-		}
-	}
+		return nil
+	}, func(err error) { a.log.Error("admin prune failed", "err", err) })
 }
 
 // waitForSnapshot blocks until a catalog snapshot is loaded, retrying every

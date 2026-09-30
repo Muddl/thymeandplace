@@ -15,12 +15,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"thymeandplace/internal/auth"
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/catalog/catalogtest"
 	"thymeandplace/internal/dataversion"
 	"thymeandplace/internal/db"
 	"thymeandplace/internal/dbtest"
+	"thymeandplace/internal/jobs"
 	"thymeandplace/internal/store"
 )
 
@@ -191,8 +194,44 @@ func TestStartPrunesAdminTables(t *testing.T) {
 
 	done := make(chan struct{})
 	stop, cancelLoop := context.WithCancel(ctx)
-	go func() { a.pruneLoop(stop, time.Hour); close(done) }()
+	hourly := jobs.Schedule{Every: time.Hour, RetryMin: time.Hour, RetryMax: time.Hour}
+	go func() { a.pruneLoop(stop, hourly); close(done) }()
 	cancelLoop()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pruneLoop did not stop when its context was cancelled")
+	}
+}
+
+// A failed prune is logged and retried with backoff, not left for a day.
+func TestPruneLoopRetriesFailures(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://tp@127.0.0.1:1/tp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close() // every call now fails at once
+	var logBuf syncBuffer
+	log := slog.New(slog.NewTextHandler(&logBuf, nil))
+	svc, err := auth.NewService(pool, auth.Config{
+		RPID: "localhost", RPOrigins: []string{"http://localhost"}, SecretKey: bytes.Repeat([]byte{7}, 32), Log: log,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{auth: svc, log: log}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	fast := jobs.Schedule{Every: time.Hour, RetryMin: time.Millisecond, RetryMax: 5 * time.Millisecond}
+	go func() { a.pruneLoop(ctx, fast); close(done) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for strings.Count(logBuf.String(), "admin prune failed") < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("prune failure not retried:\n%s", logBuf.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):

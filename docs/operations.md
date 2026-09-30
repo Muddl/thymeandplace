@@ -339,6 +339,6 @@ Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Bac
 
 ## Health and logs
 
-- `docker compose ps` shows health; `curl -s https://thymeand.place/readyz` returns `ready` when the DB is reachable and the catalog is loaded. Sustained 503s while `/readyz` is `ready` and the log shows `public DB gate full` mean load shedding (see "Capacity"), not an outage.
+- `docker compose ps` shows health; `curl -s https://thymeand.place/readyz` returns `ready` when the DB is reachable and the catalog is loaded. The database part of `/readyz` is shared: one ping answers every request for 1 s, so `/readyz` can lag a database outage or recovery by up to a second. Sustained 503s while `/readyz` is `ready` and the log shows `public DB gate full` mean load shedding (see "Capacity"), not an outage.
 - Logs are JSON on stdout: `docker compose logs -f app`. Every service uses Docker's `json-file` driver with rotation (`max-size: 10m`, `max-file: 5`, set once in `deploy/compose.yaml`'s `x-logging` anchor), so each container keeps at most ~50 MB of logs; older lines are gone after rotation. Public requests record `cell_id`, never coordinates. Successful backup logins log at `WARN`, and so do calibration drops of more than 0.02.
 - Docker Compose does not restart containers just for being unhealthy. The app exits on fatal errors, and `restart: unless-stopped` brings it back. If you want automatic restarts on failed `/healthz` checks, add a supervisor; it isn't included.

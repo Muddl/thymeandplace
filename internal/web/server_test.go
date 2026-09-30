@@ -1,11 +1,15 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"thymeandplace/internal/web/views"
 )
@@ -33,10 +37,12 @@ func TestHealthAndReady(t *testing.T) {
 	if code, _, _ := hs.get("/readyz", false); code != 200 {
 		t.Fatal("readyz should be ready")
 	}
+	hs.now = hs.now.Add(time.Second)
 	hs.pingErr = errors.New("down")
 	if code, _, _ := hs.get("/readyz", false); code != 503 {
 		t.Fatal("readyz must fail when the DB ping fails")
 	}
+	hs.now = hs.now.Add(time.Second)
 	hs.pingErr = nil
 	hs.snap = nil
 	if code, _, _ := hs.get("/readyz", false); code != 503 {
@@ -129,5 +135,106 @@ func TestHTMXHistoryCacheDisabled(t *testing.T) {
 	hs := newHarness(t)
 	if _, body, _ := hs.get("/", false); !strings.Contains(body, `"historyCacheSize":0`) {
 		t.Fatalf("htmx config:\n%s", body)
+	}
+}
+
+// #13: one ping answers every /readyz for a second, however many callers.
+func TestReadyzSharesPing(t *testing.T) {
+	hs := newHarness(t)
+	hs.pingHold, hs.pingEntered = make(chan struct{}), make(chan struct{}, 1)
+	const n = 50
+	codes := make([]int, n)
+	bodies := make([]string, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			codes[i], bodies[i], _ = hs.get("/readyz", false)
+		}()
+	}
+	select {
+	case <-hs.pingEntered: // the first request is pinging; the rest queue on the lock
+	case <-time.After(5 * time.Second):
+		t.Fatal("no ping started")
+	}
+	// Give the other 49 time to reach the lock. This is best-effort: one
+	// that arrives after the release still passes (the clock is frozen, so
+	// it reuses the result), it just doesn't exercise waiting on the lock.
+	time.Sleep(50 * time.Millisecond)
+	close(hs.pingHold)
+	wg.Wait()
+	for i := range n {
+		if codes[i] != 200 || bodies[i] != "ready" {
+			t.Fatalf("request %d: %d %q", i, codes[i], bodies[i])
+		}
+	}
+	if p := hs.pings.Load(); p != 1 {
+		t.Fatalf("pings = %d, want 1", p)
+	}
+	hs.pingHold, hs.pingEntered = nil, nil
+
+	hs.now = hs.now.Add(999 * time.Millisecond)
+	hs.get("/readyz", false)
+	if p := hs.pings.Load(); p != 1 {
+		t.Fatalf("within the window: pings = %d, want 1", p)
+	}
+	hs.now = hs.now.Add(time.Millisecond)
+	hs.get("/readyz", false)
+	if p := hs.pings.Load(); p != 2 {
+		t.Fatalf("after the window: pings = %d, want 2", p)
+	}
+}
+
+// A failure is shared for the window too, then the next ping recovers.
+func TestReadyzCachesFailure(t *testing.T) {
+	hs := newHarness(t)
+	hs.pingErr = errors.New("down")
+	if code, body, _ := hs.get("/readyz", false); code != 503 || body != "database unavailable" {
+		t.Fatalf("%d %q", code, body)
+	}
+	hs.pingErr = nil
+	if code, _, _ := hs.get("/readyz", false); code != 503 {
+		t.Fatal("the failure must be reused within the window")
+	}
+	hs.now = hs.now.Add(time.Second)
+	if code, body, _ := hs.get("/readyz", false); code != 200 || body != "ready" {
+		t.Fatalf("after the window: %d %q", code, body)
+	}
+}
+
+// A client that has gone away can't poison the shared result.
+func TestReadyzIgnoresCancelledCaller(t *testing.T) {
+	hs := newHarness(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := httptest.NewRequest("GET", "/readyz", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	hs.h.ServeHTTP(rec, r)
+	if rec.Code != 200 || rec.Body.String() != "ready" || hs.pings.Load() != 1 {
+		t.Fatalf("cancelled caller: %d %q pings=%d", rec.Code, rec.Body.String(), hs.pings.Load())
+	}
+	if code, body, _ := hs.get("/readyz", false); code != 200 || body != "ready" || hs.pings.Load() != 1 {
+		t.Fatalf("after a cancelled caller: %d %q pings=%d", code, body, hs.pings.Load())
+	}
+}
+
+// A clock that moves backwards expires the cached result.
+func TestReadyzClockBackwards(t *testing.T) {
+	hs := newHarness(t)
+	hs.get("/readyz", false)
+	hs.now = hs.now.Add(-time.Hour)
+	hs.get("/readyz", false)
+	if p := hs.pings.Load(); p != 2 {
+		t.Fatalf("pings = %d, want 2 (a backwards clock must not pin a result)", p)
+	}
+}
+
+// With no snapshot the answer is immediate and there is no ping.
+func TestReadyzNoSnapshotNoPing(t *testing.T) {
+	hs := newHarness(t)
+	hs.snap = nil
+	if code, body, _ := hs.get("/readyz", false); code != 503 || body != "catalog not loaded" || hs.pings.Load() != 0 {
+		t.Fatalf("%d %q pings=%d", code, body, hs.pings.Load())
 	}
 }

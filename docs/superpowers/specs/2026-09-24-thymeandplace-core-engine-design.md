@@ -332,7 +332,7 @@ CREATE TABLE catalog_meta (
 
 ### 8.4 In-memory snapshot
 
-At startup, and on each version change, `catalog` loads all three tables into an immutable `Snapshot`, validates it at the app level, and swaps it in atomically. If a reload fails validation, the previous snapshot stays live and an error is logged. At startup there is no previous snapshot, so `/readyz` returns 503 until a valid load succeeds.
+At startup, and on each version change, `catalog` loads all three tables into an immutable `Snapshot`, validates it at the app level, and swaps it in atomically. If a reload fails validation, the previous snapshot stays live and an error is logged. At startup there is no previous snapshot, so the server doesn't listen until a valid load succeeds (§11.6).
 
 ### 8.5 Launch catalog
 
@@ -460,7 +460,7 @@ The audit tables are append-only for the app's database role: it can read `catal
 | `GET /sitemap.xml` | The home and About pages, plus a season page for each calibration city |
 | `GET /llms.txt` | Markdown summary for language models (llmstxt.org): what the site does, how far to trust it, featured season pages and the ingredient list. Follows the seafood flag (§11.7) |
 | `GET /healthz` | 200 if the process is up |
-| `GET /readyz` | 200 if the DB ping succeeds within 500 ms and a catalog snapshot is loaded |
+| `GET /readyz` | 200 if a catalog snapshot is loaded and a database ping succeeded within the last second (one shared ping, reused for 1 s; each ping times out after 500 ms) |
 
 Requests without an `HX-Request` header get full-page versions of `/season` and `/ingredient`, so URLs are shareable and indexable. The absolute URLs in `robots.txt`, `sitemap.xml` and `llms.txt` use `PUBLIC_BASE_URL` (default: the admin origin, `https://thymeand.place`).
 
@@ -510,7 +510,7 @@ Principle: the surrounding page stays usable, and every message says what happen
 | Overloaded (no public DB slot within 250 ms) | 503 + `Retry-After: 5` | Same panel as a DB outage, returned at once. `/places` shows "Search isn't available right now. Try again in a moment." |
 | Unexpected error or panic | 500 | Same panel as 503. Logged with request ID. |
 | Rate limited | 429 | Under the search box: "Search is pausing for a few seconds. Keep typing and results will catch up." Resumes automatically. |
-| No catalog snapshot loaded | 503 | `/readyz` fails, so Compose holds traffic. The site is not served. |
+| No catalog snapshot loaded | 503 | The server doesn't listen until a snapshot loads, so Caddy serves the maintenance page. |
 | Ingestion validation failure | — | Pipeline exits non-zero naming dataset and step. Live data unchanged. |
 
 Admin errors follow the same style: validation errors appear inline next to their fields, and a stale changeset shows "The catalog changed since this preview. Preview again."
@@ -665,7 +665,7 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 - Migrations: `goose` runs in the one-shot `migrate` service as `tp_owner`, before the app starts; the app refuses to serve while migrations are pending. Migrations must be backward-compatible with the previous app version.
 - Backups: nightly `pg_dump` (including the catalog and admin tables) to the S3-compatible bucket, keeping 7 daily and 4 weekly copies. A restore test is run manually before launch. Catalog JSON exports are a convenience, not the backup.
 - Connection budget: app pool 16 (2 kept open; `DB_MAX_CONNS` overrides) + the app's `LISTEN` connection 1 + `ingest` or `devseed` 4 + admin CLI 4 + backup 1 + `psql` sessions, about 30 in all, well under Postgres's default `max_connections` of 100. A `pool_max_conns` in `DATABASE_URL` wins over a binary's default. A k6 load test (`deploy/loadtest/`) checks the §1 latency targets before launch; results go in `docs/capacity-baseline.md`.
-- Health: Compose health checks on `/healthz` (restart) and `/readyz` (traffic).
+- Health: Docker and Caddy probe `/healthz`. `/readyz` is for monitoring and does not gate traffic.
 - Client IP: the app trusts exactly one proxy hop (Caddy) and uses the rightmost `X-Forwarded-For` entry. Putting any proxy in front of Caddy requires changing that first.
 - Logs: JSON `slog` to stdout. Public request lat/lng is logged only as `cell_id`.
 - The app prunes admin audit (90 days), session and enrollment-token rows daily, starting at boot.
@@ -694,6 +694,7 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Ocean query target | p95 ≤ 25 ms (else subdivide polygons at ingest) |
 | Public request timeout | 2 s |
 | Public rate limits | `/places` 10/s burst 20; `/season`, `/ingredient` 2/s burst 10 |
+| Readiness ping reuse | 1 s |
 | Calibration override threshold | score drop > 0.02 |
 | Pending changeset expiry | 1 hour |
 | Import size limit | 5 MB |

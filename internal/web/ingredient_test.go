@@ -68,6 +68,28 @@ func TestIngredientErrors(t *testing.T) {
 	}
 }
 
+// #15: a panic's retry link is the page path with no query.
+func TestIngredientPanicRetryLinkIsPathOnly(t *testing.T) {
+	hs := newHarness(t)
+	hs.climate.panic = true
+	code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&x=javascript:alert(1)", lisbonCell), true)
+	if code != 500 || !strings.Contains(body, `href="/ingredient/tomato"`) || strings.Contains(body, "javascript") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
+// #15: a lookup failure's retry link rebuilds the ingredient URL from the
+// validated cell and date.
+func TestIngredientRetryLinkRebuilt(t *testing.T) {
+	hs := newHarness(t)
+	hs.climate.down = true
+	code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&date=2026-08-15&x=%%22junk", lisbonCell), true)
+	want := fmt.Sprintf(`href="/ingredient/tomato?cell=%d&date=2026-08-15"`, lisbonCell)
+	if code != 503 || !strings.Contains(body, want) || strings.Contains(body, "junk") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
 func TestIngredientFullPage(t *testing.T) {
 	hs := newHarness(t)
 	_, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d", lisbonCell), false)

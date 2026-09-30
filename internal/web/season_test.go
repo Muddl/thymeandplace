@@ -117,8 +117,19 @@ func TestSeasonDatabaseDown(t *testing.T) {
 	hs.climate.down = true
 	code, body, _ := hs.get(lisbonQ+"&date=2026-08-15", true)
 	if code != 503 || !strings.Contains(body, views.CopyLoadError) || !strings.Contains(body, views.CopyTryAgain) ||
-		!strings.Contains(body, `hx-get="/season?lat=38.7200&lng=-9.1400&place=1&date=2026-08-15"`) ||
+		!strings.Contains(body, `hx-get="/season?lat=38.72&lng=-9.14&place=1&date=2026-08-15"`) ||
 		!strings.Contains(body, "38.72°N, 9.14°W") {
+		t.Fatalf("%d\n%s", code, body)
+	}
+}
+
+// #15: the retry link carries only validated values, never the raw query.
+func TestSeasonRetryLinkDropsJunk(t *testing.T) {
+	hs := newHarness(t)
+	hs.climate.down = true
+	code, body, _ := hs.get("/season?lat=38.72&lng=-9.14&place=1&date=2026-08-15&x=javascript:alert(1)&utm=%22%3E", true)
+	want := `href="/season?lat=38.72&lng=-9.14&place=1&date=2026-08-15"`
+	if code != 503 || !strings.Contains(body, want) || strings.Contains(body, "javascript") || strings.Contains(body, "utm") {
 		t.Fatalf("%d\n%s", code, body)
 	}
 }

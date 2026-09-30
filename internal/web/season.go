@@ -105,6 +105,7 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	month := s.monthFor(q.Get("date"))
+	retry := seasonRetryURL(lat, lng, q.Get("place"), s.validDate(q.Get("date")))
 	queryCell := climate.CellID(lat, lng)
 	SetCellID(ctx, queryCell)
 
@@ -114,7 +115,7 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 	version := s.d.DataVersion()
 	snap := s.d.Snapshot()
 	if snap == nil {
-		s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), r.URL.RequestURI()))
+		s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), retry))
 		return
 	}
 	key := cache.Key{CellID: queryCell, Month: month, DataVersion: version}
@@ -127,12 +128,12 @@ func (s *Server) season(w http.ResponseWriter, r *http.Request) {
 			return err
 		})
 		if errors.Is(err, errBusy) {
-			s.overloaded(w, r, "Seasons", coords(lat, lng), r.URL.RequestURI())
+			s.overloaded(w, r, "Seasons", coords(lat, lng), retry)
 			return
 		}
 		if err != nil {
 			s.d.Log.Warn("season lookup failed", "err", err, "request_id", RequestIDFrom(ctx), "cell_id", queryCell)
-			s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), r.URL.RequestURI()))
+			s.render(w, r, http.StatusServiceUnavailable, "Seasons", "", nil, views.LoadError(coords(lat, lng), retry))
 			return
 		}
 		s.cache.Add(key, core)

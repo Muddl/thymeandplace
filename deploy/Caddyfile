@@ -15,10 +15,17 @@ thymeand.place {
 	# Caddy's own runtime/error log (stderr, on by default) is unaffected.
 	# Do not add a `log` directive here.
 	#
-	# reverse_proxy below depends on Caddy's default of ignoring/overwriting
-	# any inbound X-Forwarded-For rather than trusting it, since no
-	# trusted_proxies is configured (Caddy is the first hop) - the backend
-	# always sees the real client IP, not a spoofed one.
+	# The app trusts exactly one proxy hop, this Caddy, and takes the client IP
+	# from the rightmost X-Forwarded-For entry (web.ClientIP). With no
+	# trusted_proxies configured, Caddy discards any inbound X-Forwarded-For and
+	# writes its own peer address, so that entry is the real client. Setting
+	# trusted_proxies (for a CDN in front) makes Caddy keep the inbound values
+	# and append the CDN edge, so every visitor behind one CDN edge would share
+	# a rate-limit bucket. Change web.ClientIP before putting anything in front
+	# of Caddy, and pair trusted_proxies with trusted_proxies_strict: without
+	# it Caddy reads X-Forwarded-For left to right and {client_ip} is the entry
+	# the client controls (docs/operations.md, "Reverse proxy trust and
+	# logging").
 	# Route on liveness. The app itself refuses to listen until its catalog
 	# snapshot loads and shows its own retry panel during DB outages.
 	reverse_proxy app:8080 {

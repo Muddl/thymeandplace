@@ -666,6 +666,7 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 - Backups: nightly `pg_dump` (including the catalog and admin tables) to the S3-compatible bucket, keeping 7 daily and 4 weekly copies. A restore test is run manually before launch. Catalog JSON exports are a convenience, not the backup.
 - Connection budget: app pool 16 (2 kept open; `DB_MAX_CONNS` overrides) + the app's `LISTEN` connection 1 + `ingest` or `devseed` 4 + admin CLI 4 + backup 1 + `psql` sessions, about 30 in all, well under Postgres's default `max_connections` of 100. A `pool_max_conns` in `DATABASE_URL` wins over a binary's default. A k6 load test (`deploy/loadtest/`) checks the §1 latency targets before launch; results go in `docs/capacity-baseline.md`.
 - Health: Compose health checks on `/healthz` (restart) and `/readyz` (traffic).
+- Client IP: the app trusts exactly one proxy hop (Caddy) and uses the rightmost `X-Forwarded-For` entry. Putting any proxy in front of Caddy requires changing that first.
 - Logs: JSON `slog` to stdout. Public request lat/lng is logged only as `cell_id`.
 - The app prunes admin audit (90 days), session and enrollment-token rows daily, starting at boot.
 

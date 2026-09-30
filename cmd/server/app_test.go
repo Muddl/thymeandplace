@@ -21,6 +21,7 @@ import (
 	"thymeandplace/internal/dataversion"
 	"thymeandplace/internal/db"
 	"thymeandplace/internal/dbtest"
+	"thymeandplace/internal/jobs"
 	"thymeandplace/internal/store"
 )
 
@@ -191,7 +192,8 @@ func TestStartPrunesAdminTables(t *testing.T) {
 
 	done := make(chan struct{})
 	stop, cancelLoop := context.WithCancel(ctx)
-	go func() { a.pruneLoop(stop, time.Hour); close(done) }()
+	hourly := jobs.Schedule{Every: time.Hour, RetryMin: time.Hour, RetryMax: time.Hour}
+	go func() { a.pruneLoop(stop, hourly); close(done) }()
 	cancelLoop()
 	select {
 	case <-done:

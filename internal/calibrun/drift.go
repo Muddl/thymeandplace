@@ -12,6 +12,7 @@ import (
 	"thymeandplace/internal/calibration"
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/changeset"
+	"thymeandplace/internal/jobs"
 	"thymeandplace/internal/store"
 )
 
@@ -23,6 +24,14 @@ type Drift struct {
 	Cases       func(context.Context) ([]calibration.Case, error)
 	DataVersion func() string
 	Log         *slog.Logger
+	Now         func() time.Time // nil → time.Now; tests place runs relative to it
+}
+
+func (d *Drift) now() time.Time {
+	if d.Now != nil {
+		return d.Now()
+	}
+	return time.Now()
 }
 
 func (d *Drift) RunOnce(ctx context.Context) (calibration.Report, error) {
@@ -56,21 +65,41 @@ func (d *Drift) RunOnce(ctx context.Context) (calibration.Report, error) {
 	return rep, nil
 }
 
-func (d *Drift) Loop(ctx context.Context, every time.Duration) {
-	run := func() {
-		if _, err := d.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			d.Log.Error("calibration drift check failed", "err", err)
-		}
-	}
-	run()
-	t := time.NewTicker(every)
-	defer t.Stop()
-	for {
+// Loop runs the drift check on schedule s (core spec §13.2). It waits,
+// quietly, until a catalog snapshot is loaded; then runs s.Every after the
+// last recorded run (at once if there is none that recent); and retries
+// failures after s.RetryMin, doubling to s.RetryMax. It returns when ctx ends.
+func (d *Drift) Loop(ctx context.Context, s jobs.Schedule) {
+	for d.Snapshot() == nil {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
-			run()
+		case <-time.After(s.RetryMin):
 		}
 	}
+	logFail := func(err error) { d.Log.Error("calibration drift check failed", "err", err) }
+	var first time.Duration
+	for failures := 1; ; failures++ {
+		last, err := store.New(d.Pool).LatestCalibrationRun(ctx)
+		if err == nil {
+			first = jobs.FirstDelay(last.RanAt.Time, true, d.now(), s.Every)
+			break
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			break
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		logFail(err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(jobs.RetryDelay(failures, s.RetryMin, s.RetryMax)):
+		}
+	}
+	jobs.Run(ctx, s, first, func(ctx context.Context) error {
+		_, err := d.RunOnce(ctx)
+		return err
+	}, logFail)
 }

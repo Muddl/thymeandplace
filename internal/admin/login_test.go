@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -531,5 +532,20 @@ func TestLoadSessionDBErrorIs503KeepsCookie(t *testing.T) {
 	}
 	if logs := e.logs.String(); !strings.Contains(logs, "session lookup failed") || !strings.Contains(logs, "request_id="+testRequestID) {
 		t.Fatalf("lookup failure not logged with request_id:\n%s", logs)
+	}
+}
+
+// An anonymous caller must not be able to cause an ERROR (which pages the
+// owner): an oversized enrollment body is a client error.
+func TestEnrollFinishOversizeBodyIsNotError(t *testing.T) {
+	e := newEnv(t, false)
+	c := e.client(t)
+	c.get("/admin/login") // sets the CSRF cookie the POST must carry
+	rec := c.postJSON("/admin/enroll/finish?token=x", `{"x":"`+strings.Repeat("a", 70<<10)+`"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if strings.Contains(e.logs.String(), "level=ERROR") {
+		t.Fatalf("client error logged at ERROR:\n%s", e.logs.String())
 	}
 }

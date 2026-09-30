@@ -282,10 +282,15 @@ func (a *Admin) enrollFinish(w http.ResponseWriter, r *http.Request) {
 	if !a.admit(ctx, c, "enroll", jsonRefusal(w)) {
 		return
 	}
-	err := limitCeremonyBody(w, r)
-	if err == nil {
-		err = a.d.Auth.FinishEnrollment(ctx, state, r, r.URL.Query().Get("name"), r.URL.Query().Get("token"))
+	// A body the ceremony can't read (over 64 KiB, or cut off) is the
+	// caller's fault: WARN, never ERROR, since ERROR pages the owner.
+	if err := limitCeremonyBody(w, r); err != nil {
+		a.d.Auth.LogAttempt(ctx, c, "enroll", "failure")
+		a.d.Log.Warn("enrollment body rejected", "err", err, "request_id", web.RequestIDFrom(ctx))
+		jsonError(w, http.StatusBadRequest, "The passkey couldn't be registered. Try again.")
+		return
 	}
+	err := a.d.Auth.FinishEnrollment(ctx, state, r, r.URL.Query().Get("name"), r.URL.Query().Get("token"))
 	switch {
 	case errors.Is(err, auth.ErrBadEnrollment):
 		a.d.Auth.LogAttempt(ctx, c, "enroll", "failure")

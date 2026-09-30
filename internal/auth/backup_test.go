@@ -250,3 +250,38 @@ func TestAttemptRateLimitCountsOnlyLoginFailures(t *testing.T) {
 		t.Fatalf("%d login failures should block the next attempt: ok=%v err=%v", AttemptLimit, ok, err)
 	}
 }
+
+// Monitoring hook: backup login use and a new lockout fire events; plain
+// failures, attempts while locked and passkey outcomes don't.
+func TestSecurityEvents(t *testing.T) {
+	ctx := context.Background()
+	s, c, secret := setup(t)
+	var events []string
+	s.onEvent = func(k string) { events = append(events, k) }
+
+	s.LogAttempt(ctx, v4("192.0.2.1"), "passkey", "success")
+	s.LogAttempt(ctx, v4("192.0.2.1"), "passkey", "failure")
+	s.LogAttempt(ctx, v4("192.0.2.1"), "backup", "failure")
+	if len(events) != 0 {
+		t.Fatalf("no event expected yet: %v", events)
+	}
+	s.LogAttempt(ctx, v4("192.0.2.1"), "backup", "success")
+	if len(events) != 1 || events[0] != "backup_login" {
+		t.Fatalf("backup login: %v", events)
+	}
+	events = nil
+	for i := 0; i < LockoutFailures-1; i++ {
+		_ = s.BackupLogin(ctx, "nope", "000000")
+	}
+	if len(events) != 0 {
+		t.Fatalf("failures before the lockout: %v", events)
+	}
+	_ = s.BackupLogin(ctx, "nope", "000000")
+	if len(events) != 1 || events[0] != "backup_lockout" {
+		t.Fatalf("lockout: %v", events)
+	}
+	_ = s.BackupLogin(ctx, pw, code(t, secret, c.now())) // refused while locked
+	if len(events) != 1 {
+		t.Fatalf("an attempt while locked must not fire: %v", events)
+	}
+}

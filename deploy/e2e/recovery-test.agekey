@@ -1,0 +1,6 @@
+# END-TO-END TESTS ONLY. A throwaway age identity standing in for the
+# recovery key in the local backup recipe and the CI backup job (the
+# disaster-restore check). Never used in production; not a secret.
+# created: 2026-10-10T19:21:42Z
+# public key: age1qlgdep4el9q08cak5p955wq335s3nmhdae6csf03djeu244sc4ysh3n3sc
+AGE-SECRET-KEY-1MXNH5CLTS66XLJX2JGNXWUEFH9XF5Q3FQF4A6Z3TEA59A009ZLAQDKT5KQ

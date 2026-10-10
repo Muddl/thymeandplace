@@ -43,26 +43,38 @@ out=$($C --profile tools run --rm "${BK[@]}" --entrypoint restore-test.sh restor
 [[ $out == *"restore-test ok ($day.dump.age)"* ]] || fail "restore-test: $out"
 ok "restore-test"
 
-# Refusals below must leave the live database untouched. Stop the app so a
-# refusal can only come from the check under test.
 $C stop app
-$C exec -T db psql -U tp -d thymeandplace -qc "CREATE TABLE verify_sentinel ()"
-[[ $(sentinel) == t ]] || fail "could not create the sentinel table"
 restore() { $C --profile tools run --rm "${BK[@]}" -e RESTORE_CONFIRM=thymeandplace "$@" 2>&1; }
 
-# 3. No identity: refused before downloading.
+# 3. Disaster restore with the recovery key, over the live database, in exactly
+# the form docs/operations.md gives ("Disaster restore with the recovery key").
+# The -e override replaces the compose-set restore-test identity, so this only
+# passes if backup.sh encrypted to the second recipient too. A table created
+# after the backup must be gone afterwards.
+$C exec -T db psql -U tp -d thymeandplace -qc "CREATE TABLE verify_disaster ()"
+out=$(restore -v ./e2e/recovery-test.agekey:/run/secrets/recovery.agekey:ro -e AGE_IDENTITY=/run/secrets/recovery.agekey restore "$key") || fail "disaster restore: $out"
+[[ $out == *"restore ok: $key"* ]] || fail "disaster restore: $out"
+[[ $($C exec -T db psql -U tp -d thymeandplace -Atc "SELECT to_regclass('public.verify_disaster') IS NULL" | tr -d '\r') == t ]] || fail "disaster restore left the database unchanged"
+ok "disaster restore with the recovery key"
+
+# Refusals below must leave the live database untouched. The app is stopped,
+# so a refusal can only come from the check under test.
+$C exec -T db psql -U tp -d thymeandplace -qc "CREATE TABLE verify_sentinel ()"
+[[ $(sentinel) == t ]] || fail "could not create the sentinel table"
+
+# 4. No identity: refused before downloading.
 if out=$(restore -e AGE_IDENTITY= restore "$key"); then fail "restore without identity succeeded"; fi
 [[ $out == *"set AGE_IDENTITY"* ]] || fail "no-identity message: $out"
 [[ $(sentinel) == t ]] || fail "database changed after no-identity refusal"
 ok "no identity refused"
 
-# 4. Wrong identity.
+# 5. Wrong identity.
 if out=$(restore --entrypoint sh restore -c "age-keygen -o /tmp/wrong.key 2>/dev/null && AGE_IDENTITY=/tmp/wrong.key restore.sh $key"); then fail "wrong identity succeeded"; fi
 [[ $out == *"could not be decrypted"* ]] || fail "wrong-identity message: $out"
 [[ $(sentinel) == t ]] || fail "database changed after wrong identity"
 ok "wrong identity refused"
 
-# 5. One changed byte: offset 300, past the age header, becomes (b+1) mod 256.
+# 6. One changed byte: offset 300, past the age header, becomes (b+1) mod 256.
 mcx "k=$key; "'mc cp --quiet "m/tp-backups/$k" /tmp/o && cp /tmp/o /tmp/t &&
   b=$(dd if=/tmp/o bs=1 skip=300 count=1 2>/dev/null | od -An -tu1 | tr -d " ") &&
   printf %b "\\0$(printf %03o $(( (b + 1) % 256 )))" | dd of=/tmp/t bs=1 seek=300 count=1 conv=notrunc 2>/dev/null &&
@@ -73,14 +85,14 @@ if out=$(restore restore backups/tampered/t.dump.age); then fail "tampered backu
 [[ $(sentinel) == t ]] || fail "database changed after tampered restore"
 ok "tampered backup refused"
 
-# 6. A legacy plaintext dump still restores.
+# 7. A legacy plaintext dump still restores.
 $C --profile tools run --rm "${BK[@]}" --entrypoint sh backup -c \
   "pg_dump --format=custom --no-owner --dbname=\"\$DATABASE_URL\" --file=/tmp/l.dump && mc alias set m http://$S3:8000 accessKey1 verySecretKey1 >/dev/null && mc cp --quiet /tmp/l.dump m/tp-backups/backups/legacy/l.dump"
 out=$(restore restore backups/legacy/l.dump) || fail "legacy restore: $out"
 [[ $out == *"restore ok"* ]] || fail "legacy restore: $out"
 ok "legacy plaintext restore"
 
-# 7. Missing, empty or private-key recipients: exit 2, nothing uploaded.
+# 8. Missing, empty or private-key recipients: exit 2, nothing uploaded.
 before=$(bucket)
 [[ $before == *"daily/$day.dump.age "* ]] || fail "bucket listing: $before"
 for bad in "" "AGE-SECRET-KEY-1QQQQ" "age1ok notakey"; do
@@ -90,20 +102,25 @@ done
 [[ $(bucket) == "$before" ]] || fail "a refused backup uploaded something"
 ok "bad recipients refused"
 
-# 8. A dump that can't be taken fails loudly and uploads nothing.
+# 9. A dump that can't be taken fails loudly and uploads nothing.
 set +e; $C --profile tools run --rm "${BK[@]}" -e DATABASE_URL="postgres://tp_backup:wrong@db:5432/thymeandplace?sslmode=disable" backup >/dev/null 2>&1; rc=$?; set -e
 [[ $rc != 0 ]] || fail "backup with a failing pg_dump exited 0"
 [[ $(bucket) == "$before" ]] || fail "a failed dump uploaded something"
 ok "failed dump uploads nothing"
 
-# 9. An empty dump fails at verify and uploads nothing: a pg_dump shim first
-# on PATH exits 0 without writing the file.
+# 10. A zero-byte dump fails at verify and uploads nothing: a pg_dump shim
+# first on PATH truncates its --file target and exits 0.
 set +e
-out=$($C --profile tools run --rm "${BK[@]}" --entrypoint sh backup -c \
-  'mkdir -p /tmp/shim && printf "#!/bin/sh\nexit 0\n" >/tmp/shim/pg_dump && chmod +x /tmp/shim/pg_dump && PATH=/tmp/shim:$PATH backup.sh' 2>&1)
+out=$($C --profile tools run --rm "${BK[@]}" --entrypoint sh backup -c 'mkdir -p /tmp/shim && cat >/tmp/shim/pg_dump <<"EOF"
+#!/bin/sh
+for a; do case $a in --file=*) : > "${a#--file=}"; echo "shim: wrote a zero-byte ${a#--file=}" >&2;; esac; done
+exit 0
+EOF
+chmod +x /tmp/shim/pg_dump && PATH=/tmp/shim:$PATH backup.sh' 2>&1)
 rc=$?
 set -e
 [[ $rc == 1 ]] || fail "backup with an empty dump: exit $rc, want 1: $out"
+[[ $out == *"shim: wrote a zero-byte /tmp/thymeandplace-$day.dump"* ]] || fail "pg_dump shim did not run: $out"
 [[ $out == *"backup: dump is empty"* ]] || fail "empty-dump message: $out"
 [[ $(bucket) == "$before" ]] || fail "an empty dump uploaded something"
 ok "empty dump uploads nothing"

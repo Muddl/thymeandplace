@@ -215,8 +215,8 @@ ingest <dataset> fetch|transform|load|validate|swap|all [--version N]
 ingest <dataset> rollback
 ```
 
-1. **Fetch.** Download raw files and record URL, checksum, license, and date. Raw files go to an S3-compatible bucket.
-2. **Transform.** Produce load-ready CSV. For climate, this is the Python + xarray container: select 1991–2020, group by month, take the mean, regrid to 0.25°, mask to land, one row per cell. Output is saved to the bucket so it runs once per source version. Ocean and places transforms run in Go.
+1. **Fetch.** Download raw files and record URL, checksum, license, and date. Raw files go to an S3-compatible bucket. Before downloading, every source must pass the transport check: `https://`, or `http://` or `bucket:` (a reviewed copy in the bucket) only with a sha256 pin; redirects stop at 10 and never go from HTTPS to HTTP. Each file's sha256 must equal its pin (`Source.SHA256`, which still applies when an env var overrides the URL); a source that can't be pinned says why (`Source.Unpinned`; only GeoNames). On a mismatch the fetch fails before any `dataset_versions` row is written or anything is uploaded, so live data is unchanged. `fetch` prints a per-file summary (URL, sha256, pinned or why not, compared with the live version), and `approve-license --version N` without `--yes` repeats it and approves nothing. A license review carries over to a new version only when the license, source URLs and every file's checksum are identical to a reviewed version's.
+2. **Transform.** First re-hash every raw file and compare it with the version's recorded checksums; a file that differs stops the transform ("raw file <file> differs from what was fetched and reviewed"), and so does one the checksums don't list ("raw file <file> has no recorded checksum in version <N>; refusing to transform it"). Then produce load-ready CSV. For climate, this is the Python + xarray container: select 1991–2020, group by month, take the mean, regrid to 0.25°, mask to land, one row per cell. Output is saved to the bucket so it runs once per source version. Ocean and places transforms run in Go.
 3. **Load.** Create `*_v{N}` and fill it with `COPY`. The live view is not touched.
 4. **Validate.** Any failure stops the pipeline with a non-zero exit:
    - Row counts within ±5% of the previous live version (skipped on the first load).
@@ -642,7 +642,7 @@ Property tests:
 ### 13.6 Pipeline tests
 
 - `pytest`: the xarray transform on a tiny synthetic NetCDF produces the expected normals and grid.
-- Go: a failed validation leaves live data unchanged; swap flips `is_live`, repoints the view, and sends `NOTIFY`; rollback restores the previous version; promotion is refused without a reviewed license, and approval and promotion are both refused for an `UNRESOLVED:` license even when `license_reviewed` is set by SQL; every dataset's `Attribution()` appears on the About page; ocean validation fails if catalog ecoregion IDs are missing.
+- Go: a failed validation leaves live data unchanged; swap flips `is_live`, repoints the view, and sends `NOTIFY`; rollback restores the previous version; promotion is refused without a reviewed license, and approval and promotion are both refused for an `UNRESOLVED:` license even when `license_reviewed` is set by SQL; every dataset's `Attribution()` appears on the About page; ocean validation fails if catalog ecoregion IDs are missing. Source pins and transport (reference-data provenance spec §6): every default source declares exactly one of a sha256 pin or an `Unpinned` reason; a fetch whose file doesn't match its pin fails with no row written and nothing uploaded, a matching one succeeds, and a `bucket:` source is read from the bucket and still checked; `CheckTransport` allows HTTPS, and HTTP or `bucket:` only when pinned; the HTTP client refuses HTTPS→HTTP redirects (including at the last hop of a chain) and an 11th redirect; a review carries over only for identical bytes; transform refuses a raw file that was tampered with in the bucket or is missing from the recorded checksums; the review summary reports `same as live`, `changed` and `no live version`; `ingest approve-license` without `--version` exits 2 before connecting, and without `--yes` prints the summary and approves nothing.
 
 ### 13.7 Cache tests
 
@@ -724,3 +724,5 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Ping timeout / attempts / body cap | 5 s / 3 / 10 kB |
 | External monitor | ≤ 5 min, alert after 2 failures, TLS warning at 14 days |
 | Container logs | `json-file`, 10 MB x 20 files, rotated files compressed |
+| Source pins | sha256 per file (GeoNames unpinned) |
+| Plain HTTP | only for pinned sources; no HTTPS→HTTP redirects |

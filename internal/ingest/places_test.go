@@ -57,7 +57,7 @@ func placesSource(t *testing.T, n int) *Places {
 		"admin1CodesASCII.txt": []byte(admin1),
 	})
 	return &Places{
-		SourceList: []Source{{base + "/cities1000.zip", "cities1000.zip"}, {base + "/admin1CodesASCII.txt", "admin1CodesASCII.txt"}},
+		SourceList: []Source{{URL: base + "/cities1000.zip", File: "cities1000.zip"}, {URL: base + "/admin1CodesASCII.txt", File: "admin1CodesASCII.txt"}},
 		SpotChecks: []PlaceCheck{{"London", "GB"}, {"Paris", "FR"}},
 	}
 }
@@ -117,8 +117,8 @@ func TestFetchDownloadFailureLeavesNoDatasetVersionsRow(t *testing.T) {
 		// admin1CodesASCII.txt deliberately not served: 404.
 	})
 	ds := &Places{SourceList: []Source{
-		{base + "/cities1000.zip", "cities1000.zip"},
-		{base + "/admin1CodesASCII.txt", "admin1CodesASCII.txt"},
+		{URL: base + "/cities1000.zip", File: "cities1000.zip"},
+		{URL: base + "/admin1CodesASCII.txt", File: "admin1CodesASCII.txt"},
 	}}
 	p := newPipeline(t, pool, ds)
 

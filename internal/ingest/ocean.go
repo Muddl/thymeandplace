@@ -40,15 +40,16 @@ const DefaultOceanURL = "https://services.arcgis.com/bDAhvQYMG4WL8O5o/arcgis/res
 
 // DefaultLandURL is Natural Earth's 1:50m land polygon layer (public domain),
 // used to subtract land from every ecoregion. Override with OCEAN_LAND_URL.
-const DefaultLandURL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson"
+// It is pinned to a commit whose file matches the reviewed sha256; never a branch.
+const DefaultLandURL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/693f11422f4e08d2da4566b854dda53eb7c39fb3/geojson/ne_50m_land.geojson"
 
 func NewOcean(url string) *Ocean {
 	if url == "" {
 		url = DefaultOceanURL
 	}
 	return &Ocean{
-		Source:   Source{URL: url, File: "meow.geojson"},
-		Land:     Source{URL: DefaultLandURL, File: "ne_50m_land.geojson"},
+		Source:   Source{URL: url, File: "meow.geojson", SHA256: "533ce94372c46865bc7afe8e2892fb0e1014cc1f8376e5d49679b7da2ab4428c"},
+		Land:     Source{URL: DefaultLandURL, File: "ne_50m_land.geojson", SHA256: "e874b27a51d146452be360cafb3cc50c86001074a67d534113e6534682f9826b"},
 		MinCount: 225, MaxCount: 240, // MEOW has 232 ecoregions
 		Coastal: []Point{
 			{"Lisbon", 38.72, -9.14}, {"Boston", 42.36, -71.06}, {"Tokyo", 35.68, 139.77},

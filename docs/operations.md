@@ -30,13 +30,17 @@
 5. Owner access: `docker compose exec app /app/admin enroll`. Open the link on your phone, register a passkey, repeat for a second device. Then `docker compose exec app /app/admin set-backup` and scan the QR code.
 6. Reference data, per dataset (`places`, `ocean`, `climate`). Before approving any license, check its row in `docs/reference-data-licenses.md`. **Skip ocean for launch:** its MEOW terms are unresolved, so `approve-license` refuses it (see "Ocean dataset" below), and the site launches with seafood off ("Launching without seafood").
    ```bash
-   docker compose --profile tools run --rm ingest places fetch        # note the version N and read the license it prints
+   docker compose --profile tools run --rm ingest places fetch        # note the version N and read the per-file summary it prints
+   docker compose --profile tools run --rm ingest places approve-license --version N         # dry run: repeats the summary, changes nothing, exits 2
    docker compose --profile tools run --rm ingest places approve-license --version N --yes
    docker compose --profile tools run --rm ingest places all --version N
    ```
+   `fetch` prints the license and, for each file, its URL, its sha256, whether it is `pinned` or `unpinned: <reason>`, and how it compares with the live version (`same as live vK`, `changed (live vK: …)` or `no live version`). A file whose sha256 differs from its pin fails the fetch; see "When a pinned source changes". The labels describe the version's recorded checksums, so a version fetched before the pins existed can show `pin mismatch (pin …)` or `sha256 (no record)`: don't approve it; fetch again. `approve-license --version N` without `--yes` prints the same summary and approves nothing; with `--yes` it prints it again as the record and approves. A review carries over to a later fetch only when the license, URLs and every file's checksum are the same. GeoNames regenerates its dumps at fixed URLs, so places is unpinned and every places refresh needs `approve-license` again.
+
    Climate needs the transform container once per version (all from `/opt/thymeandplace/deploy`):
    ```bash
    docker compose --profile tools run --rm ingest climate fetch
+   docker compose --profile tools run --rm ingest climate approve-license --version N --yes   # after reading the summary
    docker compose --profile tools run --rm ingest climate transform --version N   # exits 3 and prints the next command
    docker compose --profile tools run --rm transform /work/climate/vN
    docker compose --profile tools run --rm ingest climate all --version N
@@ -61,7 +65,7 @@
 - **MEOW ecoregions** (`OCEAN_SOURCE_URL`, defaults to the Esri Oceans ArcGIS Online feature service, item `74b6ac5c8fc24dcb8abaad6428a5dfa4`) — Marine Ecoregions of the World (Spalding et al., 2007, *BioScience*). The ArcGIS item states no licence, and the terms have **not** been confirmed. `Ocean.License()` therefore starts with `UNRESOLVED:`, and until the resolution commit removes it, `ingest ocean approve-license` fails with "license terms not confirmed" and `validate`/`swap` report `license unresolved`, even if `license_reviewed` is set by hand. The procedure for confirming the terms is in `docs/reference-data-licenses.md`.
 - **Natural Earth land mask** (optional `OCEAN_LAND_URL`, defaults to `ne_50m_land.geojson`, the 1:50m land polygon layer) — recorded as public domain (naturalearthdata.com). Used only to clip the MEOW polygons to water, since the raw MEOW polygons run well inland along coastlines.
 
-Both licenses are printed together by `ingest ocean fetch`. Once the terms are resolved, both must be read before `approve-license --version N --yes`. A review carries over to later fetches with the same license text and source URLs, so it must only ever be given for confirmed terms.
+Both licenses are printed together by `ingest ocean fetch`. Once the terms are resolved, both must be read before `approve-license --version N --yes`. A review carries over only to later fetches of identical bytes (same license text, source URLs and file checksums), so it must only ever be given for confirmed terms.
 
 ### Launching without seafood
 
@@ -86,7 +90,7 @@ Keep the seafood items in `content/catalog/launch.json`; they're what gets impor
 ### Turning seafood on
 
 1. Resolve MEOW ("Resolving MEOW" in `docs/reference-data-licenses.md`; that commit also updates the About page's marine credits).
-2. Ingest ocean: `fetch`, read the license, `approve-license --version N --yes`, `all --version N`.
+2. Ingest ocean: `fetch`, read the license and per-file summary it prints, `approve-license --version N --yes`, `all --version N`.
 3. Import `content/catalog/launch.json` in `/admin/import`. Import only upserts, so this adds the seafood items and pairings back.
 4. Set `FEATURE_SEAFOOD=on` in `/etc/thymeandplace/app.env` and run `sudo docker compose up -d app` (the flag is read at startup). The log should show `seafood feature enabled=true`.
 
@@ -113,16 +117,17 @@ This does what `ingest ... swap` does in reverse, and the site picks it up withi
 
 ```bash
 docker compose --profile tools run --rm ingest climate fetch
+docker compose --profile tools run --rm ingest climate approve-license --version N --yes   # after reading the summary
 docker compose --profile tools run --rm ingest climate transform --version N
 docker compose --profile tools run --rm transform /work/climate/vN
 docker compose --profile tools run --rm ingest climate all --version N
 ```
 
 What to check:
-- `fetch` prints the license (CC0, citation requested) and the version number `N` — note it.
+- `fetch` prints the version number `N` (note it), the license (CC0, citation requested) and a per-file summary: each `.nc` file's URL and sha256, `pinned`, and how it compares with the live version. A file that doesn't match its pin fails the fetch (see "When a pinned source changes"). Approve with `ingest climate approve-license --version N --yes` before `all`.
 - `transform` (step run through the `ingest` binary) exits `3` and prints the exact `docker compose --profile tools run --rm transform /work/climate/vN` command to run next; run that literally from `/opt/thymeandplace/deploy` (the `deploy/` directory, next to `compose.yaml`), where every `docker compose` command in this document runs.
 - The transform container's own log should finish without error and leave `out/climate.csv` under the shared `ingest_work` volume.
-- `ingest climate all --version N` runs load/validate/swap; validate compares interpolated values at twelve fixed reference cities (London, Moscow, Cairo, Singapore, …) against known climatology figures within a 4°C tolerance (`internal/ingest/climate.go`). If validate fails, do not approve the version — check the download completed and the transform didn't silently truncate.
+- `ingest climate all --version N` runs load/validate/swap; validate compares interpolated values at twelve fixed reference cities (London, Moscow, Cairo, Singapore, …) against known climatology figures within a 4°C tolerance (`internal/ingest/climate.go`). If validate fails, do not swap it in by hand — check the download completed and the transform didn't silently truncate.
 - Watch disk and memory on the VPS during this step; the raw NetCDF files plus the transform's intermediate arrays are the heaviest thing this system ever does in one step.
 
 ## Updating the app
@@ -145,6 +150,15 @@ docker compose --profile tools run --rm --user 0 --entrypoint chown transform -R
 `docker compose --profile tools run --rm ingest <dataset> rollback`. It takes one transaction and the site picks it up via `NOTIFY` within seconds.
 
 Old versions are kept. You may drop tables older than the last two versions of a dataset by hand, for example: `docker compose exec db psql -U tp -d thymeandplace -c "SELECT id, table_name, is_live FROM dataset_versions WHERE dataset = 'climate' ORDER BY id"`, then `DROP TABLE climate_cell_v<old id>;` for versions that are neither live nor one of the two most recent. (Rollback refuses to return to a dropped version.)
+
+## When a pinned source changes
+
+Every climate and ocean file has a reviewed sha256 pin in `internal/ingest/<dataset>.go` (the values recorded in `docs/calibration-baseline.md`). The pin belongs to the content, so it still applies when `OCEAN_SOURCE_URL`, `OCEAN_LAND_URL` or `CLIMATE_SOURCE_BASE` points somewhere else. GeoNames (places) is the only unpinned source. Plain `http://` is allowed only for a pinned source, and a redirect from HTTPS to HTTP is refused.
+
+1. **The fetch fails and live data is untouched.** The error names the file and both hashes: `<file>: sha256 <got> does not match the pin <want>; live data unchanged; …`. No `dataset_versions` row is written and nothing is uploaded, so there is nothing to clean up.
+2. **Download the file by hand and compare it with the archived copy.** Every fetched version keeps its raw files in the reference-data bucket (`BUCKET_NAME` in `ingest.env`) at `raw/<dataset>/v<live>/<file>`, where `<live>` is the live version's id (`SELECT id, source_checksum FROM dataset_versions WHERE dataset = '<dataset>' AND is_live`). Copy it out with any S3 client (for example `mc cp`), `curl -fsSL` the source URL, and compare `sha256sum` and the contents. A changed header, reordered features or a re-encoded file with the same data is still a change: the pin covers bytes, not meaning.
+3. **If the change is legitimate, update the pin in a commit that says why**: what the publisher changed, the old and new sha256, and how you checked it. Keep that commit to the pin (and `docs/calibration-baseline.md`'s checksum row). If the change isn't legitimate (an unexpected mirror, a truncated or tampered file), leave the pin and find out why before fetching again.
+4. **Re-run calibration, then fetch, approve and swap.** On staging (the local dev stack), fetch with the new pin, approve and run `all`, then check the calibration score as in `docs/calibration-baseline.md` ("How this was measured"): it should stay within 0.02 of the baseline, or the baseline gets updated with the reason. Then deploy the new pin (`docker compose --profile tools build ingest`) and run `fetch`, `approve-license --version N` (read the summary: only the changed file should say `changed`), `approve-license --version N --yes` and `all --version N` in production. Because the bytes changed, the earlier review doesn't carry over, so the approval is needed.
 
 ## Nightly backups
 

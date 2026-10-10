@@ -454,7 +454,7 @@ The audit tables are append-only for the app's database role: it can read `catal
 | Route | Returns |
 |---|---|
 | `GET /` | Full page: search box, "Use my location" button, empty results region |
-| `GET /places?q=` | Partial: up to 8 matches (`hx-trigger="keyup changed delay:250ms"`) |
+| `GET /places?q=` | Partial: up to 8 matches (`hx-trigger="keyup changed delay:250ms"`); queries with fewer than 2 letters or digits show a keep-typing hint and don't search |
 | `GET /season?lat=&lng=&date=` | Partial: location header + in-season list grouped Peak / In season / From storage / Year-round, with seafood as its own group |
 | `GET /ingredient/{slug}?cell=&date=` | Partial: tips, pairings, 12-month season bar, disclaimer or note. `cell` is the query cell of the `/season` page that linked it |
 | `GET /about/data` | Full page: sources, licenses, attribution, how estimates work, privacy |
@@ -504,6 +504,7 @@ Principle: the surrounding page stays usable, and every message says what happen
 | Condition | HTTP | What the cook sees |
 |---|---|---|
 | No city match | 200 | Under the search box: "No places match '…'. Try a nearby larger town or city." |
+| Query under 2 letters or digits | 200 | Under the search box: "Keep typing: enter at least 2 letters of your town's name." |
 | Geolocation denied or unavailable | — (client) | Muted hint: "Location access is off, so search for your town instead." Search box focused. No error styling. |
 | No land cell after fallback and no ecoregion in reach | 200 | "We can't estimate seasons here yet. Estimates cover land and coastal waters." + "Search another place". With seafood off (§11.7): no land cell, and the copy is "Estimates cover land areas only." |
 | Inland | 200 | Seafood group omitted, with no message |
@@ -711,3 +712,4 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Admin login log retention | 90 days (growth warning above 10,000 rows / 24 h) |
 | Backup lockout | 5 failures → 15 min, doubling, max 24 h |
 | Backup retention | 7 daily, 4 weekly |
+| Minimum place query | 2 letters or digits |

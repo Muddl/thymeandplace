@@ -17,6 +17,12 @@
    sudoedit /etc/thymeandplace/*.env
    ```
    Hex passwords, because base64's `/` and `+` would break the `DATABASE_URL`s. All four go in `db.env`; each also goes in the `DATABASE_URL` of the files that connect as that role: `POSTGRES_PASSWORD` → `restore.env`, `TP_OWNER_PASSWORD` → `migrate.env` and `ingest.env`, `TP_APP_PASSWORD` → `app.env`, `TP_BACKUP_PASSWORD` → `backup.env`. Put the dataset bucket's keys in `ingest.env` and the backup bucket's in `backup.env` and `restore.env`. Check with `sudo stat -c '%a %U %n' /etc/thymeandplace /etc/thymeandplace/*.env` → `700 root` for the directory and `600 root` for every file.
+
+   Then the two backup encryption keys (details in "Backup encryption"). On your own machine, not the VPS, run `age-keygen -o recovery.key` and store the file in your password manager and on paper. On the VPS, from a root shell in `/opt/thymeandplace/deploy`, create the restore-test key (the first run builds the backup image):
+   ```bash
+   (umask 077; docker compose --profile tools run --rm --no-deps -T --entrypoint age-keygen backup > /etc/thymeandplace/restore-test.agekey)
+   ```
+   Put both public keys (`age1…`, space-separated) in `BACKUP_AGE_RECIPIENTS` in `backup.env`. `age-keygen` prints each one, and `grep 'public key' /etc/thymeandplace/restore-test.agekey` shows the restore-test one again. Without the recipients `backup` refuses to start, and without the key file `restore` does.
 4. `cd /opt/thymeandplace/deploy && sudo docker compose up -d --build`. On the empty volume, `db` runs `deploy/db/initdb/20-roles.sh` once to create the roles; then the one-shot `migrate` service applies the migrations as `tp_owner` and exits, and `app` starts as `tp_app`. Caddy obtains certificates automatically.
 5. Owner access: `docker compose exec app /app/admin enroll`. Open the link on your phone, register a passkey, repeat for a second device. Then `docker compose exec app /app/admin set-backup` and scan the QR code.
 6. Reference data, per dataset (`places`, `ocean`, `climate`). Before approving any license, check its row in `docs/reference-data-licenses.md`. **Skip ocean for launch:** its MEOW terms are unresolved, so `approve-license` refuses it (see "Ocean dataset" below), and the site launches with seafood off ("Launching without seafood").
@@ -35,11 +41,12 @@
 7. Import the launch catalog in `/admin/import` (see Plan 9; without a live ocean version, import the no-seafood file from "Launching without seafood") and check the preview's calibration score. After any later admin edit, export the catalog to `content/catalog/launch.json` and run `go test ./content/`: the calibration score can't see an ingredient in a city whose guide doesn't list it, and the content gates can (`content/AUTHORING.md`, "After editing in the admin").
 8. Backups: see "Nightly backups" below for the timer or cron entries.
 9. **Set up monitoring:** create the checks, put their ping URLs in the env files and configure the external monitor ("Monitoring and alerts" below, "Setting up").
-10. **Before launch:** run `docker compose --profile tools run --rm backup` then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore`. It must print `restore-test ok`, and the `backup` and `restore-test` checks should go green.
+10. **Before launch:** run `docker compose --profile tools run --rm backup` then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore`. It must print `restore-test ok`, and the `backup` and `restore-test` checks should go green. Compose won't start `restore` until `/etc/thymeandplace/restore-test.agekey` exists (step 3).
 
 ### Pre-launch checklist
 
 - [ ] `restore-test ok` (step 10).
+- [ ] The recovery key is in your password manager and on paper, and not on the VPS ("Backup encryption").
 - [ ] Every check in "Monitoring and alerts" is green, and a test notification reached you.
 - [ ] Seafood is off: `FEATURE_SEAFOOD` is unset or `off` in `app.env`, `docker compose logs app | grep 'seafood feature'` shows `enabled=false`, and `/about/data` doesn't mention seafood or marine data. (Only once the MEOW row in `docs/reference-data-licenses.md` is confirmed and an ocean version is live may it be `on`; see "Turning seafood on".)
 - [ ] `SELECT id, license, license_reviewed, is_live, promoted_at FROM dataset_versions WHERE dataset = 'ocean'` shows no approved or promoted row whose license starts with `UNRESOLVED:`. If one exists, withdraw it ("Withdrawing a dataset").
@@ -95,7 +102,7 @@ SELECT pg_notify('data_version_changed', 'dataset');
 COMMIT;
 ```
 
-This does what `ingest ... swap` does in reverse, and the site picks it up within seconds. Clearing `promoted_at` stops `ingest ocean rollback` from returning to a withdrawn version. Seafood items already in the catalog stay but never show, and admin edits to them fail the ecoregion check until ocean is back. If the terms also forbid keeping copies, delete `raw/ocean/` and `transformed/ocean/` from the bucket and drop each `ocean_ecoregion_v{N}` table; nightly dumps age out within the 28-day backup retention.
+This does what `ingest ... swap` does in reverse, and the site picks it up within seconds. Clearing `promoted_at` stops `ingest ocean rollback` from returning to a withdrawn version. Seafood items already in the catalog stay but never show, and admin edits to them fail the ecoregion check until ocean is back. If the terms also forbid keeping copies, delete `raw/ocean/` and `transformed/ocean/` from the bucket and drop each `ocean_ecoregion_v{N}` table; nightly dumps age out within the 28-day backup retention, and the bucket's deleted versions 35 days after that ("Backup deletion protection").
 
 ### First TerraClimate ingest (deferred to first production run)
 
@@ -138,11 +145,11 @@ Old versions are kept. You may drop tables older than the last two versions of a
 
 ## Nightly backups
 
-`deploy/backup` builds a small `postgres:17-bookworm` image with `pg_dump`/`pg_restore`/`psql` and a pinned MinIO client (`mc`) added on top, entrypoint `backup.sh`. Nightly:
+`deploy/backup` builds a small `postgres:17-bookworm` image with `pg_dump`/`pg_restore`/`psql`, Debian's `age` and a pinned MinIO client (`mc`) added on top, entrypoint `backup.sh`. Nightly:
 
-- `docker compose --profile tools run --rm backup` — dumps `DATABASE_URL` (as `tp_backup`, which can read everything and write nothing) with `pg_dump --format=custom`, uploads it to `s3://$BUCKET_NAME/backups/daily/<date>.dump` via `mc`, additionally copies it to `backups/weekly/<iso-week>.dump` on Sundays, then prunes daily copies older than 7 days and weekly copies older than 28. It fails loudly (non-zero exit) if the dump comes out empty.
+- `docker compose --profile tools run --rm backup` — dumps `DATABASE_URL` (as `tp_backup`, which can read everything and write nothing) with `pg_dump --format=custom` to a temporary file, checks it is non-empty and that `pg_restore --list` reads it, encrypts it with `age` to every key in `BACKUP_AGE_RECIPIENTS` ("Backup encryption"), deletes the plaintext, and uploads the ciphertext to `s3://$BUCKET_NAME/backups/daily/<date>.dump.age` via `mc`. On Sundays it also copies it to `backups/weekly/<iso-week>.dump.age`. Then it prunes daily copies older than 7 days and weekly copies older than 28, unless `BACKUP_PRUNE=lifecycle` leaves that to bucket lifecycle rules ("Backup deletion protection"). It fails loudly (non-zero exit) and uploads nothing if the dump comes out empty or unreadable, and it exits 2 before dumping anything if `BACKUP_AGE_RECIPIENTS` is empty or lists anything but `age1…` public keys.
 
-With `HEARTBEAT_BACKUP_URL` set in `backup.env`, each run pings the `backup` check: `/start`, then success (`backup ok: backups/daily/<date>.dump`), or `/fail` naming the step that failed (for example `backup failed during dump (exit 1)`). A prune failure keeps the exit status at 0 but still fails the check (`dump uploaded; pruning failed: backups/daily`, naming each prefix that failed); `mc`'s error message is only in the run's log, since it can carry the object store's IP. A run that never starts (Docker down, image missing) sends nothing, and the missed run alerts. See "Monitoring and alerts".
+With `HEARTBEAT_BACKUP_URL` set in `backup.env`, each run pings the `backup` check: `/start`, then success (`backup ok: backups/daily/<date>.dump.age`), or `/fail` naming the step that failed (for example `backup failed during dump (exit 1)`; the steps are `env`, `alias`, `dump`, `verify`, `encrypt`, `upload`, `weekly` and `prune`). A prune failure keeps the exit status at 0 but still fails the check (`dump uploaded; pruning failed: backups/daily`, naming each prefix that failed); `mc`'s error message is only in the run's log, since it can carry the object store's IP. A run that never starts (Docker down, image missing) sends nothing, and the missed run alerts. See "Monitoring and alerts".
 
 Schedule it with the systemd timer below (preferred: its output goes to the journal, which rotates itself) or with cron. For cron, add to root's crontab on the VPS (`crontab -e`):
 
@@ -197,9 +204,9 @@ docker compose --profile tools run --rm --entrypoint restore-test.sh restore
 
 With `HEARTBEAT_RESTORE_TEST_URL` set in `restore.env`, it pings the `restore-test` check: `/start`, then success, or `/fail` with the count table. It restores into a scratch database on the production Postgres, so the server needs disk for one more copy of the database for a few minutes.
 
-Restores run in the `restore` service (the backup image, with `restore.env`), which connects as the bootstrap superuser: dropping and recreating the database and reinstalling PostGIS need it. The nightly `backup` job never gets that password.
+Restores run in the `restore` service (the backup image, with `restore.env`), which connects as the bootstrap superuser: dropping and recreating the database and reinstalling PostGIS need it. The nightly `backup` job never gets that password. The restore-test key (`/etc/thymeandplace/restore-test.agekey`) is mounted into `restore` only, and `AGE_IDENTITY` points at it there, so `restore` decrypts `.dump.age` backups without further settings.
 
-`restore-test.sh` restores the newest daily dump into a scratch database (`thymeandplace_restore_test`) on the same Postgres server by calling `restore.sh` on it (the exact drop/create/single-transaction path a real restore takes, see "Restoring from backup"), compares row counts of `ingredient`, `ingredient_pairing`, `seafood_region`, `catalog_history`, `dataset_versions`, `admin_passkey`, `admin_backup`, `climate_cell`, `ocean_ecoregion`, and `place` against the live database, prints a table of `live=`/`restored=` counts, and drops the scratch database afterwards even if the comparison fails (it's under a `trap ... EXIT`). It exits non-zero — "fail loudly" — on any count mismatch or if no daily backup is found. Because a backup taken mid-day can legitimately trail the live `catalog_history` count if edits happened since, run it immediately after a fresh `backup` run rather than at an arbitrary time.
+`restore-test.sh` restores the newest daily dump (`.dump.age`, or a plaintext `.dump` from before encryption) into a scratch database (`thymeandplace_restore_test`) on the same Postgres server by calling `restore.sh` on it (the exact drop/create/single-transaction path a real restore takes, see "Restoring from backup"), compares row counts of `ingredient`, `ingredient_pairing`, `seafood_region`, `catalog_history`, `dataset_versions`, `admin_passkey`, `admin_backup`, `climate_cell`, `ocean_ecoregion`, and `place` against the live database, prints a table of `live=`/`restored=` counts, and drops the scratch database afterwards even if the comparison fails (it's under a `trap ... EXIT`). It exits non-zero — "fail loudly" — on any count mismatch or if no daily backup is found. Because a backup taken mid-day can legitimately trail the live `catalog_history` count if edits happened since, run it immediately after a fresh `backup` run rather than at an arbitrary time.
 
 ### Verifying locally before relying on it
 
@@ -224,7 +231,7 @@ $C --profile tools run --rm $BK --entrypoint restore-test.sh restore     # as th
 
 # Full restore over the (e2e) live database, exactly as in "Restoring from backup":
 $C stop app
-$C --profile tools run --rm $BK -e RESTORE_CONFIRM=thymeandplace restore backups/daily/<date>.dump
+$C --profile tools run --rm $BK -e RESTORE_CONFIRM=thymeandplace restore backups/daily/<date>.dump.age
 $C start app
 
 docker rm -f tp-minio; $C --profile tools down -v
@@ -232,7 +239,11 @@ docker rm -f tp-minio; $C --profile tools down -v
 
 `compose.e2e.yaml` sets the project name `thymeandplace-e2e`, so this stack's containers and volumes (`thymeandplace-e2e_*`) are separate from production's (`thymeandplace_*`) and the final `down -v` (like the ones in `deploy/smoke.sh` and `e2e/run.sh`) cannot touch production data, even on the VPS. Always pass both `-f compose.yaml -f compose.e2e.yaml` for test stacks.
 
-Expected output: `backup ok: backups/daily/<date>.dump`, then a table of equal `live=`/`restored=` counts per table, then `restore-test ok (<date>.dump)`, then `restore ok: backups/daily/<date>.dump → thymeandplace`. When this was verified, a table with a PostGIS `geography` column (plus a view on it) created after the backup was gone after the restore, and every catalog count matched the counts at backup time. `accessKey1`/`verySecretKey1` are `zenko/cloudserver`'s built-in defaults, used only for this throwaway local container — never real credentials.
+The dumps are encrypted to the test-only recipient in `deploy/e2e/backup.env`, and `restore` decrypts them with its identity, `deploy/e2e/restore-test.agekey`, mounted the same way as production's key. That key pair is committed, so it protects nothing: never use it outside the e2e stack.
+
+Expected output: `backup ok: backups/daily/<date>.dump.age`, then a table of equal `live=`/`restored=` counts per table, then `restore-test ok (<date>.dump.age)`, then `restore ok: backups/daily/<date>.dump.age → thymeandplace`. When this was verified, a table with a PostGIS `geography` column (plus a view on it) created after the backup was gone after the restore, and every catalog count matched the counts at backup time. `accessKey1`/`verySecretKey1` are `zenko/cloudserver`'s built-in defaults, used only for this throwaway local container — never real credentials.
+
+`./deploy/backup/verify.sh` runs this recipe with every check (encrypted upload, restore-test, refusals without the right key or with a changed byte, legacy restore, bad recipients, a failed dump and an empty dump) and runs in CI on `main`. It prints one `verify: ok:` line per check and `verify: all backup checks passed` at the end. Like the recipe, it uses the `thymeandplace-e2e` project, so don't run it while another e2e stack is up on the same machine.
 
 **Windows / Git Bash note:** Git Bash rewrites a leading `/` in arguments as a Windows path, which breaks `--entrypoint /app/devseed` and similar. `MSYS_NO_PATHCONV=1` (exported above) turns that off; it's a no-op on Linux.
 
@@ -241,20 +252,141 @@ Expected output: `backup ok: backups/daily/<date>.dump`, then a table of equal `
 A restore **replaces the whole database** with the dump. `restore.sh <key> [target-url]` (the `restore` service's entrypoint; the target defaults to its own `DATABASE_URL` from `restore.env`, i.e. the live database, as the bootstrap superuser):
 
 1. refuses unless `RESTORE_CONFIRM` is set to the exact database name in the target URL (the last path segment before any `?params`), before anything is downloaded or touched — this stops a stale or copy-pasted URL from overwriting the wrong database;
-2. downloads the dump and checks it is non-empty and a readable `pg_dump` archive, so a missing, empty or corrupt backup exits non-zero with the database untouched;
-3. connects to the `postgres` maintenance database on the same server and runs `DROP DATABASE <db> WITH (FORCE)` then `CREATE DATABASE <db>` (the name is quoted as an identifier);
-4. runs `pg_restore --single-transaction --exit-on-error --no-owner` into the empty database. Nothing created after the backup survives (tables, views, PostGIS-dependent objects), and there is no object-by-object `--clean` that could fail halfway through the live data;
-5. hands the database and its objects back to `tp_owner` (`deploy/backup/own-objects.sql`), since `--no-owner` leaves them owned by the superuser. The grants to `tp_app` come back with the dump.
+2. for an encrypted key (`*.age`), refuses before downloading unless `AGE_IDENTITY` names a readable identity file: "encrypted backup; set AGE_IDENTITY to your recovery or restore-test key";
+3. downloads the dump, decrypts it if it's encrypted, and checks it is non-empty and a readable `pg_dump` archive, so a missing, empty or corrupt backup exits non-zero with the database untouched. `age` authenticates its ciphertext, so a wrong key or a single changed byte also refuses here ("could not be decrypted with AGE_IDENTITY");
+4. connects to the `postgres` maintenance database on the same server and runs `DROP DATABASE <db> WITH (FORCE)` then `CREATE DATABASE <db>` (the name is quoted as an identifier);
+5. runs `pg_restore --single-transaction --exit-on-error --no-owner` into the empty database. Nothing created after the backup survives (tables, views, PostGIS-dependent objects), and there is no object-by-object `--clean` that could fail halfway through the live data;
+6. hands the database and its objects back to `tp_owner` (`deploy/backup/own-objects.sql`), since `--no-owner` leaves them owned by the superuser. The grants to `tp_app` come back with the dump.
 
-Dumps live in the bucket at `backups/daily/<YYYY-MM-DD>.dump` (last 7 days) and `backups/weekly/<YYYY>-W<ww>.dump` (last 4 weeks). From `/opt/thymeandplace/deploy`:
+Dumps live in the bucket at `backups/daily/<YYYY-MM-DD>.dump.age` (last 7 days) and `backups/weekly/<YYYY>-W<ww>.dump.age` (last 4 weeks). `mc ls` lists them ("Backup deletion protection" shows how to run it). On the VPS, the `restore` service decrypts with the restore-test key by default. From `/opt/thymeandplace/deploy`:
 
 ```bash
 docker compose stop app
-docker compose --profile tools run --rm -e RESTORE_CONFIRM=thymeandplace restore backups/daily/<date>.dump
+docker compose --profile tools run --rm -e RESTORE_CONFIRM=thymeandplace restore backups/daily/<date>.dump.age
 docker compose start app
 ```
 
 `thymeandplace` is `POSTGRES_DB` from `/etc/thymeandplace/db.env`; if it refuses with "refusing to restore over ...", the name after `-e RESTORE_CONFIRM=` doesn't match the database name in `restore.env`'s `DATABASE_URL`. The app must be stopped first: `WITH (FORCE)` terminates its connections, and it must not write to the database mid-restore. After `start app`, check `curl -s https://thymeand.place/readyz` returns `ready`.
+
+Plaintext `.dump` keys from before encryption (`backups/daily/<date>.dump`) restore with the same command and need no identity. They age out of the bucket within 28 days of the switch.
+
+### Disaster restore with the recovery key
+
+Use the recovery key when the restore-test key can't decrypt the backup: the VPS or its key file is lost, or you're restoring onto a new server.
+
+1. **On a new server**, follow "First deploy" steps 1–4 first, including the restore-test key in step 3. Compose refuses to start `restore` without `/etc/thymeandplace/restore-test.agekey`, even when the recovery key does the decrypting. The new restore-test key can't read the old backups, but list its public key in `BACKUP_AGE_RECIPIENTS` next to the recovery key's, so new backups are encrypted to it.
+2. Copy the recovery key to the VPS for the length of the restore. As root, run `(umask 077; cat > /root/recovery.key)`, paste the key file's contents from your password manager, then press Ctrl-D.
+3. Restore, from `/opt/thymeandplace/deploy`, then delete the copy straight away, even if the restore failed:
+   ```bash
+   docker compose stop app
+   docker compose --profile tools run --rm -v /root/recovery.key:/run/secrets/recovery.agekey:ro -e AGE_IDENTITY=/run/secrets/recovery.agekey -e RESTORE_CONFIRM=thymeandplace restore backups/daily/<date>.dump.age
+   docker compose start app
+   shred -u /root/recovery.key
+   ```
+4. Run a backup and the restore test, as in "First deploy" step 10, so the newest backup is one the on-host key can read.
+
+## Backup encryption
+
+Every dump is encrypted with [`age`](https://age-encryption.org) before it leaves the host, so the bucket holds only ciphertext (`*.dump.age`). A dump holds the admin password hash, the sealed TOTP secret, passkey public keys, session token hashes and `admin_login_log`'s IP addresses, as well as the catalog. Design: `docs/superpowers/specs/2026-09-27-backup-encryption-design.md`.
+
+### Keys
+
+Each dump is encrypted to two X25519 keys, and either private key decrypts it.
+
+| Key | Private key kept | Used for |
+|---|---|---|
+| **Recovery** | In your password manager and on paper. Never on the VPS, except while a disaster restore runs | Restoring when the VPS or its key is lost ("Disaster restore with the recovery key") |
+| **Restore-test** | `/etc/thymeandplace/restore-test.agekey` on the VPS, mode `600`, root-owned. Compose mounts it read-only into the `restore` service only, at `/run/secrets/restore-test.agekey`, and sets `AGE_IDENTITY` to that path | The monthly restore test, and routine restores on the VPS |
+
+1. **Recovery key**, on your own machine (install `age` there, e.g. `apt install age` or `brew install age`): `age-keygen -o recovery.key`. It prints `Public key: age1…`. Save the whole file in your password manager and write it on paper (the `AGE-SECRET-KEY-1…` line is the private key), then delete the file. It never goes on the VPS.
+2. **Restore-test key**, on the VPS, from a root shell in `/opt/thymeandplace/deploy`. This runs `age-keygen` from the backup image, so the host needs no `age`:
+   ```bash
+   (umask 077; docker compose --profile tools run --rm --no-deps -T --entrypoint age-keygen backup > /etc/thymeandplace/restore-test.agekey)
+   ```
+   It prints its public key; `grep 'public key' /etc/thymeandplace/restore-test.agekey` shows it again. `stat -c '%a %U' /etc/thymeandplace/restore-test.agekey` should print `600 root`.
+3. **Recipients.** Put both public keys, space-separated, in `/etc/thymeandplace/backup.env`: `BACKUP_AGE_RECIPIENTS=age1<recovery> age1<restore-test>`. Only public keys go there. An empty value, or any entry that isn't `age1…` (a pasted `AGE-SECRET-KEY-…`, say), makes `backup` exit 2 and name the variable before it dumps anything. `backup.env` is read on every run, so a change applies from the next backup.
+
+### Threat model
+
+- **Bucket-only compromise** (leaked bucket keys, or an incident at the storage provider): reveals nothing. Every object is ciphertext, and neither private key is in the bucket. The exception is plaintext `.dump` objects from before the switch, until they age out.
+- **Host compromise:** the attacker can read the restore-test key and so decrypt the backup history. The live database is exposed in that case anyway, so the extra loss is older rows and deleted history. The recovery key stays off the host, and "Backup deletion protection" keeps the history restorable even if the attacker deletes it with the host's bucket key.
+
+### Key rotation
+
+Add the new recipient to `BACKUP_AGE_RECIPIENTS`, next to the old one, and run a backup by hand. Wait 28 days, until every kept backup is encrypted to the new key too, then remove the old recipient. Backups made before the removal stay decryptable with the old key until they age out, so keep the old private key until then.
+
+- **Recovery key:** generate the new one as in "Keys" step 1 and store it the same way. Destroy the old copies only after the 28 days.
+- **Restore-test key:** an identity file can hold several keys, so append the new one with `>>` in place of `>` in the "Keys" step 2 command. After the 28 days, delete the old key's three lines (`# created`, `# public key` and its `AGE-SECRET-KEY-1…` line) from the file.
+- **A lost key:** list a new key in its place straight away. Backups made before then can only be decrypted with the other key until they age out.
+
+### Rollout
+
+Once, when the encrypting backup image first goes to the VPS (spec §7):
+
+1. Generate both keys and set `BACKUP_AGE_RECIPIENTS` ("Keys" above).
+2. Deploy the image: `git pull && docker compose --profile tools build backup`. `backup` and `restore` share it.
+3. Before the next nightly run, run `docker compose --profile tools run --rm backup` (it prints `backup ok: backups/daily/<date>.dump.age`), then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore` (it prints `restore-test ok (<date>.dump.age)`). Both must succeed.
+4. Turn on versioning at the provider, at least at the minimum level in "Backup deletion protection". Then consider the preferred level.
+5. After 28 days, `mc ls --recursive "b/$BUCKET_NAME/backups/"` ("Backup deletion protection" shows how to run it) lists no plaintext `.dump` objects, only `.dump.age`. `restore.sh` keeps accepting plaintext dumps (spec §8 question 2).
+
+**Rollback:** redeploy the previous backup image. It uploads plaintext `.dump` files again, and the `.dump.age` backups already uploaded stay restorable with this image and a key.
+
+## Backup deletion protection
+
+`backup.sh`'s bucket key can delete, because the prune uses `mc rm`. Without protection at the bucket, whoever takes the host could wipe every backup along with the live database. There are two levels (spec §4.4):
+
+- **Minimum** (any provider with versioning): versioning on, with noncurrent versions kept for 35 days. A delete, by the prune or anyone else, then only hides the object behind a delete marker, and the previous version can be brought back for 35 days. No script change.
+- **Preferred** (the provider supports per-key permissions and lifecycle rules): the backup key can upload under `backups/` but not delete, restores use a separate read-only key, and lifecycle rules expire old copies in place of the prune. `BACKUP_PRUNE=lifecycle` in `backup.env` makes `backup.sh` skip its prune. Expire `backups/daily/` after 8 days and `backups/weekly/` after 29, a day longer than the prune's 7 and 28, so there are never fewer than 7 daily and 4 weekly copies. Versioning stays on, so an overwrite also leaves the earlier version for 35 days.
+
+**In place here (awaiting the owner's confirmation):** Backblaze B2, EU Central (`docs/hosting-hetzner.md`), at the **minimum** level. B2 buckets keep earlier versions by default, and "Buckets on B2" step 2 sets the backups bucket's lifecycle to keep them for 35 days. The backups key in `backup.env` and `restore.env` can delete. Update this paragraph when the level changes.
+
+### Running `mc` against the bucket
+
+From `/opt/thymeandplace/deploy`, open a shell in the backup image with `restore.env`'s bucket settings and alias the bucket as `b`:
+
+```bash
+docker compose --profile tools run --rm --no-deps --entrypoint sh restore
+mc alias set b "https://$BUCKET_ENDPOINT" "$BUCKET_ACCESS_KEY" "$BUCKET_SECRET_KEY" >/dev/null
+mc ls --recursive "b/$BUCKET_NAME/backups/"
+```
+
+`exit` leaves the shell. (Use `http://` only if `BUCKET_USE_SSL=false`.)
+
+### Checking versioning
+
+- **B2:** in the web console, the backups bucket's **Lifecycle Settings** must say to keep prior versions for 35 days (or a custom rule with an empty `fileNamePrefix` and `daysFromHidingToDeleting: 35`). B2 buckets keep earlier versions by default, so this setting, which decides how long, is the part to check.
+- **Other providers:** `mc version info "b/$BUCKET_NAME"` must report versioning enabled, and the provider's lifecycle settings must expire noncurrent versions after 35 days, not sooner.
+
+### Undelete drill
+
+Run it once after turning versioning on, and again after any change to the bucket's settings. In the `mc` shell above:
+
+```sh
+o="b/$BUCKET_NAME/backups/daily/undelete-drill.txt"
+echo drill | mc pipe "$o"
+mc rm "$o"
+mc ls --versions "$o"   # a delete marker above the earlier version
+mc undo "$o"            # removes the delete marker
+mc cat "$o"             # prints: drill
+mc rm "$o"
+```
+
+The drill object doesn't disturb the backups: the restore test only picks `.dump` and `.dump.age` files, and the hidden copy expires with the 35-day rule. If `mc undo` fails against the provider, bring the object back in its console instead (in B2: Browse Files, show file versions, and delete the hide marker). With the preferred level, the read-only `restore.env` key can't run `mc rm`, so delete the drill object in the console.
+
+### Moving to the preferred level (B2)
+
+1. Add custom lifecycle rules to the backups bucket (Lifecycle Settings). B2 applies the smallest value of each matching rule, so the three rules combine:
+
+   | `fileNamePrefix` | `daysFromUploadingToHiding` | `daysFromHidingToDeleting` |
+   |---|---|---|
+   | (empty, the whole bucket) | — | 35 |
+   | `backups/daily/` | 8 | 35 |
+   | `backups/weekly/` | 29 | 35 |
+
+2. Create two keys, each limited to the backups bucket. The backup key can upload but not delete, and the restore key can only read (with the B2 CLI: `b2 key create --bucket <backups-bucket> --name-prefix backups/ thymeandplace-backup listBuckets,listFiles,writeFiles`, and `... thymeandplace-restore listBuckets,listFiles,readFiles`). Put them in `backup.env` and `restore.env`. If the check in step 4 fails at `alias` or `upload`, add `readFiles` to the backup key, never `deleteFiles`.
+3. Set `BACKUP_PRUNE=lifecycle` in `backup.env`. Without it, every nightly prune fails with the new key, and the `backup` check alerts "pruning failed".
+4. Check it. Run a backup by hand: it must print `backup ok` and turn the `backup` check green. Then show that the backup key can't delete: `docker compose --profile tools run --rm --no-deps --entrypoint sh backup`, alias the bucket as above, upload `undelete-drill.txt` with `mc pipe`, and check that `mc rm` on it fails with access denied. Run the restore test (it must print `restore-test ok`).
+5. Delete the old key that could delete, and update "In place here" above.
 
 ## Database roles
 
@@ -343,7 +475,7 @@ DELETE FROM admin_session
 DELETE FROM admin_enrollment_token WHERE used_at IS NOT NULL OR expires_at < now();
 ```
 
-Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Backups keep pruned rows for up to four more weeks (7 daily, 4 weekly copies).
+Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Backups keep pruned rows for up to four more weeks (7 daily, 4 weekly copies), and the bucket keeps deleted copies for 35 days after that ("Backup deletion protection").
 
 ## Capacity
 
@@ -445,7 +577,7 @@ Start with the check's event log in Healthchecks.io: the last ping body says wha
 | `app` 5xx or errors | Read the check's event log, then `docker compose logs --since 15m app \| grep -E '"level":"ERROR"\|"status":5'` |
 | `admin-auth` | `docker compose exec db psql -U tp -d thymeandplace -c "SELECT at, ip, method, outcome FROM admin_login_log ORDER BY at DESC LIMIT 20"`. If it wasn't you: `docker compose exec app /app/admin revoke-sessions`, then `docker compose exec app /app/admin set-backup`. For login log growth, see "Admin table pruning" |
 | `drift` | `docker compose exec db psql -U tp -d thymeandplace -c "SELECT * FROM calibration_run ORDER BY id DESC LIMIT 5"`. Consider `docker compose --profile tools run --rm ingest <dataset> rollback`. For a failed run, `docker compose logs --since 25h app \| grep 'calibration drift'`. Recovery the next day means no further drop, not fixed |
-| `backup` | `journalctl -u thymeandplace-backup` (systemd timer) or `/var/log/thymeandplace-backup.log` (cron), then rerun by hand |
+| `backup` | `journalctl -u thymeandplace-backup` (systemd timer) or `/var/log/thymeandplace-backup.log` (cron), then rerun by hand. `during env` means a setting in `backup.env` is missing or wrong, such as `BACKUP_AGE_RECIPIENTS` ("Backup encryption"); `during verify` means the dump was empty or unreadable, and nothing was uploaded |
 | `restore-test` | Read the count table in the check's event log (or `journalctl -u thymeandplace-restore-test`, or the log file). Don't trust the backups until it passes. An admin edit between the 03:15 backup and the test can make `catalog_history` differ; rerun `backup`, then the test, by hand |
 
 A `drift` alert that clears the next day means the score didn't drop again, not that it recovered: each run compares with the previous run, which is already the lower score. Check `calibration_run` before closing it. A failed drift run also logs `ERROR`, and so does each retry (after 1, 2, 4 … 60 minutes), so `app` fails once per failed attempt while the drift check keeps failing.

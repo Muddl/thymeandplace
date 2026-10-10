@@ -42,22 +42,42 @@ func (p *Pipeline) ReviewSummary(ctx context.Context, v int64) (string, error) {
 		if i < len(urls) {
 			u = urls[i]
 		}
-		trust := "pinned"
-		if src.SHA256 == "" {
+		// The labels describe the recorded row, which may predate today's
+		// pins (a version fetched before a deploy, or a hand-edited row).
+		sum := sums[src.File]
+		var trust string
+		switch {
+		case src.SHA256 == "":
 			trust = "unpinned: " + src.Unpinned
+		case sum == src.SHA256:
+			trust = "pinned"
+		default:
+			trust = fmt.Sprintf("pin mismatch (pin %s…)", short(src.SHA256))
+		}
+		if sum == "" {
+			fmt.Fprintf(&b, "  %s  %s\n    sha256 (no record)  %s\n", src.File, u, trust)
+			continue
 		}
 		cmp := "no live version"
 		if liveSums != nil {
 			switch l := liveSums[src.File]; {
-			case l == sums[src.File]:
+			case l == sum:
 				cmp = fmt.Sprintf("same as live v%d", liveID)
-			case len(l) >= 12:
-				cmp = fmt.Sprintf("changed (live v%d: %s…)", liveID, l[:12])
+			case l != "":
+				cmp = fmt.Sprintf("changed (live v%d: %s…)", liveID, short(l))
 			default:
 				cmp = fmt.Sprintf("changed (live v%d has no record of this file)", liveID)
 			}
 		}
-		fmt.Fprintf(&b, "  %s  %s\n    sha256 %s  %s  %s\n", src.File, u, sums[src.File], trust, cmp)
+		fmt.Fprintf(&b, "  %s  %s\n    sha256 %s  %s  %s\n", src.File, u, sum, trust, cmp)
 	}
 	return b.String(), nil
+}
+
+// short is the first 12 characters of a hex checksum, for display.
+func short(sum string) string {
+	if len(sum) > 12 {
+		return sum[:12]
+	}
+	return sum
 }

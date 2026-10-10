@@ -41,7 +41,7 @@ func TestFetchRejectsPinMismatch(t *testing.T) {
 
 	_, err := p.Fetch(ctx)
 	if err == nil || !strings.Contains(err.Error(), "admin1CodesASCII.txt") || !strings.Contains(err.Error(), sumOf([]byte("changed upstream"))) ||
-		!strings.Contains(err.Error(), "live data unchanged") {
+		!strings.Contains(err.Error(), sumOf([]byte("reviewed bytes"))) || !strings.Contains(err.Error(), "live data unchanged") {
 		t.Fatalf("want a pin mismatch naming the file and both hashes, got %v", err)
 	}
 	var n int
@@ -157,8 +157,8 @@ func TestRedirectPolicy(t *testing.T) {
 	if err := get("/to-http"); err == nil || !strings.Contains(err.Error(), "HTTPS to http") {
 		t.Fatalf("https → http must be refused: %v", err)
 	}
-	if err := get("/hop"); err == nil {
-		t.Fatal("https → https → http must be refused")
+	if err := get("/hop"); err == nil || !strings.Contains(err.Error(), "HTTPS to http") {
+		t.Fatalf("https → https → http must be refused: %v", err)
 	}
 	if err := get("/to-https"); err != nil {
 		t.Fatalf("https → https must be followed: %v", err)
@@ -204,7 +204,7 @@ func TestTransformRejectsUnrecordedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = p.Transform(ctx, v)
-	if err == nil || !strings.Contains(err.Error(), "admin1CodesASCII.txt") || !strings.Contains(err.Error(), "differs from what was fetched and reviewed") {
+	if err == nil || !strings.Contains(err.Error(), "admin1CodesASCII.txt") || !strings.Contains(err.Error(), "has no recorded checksum in version") {
 		t.Fatalf("a file with no recorded checksum must not be treated as verified; got %v", err)
 	}
 }
@@ -234,5 +234,23 @@ func TestReviewSummary(t *testing.T) {
 	live := "v" + strconv.FormatInt(v1, 10)
 	if err != nil || !strings.Contains(s, "same as live "+live) || !strings.Contains(s, "changed (live "+live+": "+sumOf([]byte("admin"))[:12]) {
 		t.Fatalf("%v\n%s", err, s)
+	}
+
+	// The labels describe the recorded row, not today's pins: a version
+	// fetched before a pin existed, whose bytes differ from it, is a mismatch.
+	pin := sumOf([]byte("reviewed zip"))
+	p.DS.(*Places).SourceList[0].SHA256, p.DS.(*Places).SourceList[0].Unpinned = pin, ""
+	s, err = p.ReviewSummary(ctx, v2)
+	if err != nil || !strings.Contains(s, "pin mismatch (pin "+pin[:12]+"…)") || strings.Contains(s, "  pinned  ") {
+		t.Fatalf("a recorded sha256 that differs from the pin must say so: %v\n%s", err, s)
+	}
+
+	// A file neither version recorded is "(no record)", not "same as live".
+	if _, err := pool.Exec(ctx, `UPDATE dataset_versions SET source_checksum = split_part(source_checksum, ';', 1) WHERE id IN ($1, $2)`, v1, v2); err != nil {
+		t.Fatal(err)
+	}
+	s, err = p.ReviewSummary(ctx, v2)
+	if err != nil || !strings.Contains(s, "sha256 (no record)") || strings.Count(s, "same as live") != 1 {
+		t.Fatalf("an unrecorded file must not compare as the same as live: %v\n%s", err, s)
 	}
 }

@@ -219,9 +219,13 @@ func (p *Pipeline) Transform(ctx context.Context, v int64) error {
 	for _, src := range p.DS.Sources() {
 		got, err := hashFile(filepath.Join(dir, "raw", src.File))
 		if err != nil {
-			return err
+			return fmt.Errorf("hash raw %s: %w", src.File, err)
 		}
-		if w, ok := want[src.File]; !ok || got != w {
+		w, ok := want[src.File]
+		if !ok {
+			return fmt.Errorf("raw file %s has no recorded checksum in version %d; refusing to transform it", src.File, v)
+		}
+		if got != w {
 			return fmt.Errorf("raw file %s differs from what was fetched and reviewed (sha256 %s, recorded %q)", src.File, got, w)
 		}
 	}

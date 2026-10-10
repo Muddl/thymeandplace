@@ -190,7 +190,14 @@ func TestReviewCarriesOverOnlyForSameBytes(t *testing.T) {
 	pool := dbtest.New(t)
 	files := map[string][]byte{"cities1000.zip": []byte("v1 zip"), "admin1CodesASCII.txt": []byte("v1 admin")}
 	p := newPipeline(t, pool, pinnedPlaces(t, files, nil))
-	reviewed := func(v int64) bool { dv, _ := p.version(ctx, v); return dv.LicenseReviewed }
+	reviewed := func(v int64) bool {
+		t.Helper()
+		dv, err := p.version(ctx, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return dv.LicenseReviewed
+	}
 
 	v1, err := p.Fetch(ctx)
 	if err != nil {

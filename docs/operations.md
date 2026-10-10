@@ -26,7 +26,7 @@
    docker compose --profile tools run --rm ingest places approve-license --version N --yes
    docker compose --profile tools run --rm ingest places all --version N
    ```
-   `fetch` prints the license and, for each file, its URL, its sha256, whether it is `pinned` or `unpinned: <reason>`, and how it compares with the live version (`same as live vK`, `changed (live vK: …)` or `no live version`). A file whose sha256 differs from its pin fails the fetch; see "When a pinned source changes". `approve-license --version N` without `--yes` prints the same summary and approves nothing; with `--yes` it prints it again as the record and approves. A review carries over to a later fetch only when the license, URLs and every file's checksum are the same. GeoNames regenerates its dumps at fixed URLs, so places is unpinned and every places refresh needs `approve-license` again.
+   `fetch` prints the license and, for each file, its URL, its sha256, whether it is `pinned` or `unpinned: <reason>`, and how it compares with the live version (`same as live vK`, `changed (live vK: …)` or `no live version`). A file whose sha256 differs from its pin fails the fetch; see "When a pinned source changes". The labels describe the version's recorded checksums, so a version fetched before the pins existed can show `pin mismatch (pin …)` or `sha256 (no record)`: don't approve it; fetch again. `approve-license --version N` without `--yes` prints the same summary and approves nothing; with `--yes` it prints it again as the record and approves. A review carries over to a later fetch only when the license, URLs and every file's checksum are the same. GeoNames regenerates its dumps at fixed URLs, so places is unpinned and every places refresh needs `approve-license` again.
 
    Climate needs the transform container once per version (all from `/opt/thymeandplace/deploy`):
    ```bash
@@ -105,6 +105,7 @@ This does what `ingest ... swap` does in reverse, and the site picks it up withi
 
 ```bash
 docker compose --profile tools run --rm ingest climate fetch
+docker compose --profile tools run --rm ingest climate approve-license --version N --yes   # after reading the summary
 docker compose --profile tools run --rm ingest climate transform --version N
 docker compose --profile tools run --rm transform /work/climate/vN
 docker compose --profile tools run --rm ingest climate all --version N
@@ -114,7 +115,7 @@ What to check:
 - `fetch` prints the version number `N` (note it), the license (CC0, citation requested) and a per-file summary: each `.nc` file's URL and sha256, `pinned`, and how it compares with the live version. A file that doesn't match its pin fails the fetch (see "When a pinned source changes"). Approve with `ingest climate approve-license --version N --yes` before `all`.
 - `transform` (step run through the `ingest` binary) exits `3` and prints the exact `docker compose --profile tools run --rm transform /work/climate/vN` command to run next; run that literally from `/opt/thymeandplace/deploy` (the `deploy/` directory, next to `compose.yaml`), where every `docker compose` command in this document runs.
 - The transform container's own log should finish without error and leave `out/climate.csv` under the shared `ingest_work` volume.
-- `ingest climate all --version N` runs load/validate/swap; validate compares interpolated values at twelve fixed reference cities (London, Moscow, Cairo, Singapore, …) against known climatology figures within a 4°C tolerance (`internal/ingest/climate.go`). If validate fails, do not approve the version — check the download completed and the transform didn't silently truncate.
+- `ingest climate all --version N` runs load/validate/swap; validate compares interpolated values at twelve fixed reference cities (London, Moscow, Cairo, Singapore, …) against known climatology figures within a 4°C tolerance (`internal/ingest/climate.go`). If validate fails, do not swap it in by hand — check the download completed and the transform didn't silently truncate.
 - Watch disk and memory on the VPS during this step; the raw NetCDF files plus the transform's intermediate arrays are the heaviest thing this system ever does in one step.
 
 ## Updating the app

@@ -88,7 +88,7 @@ func TestApproveLicenseDryRun(t *testing.T) {
 	if code := run([]string{"places", "fetch"}, getenv, &out, &errb, ds); code != 0 {
 		t.Fatalf("fetch: %d %s", code, errb.String())
 	}
-	for _, want := range []string{"files:", "sha256 " + pin("/admin1CodesASCII.txt"), "pinned", "no live version"} {
+	for _, want := range []string{"files:", "sha256 " + pin("/admin1CodesASCII.txt"), "  pinned  ", "no live version"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("fetch must print the review summary (missing %q):\n%s", want, out.String())
 		}

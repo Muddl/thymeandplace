@@ -24,6 +24,7 @@ import (
 	"thymeandplace/internal/db"
 	"thymeandplace/internal/dbtest"
 	"thymeandplace/internal/jobs"
+	"thymeandplace/internal/monitor"
 	"thymeandplace/internal/store"
 )
 
@@ -527,5 +528,59 @@ func TestLoadConfigPublicTodayRefusedOutsideLocalhost(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "TP_PUBLIC_TODAY") {
 			t.Fatalf("ADMIN_RP_ID=%q with TP_PUBLIC_TODAY: want a startup error naming TP_PUBLIC_TODAY, got %v", rp, err)
 		}
+	}
+}
+
+func TestLoadConfigHeartbeats(t *testing.T) {
+	env := map[string]string{"DATABASE_URL": "postgres://x/y", "HEARTBEAT_APP_URL": "https://hc-ping.com/a",
+		"HEARTBEAT_ADMIN_AUTH_URL": "https://hc-ping.com/b", "HEARTBEAT_DRIFT_URL": "https://hc-ping.com/c"}
+	c, err := loadConfig(func(k string) string { return env[k] }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil || c.HeartbeatApp != env["HEARTBEAT_APP_URL"] || c.HeartbeatAdminAuth != env["HEARTBEAT_ADMIN_AUTH_URL"] || c.HeartbeatDrift != env["HEARTBEAT_DRIFT_URL"] {
+		t.Fatalf("%+v %v", c, err)
+	}
+}
+
+// TestAppSendsHeartbeat: with HEARTBEAT_APP_URL set, the running app pings
+// it; the checks whose variables are unset stay off (spec §6).
+func TestAppSendsHeartbeat(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool := dbtest.New(t)
+	got := make(chan string, 16)
+	recv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		select {
+		case got <- r.URL.Path + " " + string(b):
+		default: // never block a handler, or recv.Close would wait on it
+		}
+	}))
+	defer recv.Close()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg, err := loadConfig(func(k string) string {
+		return map[string]string{"DATABASE_URL": dbtest.URLAs(pool, dbtest.App), "HEARTBEAT_APP_URL": recv.URL + "/app-check"}[k]
+	}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.HeartbeatAdminAuth != "" || cfg.HeartbeatDrift != "" {
+		t.Fatalf("unset heartbeat variables must stay empty: %+v", cfg)
+	}
+	cfg.watchdogSample = 20 * time.Millisecond
+	a, err := newApp(ctx, cfg, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.close()
+	if p, ok := a.watchdog.AdminAuth.(*monitor.Pinger); !ok || p.Enabled() {
+		t.Fatalf("admin-auth check must be off with HEARTBEAT_ADMIN_AUTH_URL unset: %#v", a.watchdog.AdminAuth)
+	}
+	a.start(ctx)
+	select {
+	case p := <-got:
+		if !strings.HasPrefix(p, "/app-check") {
+			t.Fatalf("unexpected ping %q", p)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no app heartbeat")
 	}
 }

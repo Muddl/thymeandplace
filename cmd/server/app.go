@@ -24,6 +24,7 @@ import (
 	"thymeandplace/internal/dataversion"
 	"thymeandplace/internal/db"
 	"thymeandplace/internal/jobs"
+	"thymeandplace/internal/monitor"
 	"thymeandplace/internal/ocean"
 	"thymeandplace/internal/places"
 	"thymeandplace/internal/season"
@@ -42,6 +43,11 @@ type config struct {
 	AdminRPID      string
 	AdminOrigin    string
 	AdminBackup    bool
+
+	// Healthchecks.io ping URLs (secrets; empty → that ping is off).
+	HeartbeatApp, HeartbeatAdminAuth, HeartbeatDrift string
+
+	watchdogSample time.Duration // 0 → 1 min (tests shorten it)
 
 	now func() time.Time // server clock for the public site; nil → time.Now (tests pin it)
 }
@@ -98,6 +104,9 @@ func loadConfig(getenv func(string) string, log *slog.Logger) (config, error) {
 		return c, fmt.Errorf("PUBLIC_BASE_URL must be an origin like https://thymeand.place, got %q", c.BaseURL)
 	}
 	c.AdminBackup = getenv("ADMIN_BACKUP_LOGIN") != "off"
+	c.HeartbeatApp = getenv("HEARTBEAT_APP_URL")
+	c.HeartbeatAdminAuth = getenv("HEARTBEAT_ADMIN_AUTH_URL")
+	c.HeartbeatDrift = getenv("HEARTBEAT_DRIFT_URL")
 	// TP_PUBLIC_TODAY pins the public site's "today" to a fixed calendar
 	// date, keeping the current time of day. Test use only (e2e needs a
 	// specific month, e.g. one where an edit crosses a season boundary),
@@ -122,24 +131,28 @@ func loadConfig(getenv func(string) string, log *slog.Logger) (config, error) {
 }
 
 type app struct {
-	handler http.Handler
-	mux     *http.ServeMux // Plans 6-7 mount /admin/ here
-	pool    *pgxpool.Pool
-	holder  *catalog.Holder
-	watcher *dataversion.Watcher
-	drift   *calibrun.Drift
-	cases   changeset.CasesFunc
-	climate *climate.Service
-	ocean   *ocean.Service
-	auth    *auth.Service
-	log     *slog.Logger
-	cancel  context.CancelFunc // stops start()'s background work; set by start
+	handler  http.Handler
+	mux      *http.ServeMux // Plans 6-7 mount /admin/ here
+	pool     *pgxpool.Pool
+	holder   *catalog.Holder
+	watcher  *dataversion.Watcher
+	drift    *calibrun.Drift
+	watchdog *monitor.Watchdog
+	cases    changeset.CasesFunc
+	climate  *climate.Service
+	ocean    *ocean.Service
+	auth     *auth.Service
+	log      *slog.Logger
+	cancel   context.CancelFunc // stops start()'s background work; set by start
 }
 
 // newApp refuses to start on a database with pending migrations: the app
 // role can't run DDL, so migrations run first as a separate step (the
 // migrate service, `server -migrate-only`, as tp_owner).
 func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
+	// Count ERROR records from everything built here, for the watchdog.
+	errs := monitor.NewErrorCounter(log.Handler())
+	log = slog.New(errs)
 	if err := db.RequireMigrated(ctx, cfg.DatabaseURL); err != nil {
 		return nil, err
 	}
@@ -174,6 +187,23 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 		return calibrun.Cases(ctx, fixtures, a.climate, a.ocean)
 	}
 	a.drift = &calibrun.Drift{Pool: pool, Snapshot: a.holder.Current, Cases: a.cases, DataVersion: a.watcher.Current, Log: log}
+	drift := monitor.NewPinger("drift", cfg.HeartbeatDrift, log)
+	a.drift.Notify = func(ctx context.Context, failed bool, summary string) {
+		if failed {
+			drift.Fail(ctx, summary)
+		} else {
+			drift.Success(ctx, summary)
+		}
+	}
+	window := &monitor.Window{}
+	a.watchdog = &monitor.Watchdog{
+		Ready:     func(ctx context.Context) error { return web.CheckReady(ctx, a.holder.Current, pool.Ping) },
+		Window:    window,
+		Errors:    errs,
+		App:       monitor.NewPinger("app", cfg.HeartbeatApp, log),
+		AdminAuth: monitor.NewPinger("admin-auth", cfg.HeartbeatAdminAuth, log),
+		Sample:    cfg.watchdogSample,
+	}
 
 	// The calibration cities double as the sitemap's season pages: they're
 	// the places whose estimates are checked against published guides.
@@ -195,7 +225,7 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	if len(cfg.AdminSecretKey) == 32 {
 		authSvc, err := auth.NewService(pool, auth.Config{
 			RPID: cfg.AdminRPID, RPOrigins: []string{cfg.AdminOrigin}, SecretKey: cfg.AdminSecretKey,
-			BackupEnabled: cfg.AdminBackup, Log: log,
+			BackupEnabled: cfg.AdminBackup, Log: log, OnEvent: a.watchdog.Event,
 		})
 		if err != nil {
 			pool.Close()
@@ -213,7 +243,7 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 		log.Warn("ADMIN_SECRET_KEY not set; /admin is disabled")
 	}
 
-	a.handler = web.Common(log)(a.mux)
+	a.handler = monitor.CountResponses(window)(web.Common(log)(a.mux))
 	return a, nil
 }
 
@@ -230,7 +260,7 @@ var jobSchedule = jobs.Schedule{Every: 24 * time.Hour, RetryMin: time.Minute, Re
 
 // start launches background work: the data-version listener, the daily
 // drift check (on jobSchedule, anchored to the last recorded run; see
-// calibrun.Drift.Loop) and the admin prune. It derives its own cancelable
+// calibrun.Drift.Loop), the monitoring watchdog and the admin prune. It derives its own cancelable
 // context so close() can stop that work before closing the pool. The
 // watcher's LISTEN session uses its own connection outside the pool, so
 // pool.Close() no longer waits on it, but cancelling first still stops the
@@ -240,6 +270,7 @@ func (a *app) start(ctx context.Context) {
 	a.cancel = cancel
 	go a.watcher.Run(ctx)
 	go a.drift.Loop(ctx, jobSchedule)
+	go a.watchdog.Run(ctx)
 	if a.auth != nil {
 		go a.pruneLoop(ctx, jobSchedule)
 	}

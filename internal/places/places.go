@@ -14,6 +14,8 @@ import (
 const (
 	SearchLimit   = 8
 	MaxQueryRunes = 100
+	// MinQueryRunes is the fewest letters or digits a search needs: pg_trgm ignores every other character, and shorter queries match almost anything.
+	MinQueryRunes = 2
 	liveView      = "place"
 )
 
@@ -39,9 +41,9 @@ type Service struct{ db store.DBTX }
 
 func NewService(db store.DBTX) *Service { return &Service{db: db} }
 
-// Search returns up to SearchLimit places. Blank queries return nil without
-// touching the database; long queries are truncated to MaxQueryRunes.
-func (s *Service) Search(ctx context.Context, q string) ([]Place, error) {
+// Normalize drops invalid UTF-8 and control characters, trims, and cuts the
+// query to MaxQueryRunes: the cleanup Search applies before querying.
+func Normalize(q string) string {
 	q = strings.ToValidUTF8(q, "")
 	q = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
@@ -50,11 +52,32 @@ func (s *Service) Search(ctx context.Context, q string) ([]Place, error) {
 		return r
 	}, q)
 	q = strings.TrimSpace(q)
-	if q == "" {
-		return nil, nil
-	}
 	if utf8.RuneCountInString(q) > MaxQueryRunes {
 		q = string([]rune(q)[:MaxQueryRunes])
+	}
+	return q
+}
+
+// TooShort reports whether q has fewer than MinQueryRunes letters or digits.
+func TooShort(q string) bool {
+	n := 0
+	for _, r := range q {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			if n++; n >= MinQueryRunes {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Search returns up to SearchLimit places. Queries with fewer than
+// MinQueryRunes letters or digits (including blank ones) return nil without
+// touching the database; long queries are truncated to MaxQueryRunes.
+func (s *Service) Search(ctx context.Context, q string) ([]Place, error) {
+	q = Normalize(q)
+	if TooShort(q) {
+		return nil, nil
 	}
 	rows, err := store.SearchPlaces(ctx, s.db, liveView, q, SearchLimit)
 	if err != nil {

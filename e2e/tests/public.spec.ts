@@ -11,6 +11,15 @@ test("1. search → select → results render", async ({ page }) => {
   await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
 });
 
+test("a one-letter search asks for more", async ({ page }) => {
+  await page.goto("/");
+  const box = page.getByLabel("Find your town");
+  await box.pressSequentially("l", { delay: 50 });
+  await expect(page.getByText("Keep typing: enter at least 2 letters of your town's name.")).toBeVisible();
+  await box.pressSequentially("isb", { delay: 50 });
+  await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
+});
+
 // Spec §1 success criterion 1: warm-cache /season within about 1 s.
 // date=2026-05-15 matches TP_PUBLIC_TODAY (see deploy/e2e.env), the server's
 // pinned "today" for this stack, so the server accepts it verbatim rather

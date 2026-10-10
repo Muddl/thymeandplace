@@ -17,7 +17,7 @@ ARG MC_SHA256_AMD64=01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312
 ARG MC_SHA256_ARM64=14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl \
+ && apt-get install -y --no-install-recommends ca-certificates curl age \
  && rm -rf /var/lib/apt/lists/* \
  && case "$TARGETARCH" in \
       amd64) sha256="$MC_SHA256_AMD64" ;; \
@@ -28,6 +28,10 @@ RUN apt-get update \
       "https://github.com/minio/mc/releases/download/${MC_VERSION}/mc.linux-${TARGETARCH}.${MC_VERSION}" \
  && echo "${sha256}  /usr/local/bin/mc" | sha256sum -c - \
  && chmod +x /usr/local/bin/mc
+
+# age encrypts dumps before upload (docs/operations.md, "Backup encryption").
+# From Debian's package; fails the build if missing.
+RUN age --version && age-keygen --version
 
 COPY backup.sh restore.sh restore-test.sh heartbeat.sh /usr/local/bin/
 COPY own-objects.sql /usr/local/share/thymeandplace/

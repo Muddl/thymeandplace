@@ -1,0 +1,5 @@
+# END-TO-END TESTS ONLY. A throwaway age identity for the local backup recipe
+# and the CI backup job. Never used in production; not a secret.
+# created: 2026-10-10T18:23:35Z
+# public key: age1fmcj4dujyhz82js80np7tzukldpe4v3v4kjg0kzhtw2dmgy5xs5qgl4e3z
+AGE-SECRET-KEY-1MM7PZUQ3MKVXJ5HSWMX96V38M7QYMFMWTF80VUURTRV8G34ZUWSSZL6TAF

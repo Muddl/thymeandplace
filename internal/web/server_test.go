@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"thymeandplace/internal/catalog"
+	"thymeandplace/internal/catalog/catalogtest"
 	"thymeandplace/internal/web/views"
 )
 
@@ -236,5 +238,28 @@ func TestReadyzNoSnapshotNoPing(t *testing.T) {
 	hs.snap = nil
 	if code, body, _ := hs.get("/readyz", false); code != 503 || body != "catalog not loaded" || hs.pings.Load() != 0 {
 		t.Fatalf("%d %q pings=%d", code, body, hs.pings.Load())
+	}
+}
+
+func TestCheckReady(t *testing.T) {
+	ctx := context.Background()
+	snap, _ := catalog.NewSnapshot(1, catalogtest.SmallCatalog())
+	ok := func(context.Context) error { return nil }
+	down := func(context.Context) error { return errors.New("x") }
+	hang := func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
+	none := func() *catalog.Snapshot { return nil }
+	have := func() *catalog.Snapshot { return snap }
+	if err := CheckReady(ctx, none, ok); !errors.Is(err, ErrCatalogNotLoaded) {
+		t.Fatalf("no snapshot: %v", err)
+	}
+	if err := CheckReady(ctx, have, down); !errors.Is(err, ErrDatabaseUnavailable) {
+		t.Fatalf("db down: %v", err)
+	}
+	start := time.Now()
+	if err := CheckReady(ctx, have, hang); !errors.Is(err, ErrDatabaseUnavailable) || time.Since(start) > time.Second {
+		t.Fatalf("hung ping: %v after %v", err, time.Since(start))
+	}
+	if err := CheckReady(ctx, have, ok); err != nil {
+		t.Fatalf("ready: %v", err)
 	}
 }

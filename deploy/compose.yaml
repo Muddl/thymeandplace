@@ -5,13 +5,14 @@ name: thymeandplace
 # it doesn't use. Templates: deploy/env/*.example. Database roles and which
 # service uses which: docs/operations.md, "Database roles".
 
-# Rotate container logs (Docker's json-file default grows without bound).
+# Rotate container logs: 20 files of up to 10 MB, rotated files compressed.
 x-logging: &logging
   logging:
     driver: json-file
     options:
       max-size: "10m"
-      max-file: "5"
+      max-file: "20"
+      compress: "true"
 
 # One image serves both the app and its one-shot migration step.
 x-app-build: &app-build
@@ -132,6 +133,19 @@ services:
     image: thymeandplace-backup:latest
     entrypoint: ["/usr/local/bin/restore.sh"]
     env_file: ${TP_ENV_DIR:-/etc/thymeandplace}/restore.env
+    environment:
+      # The on-host restore-test key. A disaster restore overrides this with
+      # the recovery key (docs/operations.md, "Restoring from backup").
+      AGE_IDENTITY: /run/secrets/restore-test.agekey
+    volumes:
+      # Only this service gets it. A missing file fails loudly instead of
+      # Docker creating an empty directory in its place.
+      - type: bind
+        source: ${TP_ENV_DIR:-/etc/thymeandplace}/restore-test.agekey
+        target: /run/secrets/restore-test.agekey
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       db:
         condition: service_healthy

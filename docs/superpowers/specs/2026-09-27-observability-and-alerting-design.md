@@ -5,6 +5,7 @@
 - **Source:** Architectural audit, 2026-09-27 (finding F07)
 - **Related issues:** [#7](https://github.com/Muddl/thymeandplace/issues/7) (F07)
 - **Amends:** core spec §10.4 (audit bullet), §11.4 (access log), §13.2 (production drift check), §14 (Backups, Health and Logs bullets; new Monitoring bullet), §15 (monitoring payloads), §16 (new values)
+- **Amended in implementation (issue #7):** where this spec and §4.7 disagreed, §4.7 won. Drift and prune ping bodies name a fixed category or prefix, never raw error text (a pgx or `mc` network error can carry an IP). Env files are per service (`deploy/env/{app,backup,restore}.env.example`), not one `deploy/env.example`. A request whose client went away is neither counted by `Window` nor logged at `ERROR`. Each change is marked in place below.
 
 ---
 
@@ -103,7 +104,7 @@ func (p *Pinger) Fail(ctx context.Context, body string)     // POSTs to <url>/fa
 
 **Inputs**
 
-- **`Window`** (`window.go`). `monitor.CountResponses(w)` wraps `web.Common(...)` in `cmd/server/app.go`. Because `web.Common` recovers panics inside it, a panic is seen as a 500. The window counts requests and 5xx, and ignores `/healthz` and `/readyz` (readiness is sampled directly). It stores counts only.
+- **`Window`** (`window.go`). `monitor.CountResponses(w)` wraps `web.Common(...)` in `cmd/server/app.go`. Because `web.Common` recovers panics inside it, a panic is seen as a 500. The window counts requests and 5xx, and ignores `/healthz` and `/readyz` (readiness is sampled directly). It stores counts only. *(Amended in implementation:* it also skips a response whose request context was cancelled, since no client received it; otherwise a client dropping cache-miss requests could fail `app`. `web.Common`'s timeout derives its own context, so a server-side timeout still counts.)
 - **`ErrorCounter`** (`errors.go`). An `slog.Handler` wrapper that counts records at `ERROR` or above. It keeps up to 3 distinct messages and never keeps attributes. A message containing anything other than letters, spaces and `:;,'_-` is kept as `(message withheld)`, so a message built from coordinates, IPs or IDs can't leak. Every current `ERROR` message is a constant that passes this rule. `WithAttrs` and `WithGroup` children share the count. `newApp` wraps the handler it receives, so every component built there is counted, and `main.go` does not change.
 - **Security events.** A new `auth.Config.OnEvent func(kind string)` hook:
   - `backup_login` fires next to the existing `WARN` in `LogAttempt`.
@@ -123,16 +124,16 @@ func (p *Pinger) Fail(ctx context.Context, body string)     // POSTs to <url>/fa
 
 Counters reset after each report. The watchdog starts in `app.start` with the watcher and the drift loop. A site still waiting for its first snapshot (`cmd/server/main.go:37-43`) therefore reports `not ready`. On shutdown it stops without pinging; the 5-minute grace covers a deploy. If the app is ever scaled to several replicas (core spec §4.1), each needs its own `app` check, or a healthy replica hides a dead one.
 
-**Client-caused errors are not `ERROR`s.** Once `ERROR` pages the owner, an anonymous caller must not be able to cause one. `enrollFinish` logs `ERROR` for any non-ceremony error (`internal/admin/login.go:264-270`). That includes a body over 64 KiB, which `limitCeremonyBody` rejects (`internal/admin/login.go:69-77`), and CSRF doesn't stop a script before sign-in. The passkey path already logs these at `WARN` (`internal/admin/login.go:111-118`). `enrollFinish` does the same for body-read errors and keeps `ERROR` for store failures.
+**Client-caused errors are not `ERROR`s.** Once `ERROR` pages the owner, an anonymous caller must not be able to cause one. `enrollFinish` logs `ERROR` for any non-ceremony error (`internal/admin/login.go:264-270`). That includes a body over 64 KiB, which `limitCeremonyBody` rejects (`internal/admin/login.go:69-77`), and CSRF doesn't stop a script before sign-in. The passkey path already logs these at `WARN` (`internal/admin/login.go:111-118`). `enrollFinish` does the same for body-read errors and keeps `ERROR` for store failures. *(Amended in implementation:* on every route an anonymous caller can reach, and for the sign-in audit writes, a store failure logs `WARN` instead of `ERROR` when the request's own context is already done, so a client that disconnects mid-request can't page the owner. Real store failures stay `ERROR`.)
 
 ### 4.4 Drift, backup and restore-test pings
 
 **Drift.** `calibrun.Drift` gets `Notify func(ctx context.Context, failed bool, summary string)`. `RunOnce` calls it exactly once, from a `defer`, and skips the call if `ctx` was cancelled:
 - On a drop: `failed=true`, summary `calibration score dropped 0.812 → 0.771 (data version a1b2 → c3d4)`.
-- On an error: `failed=true`, summary `drift check failed: <err>`.
+- On an error: `failed=true`, summary `drift check failed: no catalog snapshot loaded` or `drift check failed: database or scoring error (see the app log)`. *(Amended in implementation:* a fixed category, never the raw error, because a pgx error can name a host and §4.7 forbids IPs in ping bodies. Don't restore `<err>`.)
 - Otherwise: `failed=false` with the score.
 
-The existing log lines stay. The next run compares against the lowered score, so the check recovers a day later. That means "no further drop", not "fixed", and the runbook says so. A failed run also logs `ERROR`, so `app` fails once as well. That duplicate is accepted.
+The existing log lines stay. The next run compares against the lowered score, so the check recovers a day later. That means "no further drop", not "fixed", and the runbook says so. A failed run also logs `ERROR`, so `app` fails as well, once per failed attempt (since #23 each retry logs `ERROR` again). That duplicate is accepted.
 
 **Backup.** A new `deploy/backup/heartbeat.sh`, sourced by both scripts, defines `hc <suffix> [body]`:
 - It does nothing when `HEARTBEAT_URL` is empty.
@@ -147,7 +148,7 @@ Each script maps its own variable (`HEARTBEAT_BACKUP_URL`, `HEARTBEAT_RESTORE_TE
 - **Step names.** A `step` variable names the stage: `env`, `alias`, `dump`, `upload`, `weekly`, `prune`. `hc /start` runs after the variable check.
 - **The trap sends one of three pings:**
   - `/fail` with `backup failed during <step> (exit <rc>)` when `rc` ≠ 0.
-  - `/fail` with `dump uploaded; pruning failed: <mc message>` when a prune failed. The exit status stays 0.
+  - `/fail` with `dump uploaded; pruning failed: <prefix>[; <prefix>]` (`backups/daily`, `backups/weekly`) when a prune failed. The exit status stays 0. *(Amended in implementation:* the `mc` message stays in stderr only, since a network error carries the object store's IP and §4.7 forbids IPs in ping bodies.)
   - Otherwise the success ping with `backup ok: backups/daily/<date>.dump`.
 
 `restore-test.sh` merges its ping into its existing scratch-DB trap (`deploy/backup/restore-test.sh:21`). It sends the count table as the failure body.
@@ -222,7 +223,7 @@ A future metrics endpoint must use its own port. Caddy must never proxy that por
    - `newApp` wraps the log handler in `ErrorCounter`, builds the pingers, `Window` and watchdog, wraps `a.handler` in `CountResponses`, and wires `auth.Config.OnEvent` and `Drift.Notify`.
    - `start` launches the watchdog.
 7. **`deploy/backup/`:** add `heartbeat.sh`, change `backup.sh` and `restore-test.sh`, and add `heartbeat.sh` to the `COPY` line in `Dockerfile`.
-8. **`deploy/compose.yaml`:** change `x-logging`. **`deploy/env.example`:** add the five `HEARTBEAT_*` lines, commented out and marked as secrets.
+8. **`deploy/compose.yaml`:** change `x-logging`. **Env templates:** add the five `HEARTBEAT_*` lines, commented out and marked as secrets. *(Amended in implementation:* env files are per service: the three app URLs in `deploy/env/app.env.example`, `HEARTBEAT_BACKUP_URL` in `backup.env.example`, `HEARTBEAT_RESTORE_TEST_URL` in `restore.env.example`.)
 9. **`.github/workflows/ci.yml`:** in the `deploy` job, add `sh -n deploy/backup/*.sh`.
 10. **Docs:**
     - `docs/operations.md` (§7).
@@ -288,7 +289,7 @@ A future metrics endpoint must use its own port. Caddy must never proxy that por
    - Allow `POST` only.
    - Set the cron checks' time zone to the VPS's (`timedatectl`).
    - Attach email and one push channel (§8 Q1), and send a test notification.
-2. Put the per-check UUID URLs in `/etc/thymeandplace/app.env`. `app` and `backup` both read that file.
+2. Put the per-check UUID URLs in the per-service env files: `app`, `admin-auth` and `drift` in `app.env`, `backup` in `backup.env`, `restore-test` in `restore.env` (amended in implementation; there is no shared env file).
 3. Configure the external monitor (§4.6), and turn on the VPS provider's disk and CPU alerts.
 4. `docker compose up -d --build`. Compose recreates containers whose configuration changed (verified), so the new log options take effect. Check:
    - `docker inspect --format '{{.HostConfig.LogConfig}}' thymeandplace-app-1` shows `compress:true`.

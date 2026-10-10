@@ -6,3 +6,4 @@ Caddyfile* text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
 *_templ.go text eol=lf
+*.agekey text eol=lf

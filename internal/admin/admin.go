@@ -156,7 +156,7 @@ func (a *Admin) loadSession(next http.Handler) http.Handler {
 		if c, err := r.Cookie(auth.CookieName); err == nil {
 			sess, ok, err := a.d.Auth.LookupSession(ctx, c.Value)
 			if err != nil {
-				a.d.Log.Error("session lookup failed", "err", err, "request_id", web.RequestIDFrom(ctx))
+				a.logStoreError(ctx, "session lookup failed", "err", err, "request_id", web.RequestIDFrom(ctx))
 				http.Error(w, "Something went wrong. Try again.", http.StatusServiceUnavailable)
 				return
 			}

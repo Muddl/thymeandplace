@@ -437,8 +437,8 @@ The expected setup is two passkeys (for example, phone plus hardware key or pass
 - **CSRF:** a per-session synchronizer token in every form, and sent by HTMX as a header (`hx-headers` on `<body>`). It's checked on every non-GET admin request.
 - **Login rate limit:** 5 failed attempts per 15 minutes per client (an IPv4 address or an IPv6 /64), across the passkey, re-auth and backup sign-in routes, checked before any audited work. Enrollment has its own budget of 5 failed attempts. Refused attempts are recorded once per client per window. If the check itself fails, the answer is 503 and nothing is recorded.
 - **Admin request limit:** per client, in memory, before any database work: sign-in and enrollment routes 1 req/s burst 20; other `/admin` routes 10 req/s burst 100; 429 with `Retry-After`.
-- **Backup lockout:** after 5 consecutive failures, the backup path locks globally for 15 minutes, doubling each time it repeats, up to 24 hours. Passkey login keeps working during a lockout. A global lock is acceptable because there is one user, and it stops distributed guessing.
-- **Audit:** every login attempt that reaches a credential check goes to `admin_login_log` (time, IP, client key, method, outcome), kept 90 days. Successful backup logins also log at `WARN`.
+- **Backup lockout:** after 5 consecutive failures, the backup path locks globally for 15 minutes, doubling each time it repeats, up to 24 hours. Passkey login keeps working during a lockout. A global lock is acceptable because there is one user, and it stops distributed guessing. Engaging the lockout logs `WARN "backup login locked"` and alerts the owner (the `admin-auth` check, §14). (Amended by `2026-09-27-observability-and-alerting-design.md`.)
+- **Audit:** every login attempt that reaches a credential check goes to `admin_login_log` (time, IP, client key, method, outcome), kept 90 days. Successful backup logins also log at `WARN` and alert the owner (the `admin-auth` check, §14). (Amended by `2026-09-27-observability-and-alerting-design.md`.)
 - **Headers on every response** (public and admin, set in the app by `web.SecurityHeaders`): strict CSP (self only, `object-src 'none'`, `frame-ancestors 'none'`, no inline script or style), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, a `Permissions-Policy` allowing only geolocation for self, and `Cross-Origin-Opener-Policy`/`Cross-Origin-Resource-Policy: same-origin`. `/admin` replaces the CSP (adding `data:` images) and adds `Cache-Control: no-store`, `X-Robots-Tag: noindex` and `Referrer-Policy: no-referrer`. (Amended by `2026-09-27-public-origin-hardening-design.md`.)
 
 ### 10.5 Tables
@@ -484,6 +484,8 @@ Requests without an `HX-Request` header get full-page versions of `/season` and 
 ### 11.4 Middleware
 
 Request ID → structured `slog` access log → panic recovery → per-IP rate limit → per-request timeout (**2 s**).
+
+The access log skips `/healthz` and `/readyz` lines with a 2xx status, so the probes don't fill the log; failing probes are still logged. (Amended by `2026-09-27-observability-and-alerting-design.md`.)
 
 Public rate limits (token bucket, per IP):
 - `/places`: 10 req/s, burst 20.
@@ -611,7 +613,7 @@ Property tests:
 - Score: mean per-ingredient Jaccard overlap between engine months and guide months, over ingredients present in both.
 - Each fixture's point selects its cell. Inputs are resolved exactly as for `/season`.
 - **Where it runs:** the catalog lives in the database, so calibration gates changes at **apply time** in the admin preview (§9.2), not in CI. CI tests the scoring code itself against a fixed test catalog in `testdata/`.
-- **Production drift check:** a daily in-app drift check runs 24 h after the last recorded run (or at once if none is that recent), waits for the catalog snapshot, and retries failures after 1 min, doubling to 1 h. It scores the live snapshot, stores the result in `calibration_run` (time, data version, score), and logs at `WARN` if the score is lower than the previous run by more than 0.02. This catches score changes that come from reference-data swaps rather than catalog edits.
+- **Production drift check:** a daily in-app drift check runs 24 h after the last recorded run (or at once if none is that recent), waits for the catalog snapshot, and retries failures after 1 min, doubling to 1 h. It scores the live snapshot, stores the result in `calibration_run` (time, data version, score), and logs at `WARN` if the score is lower than the previous run by more than 0.02. Each run also reports to its heartbeat (the `drift` check, §14): a drop or a failed run fails it, and a missing run alerts. (Amended by `2026-09-27-observability-and-alerting-design.md`.) This catches score changes that come from reference-data swaps rather than catalog edits.
 
 ### 13.3 Catalog and changeset tests
 
@@ -668,11 +670,12 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 - Secrets (`ADMIN_SECRET_KEY`, DB credentials, bucket credentials) come from root-only env files (mode 600) on the host, not stored in the repo: one per service (`db`, `migrate`, `app`, `ingest`, `backup`, `restore`), so no container gets a secret it doesn't use.
 - Database roles: the bootstrap superuser only for init and restores; `tp_owner` owns the schema and runs migrations, ingest and devseed; `tp_app` is the runtime (and admin CLI) with no DDL rights, no file or program access and append-only audit tables; `tp_backup` reads everything for `pg_dump` (`pg_read_all_data`).
 - Migrations: `goose` runs in the one-shot `migrate` service as `tp_owner`, before the app starts; the app refuses to serve while migrations are pending. Migrations must be backward-compatible with the previous app version.
-- Backups: nightly `pg_dump` (including the catalog and admin tables) to the S3-compatible bucket, keeping 7 daily and 4 weekly copies. A restore test is run manually before launch. Catalog JSON exports are a convenience, not the backup.
+- Backups: nightly `pg_dump` (including the catalog and admin tables) to the S3-compatible bucket, keeping 7 daily and 4 weekly copies. Dumps are verified, encrypted with `age` to an off-host recovery key and an on-host restore-test key, then uploaded. The bucket keeps deleted versions for 35 days (versioning), or expires copies by lifecycle rules with a no-delete writer key. (Amended by `2026-09-27-backup-encryption-design.md`.) Each run pings its own check (`/start`, then success or a failure naming the step). A restore test is run manually before launch, and the monthly restore test runs by cron with its own check. (Amended by `2026-09-27-observability-and-alerting-design.md`.) Catalog JSON exports are a convenience, not the backup.
 - Connection budget: app pool 16 (2 kept open; `DB_MAX_CONNS` overrides) + the app's `LISTEN` connection 1 + `ingest` or `devseed` 4 + admin CLI 4 + backup 1 + `psql` sessions, about 30 in all, well under Postgres's default `max_connections` of 100. A `pool_max_conns` in `DATABASE_URL` wins over a binary's default. A k6 load test (`deploy/loadtest/`) checks the §1 latency targets before launch; results go in `docs/capacity-baseline.md`.
-- Health: Docker and Caddy probe `/healthz`. `/readyz` is for monitoring and does not gate traffic.
+- Health: Docker and Caddy probe `/healthz`, and Caddy routes on it. Nothing restarts an unhealthy container; alerts do. `/readyz` is for monitoring and does not gate traffic. (Amended by `2026-09-27-observability-and-alerting-design.md`.)
 - Client IP: the app trusts exactly one proxy hop (Caddy) and uses the rightmost `X-Forwarded-For` entry. Putting any proxy in front of Caddy requires changing that first.
-- Logs: JSON `slog` to stdout. Public request lat/lng is logged only as `cell_id`.
+- Logs: JSON `slog` to stdout. Public request lat/lng is logged only as `cell_id`. Container logs use `json-file`, 20 files of up to 10 MB each, rotated files compressed, and healthy probe lines are skipped (§11.4). `calibration_run` and `admin_login_log` are the durable records. (Amended by `2026-09-27-observability-and-alerting-design.md`.)
+- Monitoring: outbound heartbeat pings to hosted Healthchecks.io, one per-check secret URL each in the env files (unset → off): `app` (an in-app watchdog: readiness, bursts of 5xx, `ERROR` records), `admin-auth` (backup login used or locked, or the login log grew fast), `drift`, `backup` and `restore-test`. A missing ping alerts too. An external uptime monitor checks `/readyz` and the certificate (`site`). There is no metrics endpoint. A bad monitoring setting never stops the site. Checks and runbook: `docs/operations.md`, "Monitoring and alerts". (Amended by `2026-09-27-observability-and-alerting-design.md`.)
 - The app prunes admin audit (90 days), session and enrollment-token rows daily, starting at boot; failures retry after 1 min, doubling to 1 h.
 
 ## 15. Privacy
@@ -680,6 +683,7 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 - No public accounts, no public cookies.
 - Public locations are not stored. Logs record `cell_id` (~28 km resolution) only.
 - Admin login logs store IP addresses for security auditing, for 90 days.
+- Monitoring payloads (heartbeat ping bodies) carry only counts, reason labels, constant `ERROR` messages, calibration scores, data-version strings, backup object keys and table row counts, never paths, `cell_id`, coordinates, IP addresses, log attributes or secrets. The external monitor only probes the site. A future metrics endpoint gets its own unpublished port and labels only status class and a fixed route class. (Amended by `2026-09-27-observability-and-alerting-design.md`.)
 - The About the data page states this.
 
 ## 16. Values chosen in this spec (confirm or change)
@@ -711,3 +715,12 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Admin login log retention | 90 days (growth warning above 10,000 rows / 24 h) |
 | Backup lockout | 5 failures → 15 min, doubling, max 24 h |
 | Backup retention | 7 daily, 4 weekly |
+| Backup encryption | age, two X25519 recipients (recovery off-host, restore-test on-host) |
+| Watchdog sample / report | 1 min / 5 min |
+| Not-ready alert | 3 consecutive failed samples |
+| 5xx alert | ≥ 5 and ≥ 5% of non-probe responses in a report |
+| `ERROR` alert | ≥ 1 record in a report |
+| Check schedules | `app` 5 min + 5 min grace; `admin-auth` 1 day + 1 h; `drift` 1 day + 2 h; `backup` cron `15 3 * * *` + 1 h; `restore-test` cron `15 4 1 * *` + 2 h |
+| Ping timeout / attempts / body cap | 5 s / 3 / 10 kB |
+| External monitor | ≤ 5 min, alert after 2 failures, TLS warning at 14 days |
+| Container logs | `json-file`, 10 MB x 20 files, rotated files compressed |

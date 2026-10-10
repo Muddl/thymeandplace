@@ -1,6 +1,6 @@
 # Thyme & Place - Backup encryption and retention protection - Design
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (finding F12)
 - **Related issues:** [#12](https://github.com/Muddl/thymeandplace/issues/12) (F12)

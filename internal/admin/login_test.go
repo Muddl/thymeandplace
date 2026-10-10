@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -529,7 +532,67 @@ func TestLoadSessionDBErrorIs503KeepsCookie(t *testing.T) {
 			t.Fatalf("%s: session cookie dropped", path)
 		}
 	}
-	if logs := e.logs.String(); !strings.Contains(logs, "session lookup failed") || !strings.Contains(logs, "request_id="+testRequestID) {
-		t.Fatalf("lookup failure not logged with request_id:\n%s", logs)
+	if logs := e.logs.String(); !strings.Contains(logs, `level=ERROR msg="session lookup failed"`) || !strings.Contains(logs, "request_id="+testRequestID) {
+		t.Fatalf("lookup failure not logged at ERROR with request_id:\n%s", logs)
+	}
+}
+
+// Final review I1: a client that disconnects mid-request must not be able to
+// page the owner. On every route an anonymous caller can reach, a store call
+// that fails only because the request's context was cancelled logs WARN,
+// never ERROR. (A real store failure stays ERROR: see the test above.)
+func TestCancelledAnonymousRequestsLogNoError(t *testing.T) {
+	e := newEnv(t, true)
+	pre := strings.Repeat("p", 43)
+	for _, tc := range []struct {
+		method, path string
+		cookie       bool
+		want         string
+	}{
+		{"GET", "/admin", true, "session lookup failed"},
+		{"GET", "/admin/login", true, "session lookup failed"},
+		{"POST", "/admin/login/passkey/begin", false, "passkey begin failed"},
+		{"POST", "/admin/login/backup", false, "sign-in budget check failed"},
+		{"POST", "/admin/enroll/finish?token=abc", false, "sign-in budget check failed"},
+		{"GET", "/admin/enroll?token=abc", false, "enrollment check failed"},
+		{"POST", "/admin/enroll/begin?token=abc", false, "enrollment begin failed"},
+	} {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		r := httptest.NewRequest(tc.method, tc.path, strings.NewReader("{}")).WithContext(ctx)
+		r.RemoteAddr = "198.51.100.8:1"
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-CSRF-Token", pre)
+		r.AddCookie(&http.Cookie{Name: PreCookie, Value: pre})
+		if tc.cookie {
+			r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: "a-bogus-session-token-from-a-script"})
+		}
+		before := e.logs.String()
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, r)
+		if rec.Code < 500 {
+			t.Errorf("%s %s: status %d, want the store-failure 5xx", tc.method, tc.path, rec.Code)
+		}
+		if got := strings.TrimPrefix(e.logs.String(), before); !strings.Contains(got, `level=WARN msg="`+tc.want+`"`) {
+			t.Errorf("%s %s: want WARN %q, got:\n%s", tc.method, tc.path, tc.want, got)
+		}
+	}
+	if logs := e.logs.String(); strings.Contains(logs, "level=ERROR") {
+		t.Fatalf("a cancelled anonymous request logged ERROR:\n%s", logs)
+	}
+}
+
+// An anonymous caller must not be able to cause an ERROR (which pages the
+// owner): an oversized enrollment body is a client error.
+func TestEnrollFinishOversizeBodyIsNotError(t *testing.T) {
+	e := newEnv(t, false)
+	c := e.client(t)
+	c.get("/admin/login") // sets the CSRF cookie the POST must carry
+	rec := c.postJSON("/admin/enroll/finish?token=x", `{"x":"`+strings.Repeat("a", 70<<10)+`"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if strings.Contains(e.logs.String(), "level=ERROR") {
+		t.Fatalf("client error logged at ERROR:\n%s", e.logs.String())
 	}
 }

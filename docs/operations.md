@@ -33,12 +33,14 @@
    docker compose --profile tools run --rm ingest climate all --version N
    ```
 7. Import the launch catalog in `/admin/import` (see Plan 9; without a live ocean version, import the no-seafood file from "Launching without seafood") and check the preview's calibration score. After any later admin edit, export the catalog to `content/catalog/launch.json` and run `go test ./content/`: the calibration score can't see an ingredient in a city whose guide doesn't list it, and the content gates can (`content/AUTHORING.md`, "After editing in the admin").
-8. Backups: see "Nightly backups" below for the cron entry.
-9. **Before launch:** run `docker compose --profile tools run --rm backup` then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore`. It must print `restore-test ok`.
+8. Backups: see "Nightly backups" below for the timer or cron entries.
+9. **Set up monitoring:** create the checks, put their ping URLs in the env files and configure the external monitor ("Monitoring and alerts" below, "Setting up").
+10. **Before launch:** run `docker compose --profile tools run --rm backup` then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore`. It must print `restore-test ok`, and the `backup` and `restore-test` checks should go green.
 
 ### Pre-launch checklist
 
-- [ ] `restore-test ok` (step 9).
+- [ ] `restore-test ok` (step 10).
+- [ ] Every check in "Monitoring and alerts" is green, and a test notification reached you.
 - [ ] Seafood is off: `FEATURE_SEAFOOD` is unset or `off` in `app.env`, `docker compose logs app | grep 'seafood feature'` shows `enabled=false`, and `/about/data` doesn't mention seafood or marine data. (Only once the MEOW row in `docs/reference-data-licenses.md` is confirmed and an ocean version is live may it be `on`; see "Turning seafood on".)
 - [ ] `SELECT id, license, license_reviewed, is_live, promoted_at FROM dataset_versions WHERE dataset = 'ocean'` shows no approved or promoted row whose license starts with `UNRESOLVED:`. If one exists, withdraw it ("Withdrawing a dataset").
 
@@ -140,10 +142,26 @@ Old versions are kept. You may drop tables older than the last two versions of a
 
 - `docker compose --profile tools run --rm backup` — dumps `DATABASE_URL` (as `tp_backup`, which can read everything and write nothing) with `pg_dump --format=custom`, uploads it to `s3://$BUCKET_NAME/backups/daily/<date>.dump` via `mc`, additionally copies it to `backups/weekly/<iso-week>.dump` on Sundays, then prunes daily copies older than 7 days and weekly copies older than 28. It fails loudly (non-zero exit) if the dump comes out empty.
 
-Add to root's crontab on the VPS (`crontab -e`):
+With `HEARTBEAT_BACKUP_URL` set in `backup.env`, each run pings the `backup` check: `/start`, then success (`backup ok: backups/daily/<date>.dump`), or `/fail` naming the step that failed (for example `backup failed during dump (exit 1)`). A prune failure keeps the exit status at 0 but still fails the check (`dump uploaded; pruning failed: ...`). A run that never starts (Docker down, image missing) sends nothing, and the missed run alerts. See "Monitoring and alerts".
+
+Schedule it with the systemd timer below (preferred: its output goes to the journal, which rotates itself) or with cron. For cron, add to root's crontab on the VPS (`crontab -e`):
 
 ```
 15 3 * * * cd /opt/thymeandplace/deploy && docker compose --profile tools run --rm backup >> /var/log/thymeandplace-backup.log 2>&1
+15 4 1 * * cd /opt/thymeandplace/deploy && docker compose --profile tools run --rm --entrypoint restore-test.sh restore >> /var/log/thymeandplace-backup.log 2>&1
+```
+
+The second line is the monthly restore test (below). Nothing else rotates that log file, so with cron also add:
+
+```
+# /etc/logrotate.d/thymeandplace-backup
+/var/log/thymeandplace-backup.log {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+}
 ```
 
 Or, with systemd, a timer + oneshot service:
@@ -169,13 +187,15 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-Enable with `systemctl enable --now thymeandplace-backup.timer`.
+Enable with `systemctl enable --now thymeandplace-backup.timer`, and read its output with `journalctl -u thymeandplace-backup`.
 
-Periodically (e.g. monthly, right after a successful backup) verify restores still work:
+On the 1st of each month, an hour after that night's backup, the restore test checks that the newest dump still restores (the `15 4 1 * *` cron line above). With systemd, copy the two units as `thymeandplace-restore-test.service` and `.timer`, with `ExecStart=/usr/bin/docker compose --profile tools run --rm --entrypoint restore-test.sh restore` and `OnCalendar=*-*-01 04:15:00`. To run it by hand:
 
 ```bash
 docker compose --profile tools run --rm --entrypoint restore-test.sh restore
 ```
+
+With `HEARTBEAT_RESTORE_TEST_URL` set in `restore.env`, it pings the `restore-test` check: `/start`, then success, or `/fail` with the count table. It restores into a scratch database on the production Postgres, so the server needs disk for one more copy of the database for a few minutes.
 
 Restores run in the `restore` service (the backup image, with `restore.env`), which connects as the bootstrap superuser: dropping and recreating the database and reinstalling PostGIS need it. The nightly `backup` job never gets that password.
 
@@ -340,7 +360,94 @@ Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Bac
 ## Health and logs
 
 - `docker compose ps` shows health; `curl -s https://thymeand.place/readyz` returns `ready` when the DB is reachable and the catalog is loaded. The database part of `/readyz` is shared: one ping answers every request for 1 s, so `/readyz` can lag a database outage or recovery by up to a second. Sustained 503s while `/readyz` is `ready` and the log shows `public DB gate full` mean load shedding (see "Capacity"), not an outage.
-- Logs are JSON on stdout: `docker compose logs -f app`. Every service uses Docker's `json-file` driver with rotation (`max-size: 10m`, `max-file: 5`, set once in `deploy/compose.yaml`'s `x-logging` anchor), so each container keeps at most ~50 MB of logs; older lines are gone after rotation. Public requests record `cell_id`, never coordinates. Successful backup logins log at `WARN`, and so do calibration drops of more than 0.02.
-- The drift check runs 24 h after the last recorded run, not at each start: `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1` plus 24 h is the next one. A deploy doesn't trigger it. Until the catalog snapshot loads it waits without logging. A failed run logs `calibration drift check failed` and is retried after 1 min, then 2, 4 … up to 1 h, so a string of those lines minutes apart is retries, not separate days. The admin prune still runs at each start, and its failures (`admin prune failed`) retry the same way. With more than one app replica, each schedules its own checks, and an extra `calibration_run` row is harmless.
+- Logs are JSON on stdout: `docker compose logs -f app`. Every service uses Docker's `json-file` driver with rotation (`max-size: 10m`, `max-file: 20`, `compress: true`, set once in `deploy/compose.yaml`'s `x-logging` anchor), so each container keeps 20 files of up to 10 MB of log each, the rotated ones compressed (at most 200 MB if nothing compressed); older lines are gone after rotation. `docker compose logs` reads the compressed files too. A container keeps the log options it was created with until `docker compose up -d` recreates it; `docker inspect --format '{{.HostConfig.LogConfig}}' $(docker compose ps -q app)` shows what it has. Healthy `/healthz` and `/readyz` lines (2xx) aren't logged, so the probes don't use up the budget; failing probes are. Public requests record `cell_id`, never coordinates. Successful backup logins log at `WARN`, and so do the backup lockout (`backup login locked`) and calibration drops of more than 0.02. Each of these also fails a check ("Monitoring and alerts").
+- The logs rotate away, so the durable records are in the database: `calibration_run` has every drift score, and `admin_login_log` has every sign-in attempt (kept 90 days).
+- The drift check runs 24 h after the last recorded run, not at each start: `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1` plus 24 h is the next one. A deploy doesn't trigger it. Until the catalog snapshot loads it waits without logging. Each run also reports to the `drift` check. A failed run logs `calibration drift check failed` and is retried after 1 min, then 2, 4 … up to 1 h, so a string of those lines minutes apart is retries, not separate days. The admin prune still runs at each start, and its failures (`admin prune failed`) retry the same way. With more than one app replica, each schedules its own checks, and an extra `calibration_run` row is harmless.
 - A logged `cell_id`, with the month and the live data version, determines everything a cook saw except the heading. To reproduce it, open `/season?lat=<90 − (⌊id/1440⌋ + 0.5) × 0.25>&lng=<−180 + (id mod 1440 + 0.5) × 0.25>`, or `/ingredient/{slug}?cell=<id>`.
-- Docker Compose does not restart containers just for being unhealthy. The app exits on fatal errors, and `restart: unless-stopped` brings it back. If you want automatic restarts on failed `/healthz` checks, add a supervisor; it isn't included.
+- The app exits on fatal errors, and `restart: unless-stopped` brings it back. Nothing restarts an unhealthy container. The `app` and `site` alerts tell you to (see "Monitoring and alerts").
+
+## Monitoring and alerts
+
+The app and the backup jobs ping hosted [Healthchecks.io](https://healthchecks.io) checks, and an external uptime monitor probes the site. A check that misses its ping alerts too, so a dead app, VPS or network still reaches you. Monitoring is off until configured: an unset `HEARTBEAT_*` variable turns that ping off, and dev, CI and e2e set none. A malformed URL logs `ERROR "heartbeat URL invalid; check disabled" check=<name>` and turns that ping off, and the site keeps serving; the check then alerts as missed. Design: `docs/superpowers/specs/2026-09-27-observability-and-alerting-design.md`.
+
+### Checks
+
+| Check | Sent by | Healthchecks.io schedule | Goes down when | Ping URL |
+|---|---|---|---|---|
+| `app` | the app's watchdog | Period 5 min, grace 5 min | No ping (app, VPS or outbound network down), or the watchdog reports a failure | `HEARTBEAT_APP_URL` in `app.env` |
+| `admin-auth` | the app's watchdog | Period 1 day, grace 1 h | The backup login was used, the backup lockout engaged, or the login log grew fast ("Admin table pruning"). The long period means an app outage alerts only through `app` | `HEARTBEAT_ADMIN_AUTH_URL` in `app.env` |
+| `drift` | the drift check | Period 1 day, grace 2 h | The score dropped by more than 0.02, the run failed, or no run happened | `HEARTBEAT_DRIFT_URL` in `app.env` |
+| `backup` | `backup.sh` | Cron `15 3 * * *`, VPS time zone, grace 1 h | Non-zero exit, prune failure, no success within the grace time after `/start`, or no run | `HEARTBEAT_BACKUP_URL` in `backup.env` |
+| `restore-test` | `restore-test.sh` | Cron `15 4 1 * *`, VPS time zone, grace 2 h | Count mismatch, no dump, or no run | `HEARTBEAT_RESTORE_TEST_URL` in `restore.env` |
+| `site` | external uptime monitor | Every 5 min or less | Not 200, body not `ready`, TLS error, or certificate expiring within 14 days | the vendor's settings |
+
+Set every Healthchecks.io check to accept `POST` pings only, so a link preview or crawler that opens a ping URL can't flip it. Give the two cron checks the VPS's time zone (`timedatectl` shows it); their schedules match the backup timer and cron entries in "Nightly backups".
+
+The watchdog samples readiness every minute and reports every 5 minutes, so it sends at most one ping per check a minute. A report fails `app`, with one line per reason, when:
+
+- `not ready: catalog not loaded` or `not ready: database unavailable`: 3 samples in a row failed. This one is sent at once, not at the next 5-minute report. A site still waiting for its first catalog snapshot reports it too.
+- `5xx: <n> of <m> requests`: at least 5 responses, and at least 5% of the non-probe responses, were 5xx.
+- `errors: <n> (<message>; ...)`: the app logged at least one `ERROR`. Up to 3 distinct messages are sent; a message with anything but letters, spaces and `:;,'_-` is sent as `(message withheld)`.
+
+Otherwise it sends `ok requests=<m> 5xx=<n>`. `admin-auth` gets `backup login used: <n>; backup lockout: <n>; login log growth: <n>` when any of those happened, and `ok` otherwise. On shutdown the app stops without pinging, and the grace time covers a deploy. With more than one app replica, give each its own `app` check, or a healthy replica hides a dead one.
+
+### Ping URLs are secrets
+
+Use each check's own UUID ping URL (`https://hc-ping.com/<uuid>`), not the project ping key + slug form, where one leaked key exposes every check. Anyone holding a ping URL can flip its check, so the URLs live only in the root-only env files above, never in the repo or `compose.yaml`, and neither the app nor the scripts print them. The app reads its three at startup (`docker compose up -d app` after changing them); `backup` and `restore-test` read theirs on each run. If one leaks, replace the check with a new one and update its env file.
+
+### Privacy
+
+Monitoring keeps the promise in "Reverse proxy trust and logging" and on the About page: nothing that leaves the VPS identifies a visitor.
+
+| Channel | May carry | Never carries |
+|---|---|---|
+| App log (stdout) | Unchanged: request ID, path without query, `cell_id`, admin IP on admin events | Coordinates, query strings, public visitor IPs, ping URLs |
+| Ping bodies (Healthchecks.io) | Counts, reason labels, constant `ERROR` messages, calibration scores, data-version strings, backup object keys, table row counts | Paths, `cell_id`, coordinates, any IP, log attributes, secrets |
+| External monitor | Its own probe of `/readyz` or `/` | Anything about visitors |
+| A future metrics endpoint | Status class and fixed route class (`season`, `places`, `ingredient`, `admin`, `static`, `other`) | Raw paths, query values, `cell_id`, IPs or slugs as labels |
+
+A future metrics endpoint must use its own port. Caddy must never proxy that port, and `ports:` must never publish it.
+
+### External uptime monitor
+
+The `site` check runs at an uptime monitoring vendor, not in this repo, and catches what in-app pings can't: Caddy, TLS, DNS and firewall faults. The vendor must support:
+
+- an HTTPS check that `https://thymeand.place/readyz` returns 200 with a body of exactly `ready`, every 5 minutes or less;
+- alerting only after 2 consecutive failures, so a deploy's brief maintenance page doesn't page you;
+- a certificate-expiry warning at 14 days (Caddy starts renewing with a third of a certificate's lifetime left, so this warning means renewal has been failing for a while);
+- email and push notifications.
+
+If `/readyz` is ever taken off the public site, check `/` for the text `Find your town` instead; database readiness then rests on the `app` check.
+
+### Setting up
+
+1. In a Healthchecks.io project, create the five checks above with their schedules, `POST` only, and the cron checks in the VPS time zone. Attach email and one push channel (ntfy, Pushover, Telegram or Signal; SMS and phone calls need a paid plan) to every check, and send a test notification.
+2. Put each check's ping URL in its env file (`sudoedit /etc/thymeandplace/app.env` and so on).
+3. Configure the external monitor, and turn on the VPS provider's disk and CPU alerts if it offers them.
+4. `docker compose up -d`. Compose recreates the containers whose settings changed, so they pick up the new env and log options. `app` and `admin-auth` go green within a few minutes. `drift` goes green at the next scheduled run, 24 h after `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1`; a deploy doesn't trigger one.
+5. Run a backup by hand (`docker compose --profile tools run --rm backup`): the `backup` check shows `/start`, then success. Then run `docker compose --profile tools run --rm -e BUCKET_NAME=missing backup`: expect a failure alert naming `upload`. Run a normal backup again to clear it.
+6. Optional drill, on a quiet evening: `docker compose stop app` for 12 minutes. Expect `site` and `app` alerts, then recovery after `docker compose start app`.
+
+### Planned work
+
+Before planned work that keeps the site or a job down for more than 10 minutes (a restore, a VPS upgrade, a long migration), pause the affected checks in Healthchecks.io and the external monitor, and resume them afterwards. Without a ping, `app` alerts after its 5-minute period plus 5 minutes' grace. A normal deploy fits inside that.
+
+### Runbook
+
+Start with the check's event log in Healthchecks.io: the last ping body says what failed, and the alert itself may not include it. Run the commands from `/opt/thymeandplace/deploy`.
+
+| Alert | First step |
+|---|---|
+| `site` | `docker compose ps`, `docker compose logs --since 30m caddy app`. Run `docker compose restart app` if it is hung |
+| TLS warning | `docker compose logs caddy \| grep -i acme` |
+| `app` missing ping | Is the VPS up? `docker compose ps`. Is outbound HTTPS open? |
+| `app` not ready | `docker compose ps db`, `docker compose logs --since 30m db app` |
+| `app` 5xx or errors | Read the check's event log, then `docker compose logs --since 15m app \| grep -E '"level":"ERROR"\|"status":5'` |
+| `admin-auth` | `docker compose exec db psql -U tp -d thymeandplace -c "SELECT at, ip, method, outcome FROM admin_login_log ORDER BY at DESC LIMIT 20"`. If it wasn't you: `docker compose exec app /app/admin revoke-sessions`, then `docker compose exec app /app/admin set-backup`. For login log growth, see "Sign-in limits" |
+| `drift` | `docker compose exec db psql -U tp -d thymeandplace -c "SELECT * FROM calibration_run ORDER BY id DESC LIMIT 5"`. Consider `docker compose --profile tools run --rm ingest <dataset> rollback`. For a failed run, `docker compose logs --since 25h app \| grep 'calibration drift'`. Recovery the next day means no further drop, not fixed |
+| `backup` | `journalctl -u thymeandplace-backup` (systemd timer) or `/var/log/thymeandplace-backup.log` (cron), then rerun by hand |
+| `restore-test` | Read the count table in the check's event log (or `journalctl -u thymeandplace-restore-test`, or the log file). Don't trust the backups until it passes. An admin edit between the 03:15 backup and the test can make `catalog_history` differ; rerun `backup`, then the test, by hand |
+
+A `drift` alert that clears the next day means the score didn't drop again, not that it recovered: each run compares with the previous run, which is already the lower score. Check `calibration_run` before closing it. A failed drift run also logs `ERROR`, so `app` fails once as well.
+
+The logs that explain an alert rotate away; `calibration_run` (every drift score) and `admin_login_log` (every sign-in attempt, 90 days) are the durable records.

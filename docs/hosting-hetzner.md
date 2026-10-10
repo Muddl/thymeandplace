@@ -105,12 +105,12 @@ Then continue with `docs/operations.md`, "First deploy", from step 2.
    - The datasets key goes in `ingest.env`.
    - The backups key goes in `backup.env` and `restore.env`. For now it needs delete permission, because `backup.sh` prunes old dumps with `mc rm`. Issue #12 replaces that with lifecycle expiry and a key that can't delete.
 4. Set `BUCKET_ENDPOINT` to the S3 endpoint shown on the bucket page (e.g. `s3.eu-central-003.backblazeb2.com`), with `BUCKET_USE_SSL=true`.
-5. Before relying on it, run a backup and `restore-test.sh` (runbook step 9) and check for `restore-test ok`.
+5. Before relying on it, run a backup and `restore-test.sh` (runbook step 10) and check for `restore-test ok`.
 
 ## Watching it (free)
 
 - The Hetzner Console graphs CPU, disk and network per server.
-- Add an external uptime check on `https://thymeand.place/readyz` every few minutes, with email alerts. Most uptime services have a free tier that covers one site. The fuller plan is in `docs/superpowers/specs/2026-09-27-observability-and-alerting-design.md`.
+- Add an external uptime check on `https://thymeand.place/readyz` every few minutes, with email alerts. Most uptime services have a free tier that covers one site. It's one of the checks in `docs/operations.md`, "Monitoring and alerts", with the requirements it must meet.
 - Disk is 40 GB, which is enough with some housekeeping:
   - check `df -h` and `docker system df` now and then;
   - run `docker builder prune -f` after app updates (images are built on the server);

@@ -5,13 +5,14 @@ name: thymeandplace
 # it doesn't use. Templates: deploy/env/*.example. Database roles and which
 # service uses which: docs/operations.md, "Database roles".
 
-# Rotate container logs (Docker's json-file default grows without bound).
+# Rotate container logs: 20 files of up to 10 MB, rotated files compressed.
 x-logging: &logging
   logging:
     driver: json-file
     options:
       max-size: "10m"
-      max-file: "5"
+      max-file: "20"
+      compress: "true"
 
 # One image serves both the app and its one-shot migration step.
 x-app-build: &app-build

@@ -52,6 +52,8 @@ jobs:
           env_dir="$RUNNER_TEMP/env"
           mkdir -p "$env_dir"
           for f in deploy/env/*.env.example; do cp "$f" "$env_dir/$(basename "$f" .example)"; done
+          # restore bind-mounts the restore-test key and refuses a missing file.
+          touch "$env_dir/restore-test.agekey"
           TP_ENV_DIR="$env_dir" docker compose -f deploy/compose.yaml --profile tools config -q
           TP_ENV_DIR=./e2e docker compose -f deploy/compose.yaml -f deploy/compose.e2e.yaml --profile tools config -q
       - name: No service gets another service's secrets

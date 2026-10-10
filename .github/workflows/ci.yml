@@ -74,6 +74,8 @@ jobs:
         run: docker build deploy/backup
       - name: Role bootstrap script parses
         run: bash -n deploy/db/initdb/20-roles.sh
+      - name: Backup scripts parse
+        run: for f in deploy/backup/*.sh; do sh -n "$f"; done
 
   e2e:
     if: github.ref == 'refs/heads/main'

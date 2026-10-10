@@ -29,7 +29,7 @@ RUN apt-get update \
  && echo "${sha256}  /usr/local/bin/mc" | sha256sum -c - \
  && chmod +x /usr/local/bin/mc
 
-COPY backup.sh restore.sh restore-test.sh /usr/local/bin/
+COPY backup.sh restore.sh restore-test.sh heartbeat.sh /usr/local/bin/
 COPY own-objects.sql /usr/local/share/thymeandplace/
 RUN chmod +x /usr/local/bin/*.sh
 

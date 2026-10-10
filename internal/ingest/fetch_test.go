@@ -208,3 +208,31 @@ func TestTransformRejectsUnrecordedFile(t *testing.T) {
 		t.Fatalf("a file with no recorded checksum must not be treated as verified; got %v", err)
 	}
 }
+
+func TestReviewSummary(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	files := map[string][]byte{"cities1000.zip": []byte("zip"), "admin1CodesASCII.txt": []byte("admin")}
+	p := newPipeline(t, pool, pinnedPlaces(t, files, nil))
+	v1, err := p.Fetch(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := p.ReviewSummary(ctx, v1)
+	if err != nil || !strings.Contains(s, "no live version") || !strings.Contains(s, "unpinned: test") || !strings.Contains(s, p.DS.License()) {
+		t.Fatalf("%v\n%s", err, s)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE dataset_versions SET is_live = true WHERE id = $1`, v1); err != nil {
+		t.Fatal(err)
+	}
+	files["admin1CodesASCII.txt"] = []byte("admin changed")
+	v2, err := p.Fetch(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err = p.ReviewSummary(ctx, v2)
+	live := "v" + strconv.FormatInt(v1, 10)
+	if err != nil || !strings.Contains(s, "same as live "+live) || !strings.Contains(s, "changed (live "+live+": "+sumOf([]byte("admin"))[:12]) {
+		t.Fatalf("%v\n%s", err, s)
+	}
+}

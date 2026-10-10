@@ -2,7 +2,7 @@
 //
 //	ingest <dataset> fetch|transform|load|validate|swap|all [--version N]
 //	ingest <dataset> rollback
-//	ingest <dataset> approve-license --version N --yes
+//	ingest <dataset> approve-license --version N [--yes]
 package main
 
 import (
@@ -42,7 +42,7 @@ func defaultDatasets(getenv func(string) string) map[string]func() ingest.Datase
 const usage = `usage:
   ingest <climate|ocean|places> fetch|transform|load|validate|swap|all [--version N]
   ingest <climate|ocean|places> rollback
-  ingest <climate|ocean|places> approve-license --version N --yes`
+  ingest <climate|ocean|places> approve-license --version N [--yes]`
 
 // validSteps are the recognized step names, checked before any DB or blob
 // store connection is made so a typo exits 2 without touching either.
@@ -74,8 +74,8 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, da
 		return 2
 	}
 	v := *version
-	if step == "approve-license" && (v == 0 || !*yes) {
-		fmt.Fprintln(stderr, "approve-license needs --version N and --yes after you have read the license")
+	if step == "approve-license" && v == 0 {
+		fmt.Fprintln(stderr, "approve-license needs --version N (then --yes after you have read the summary)")
 		return 2
 	}
 
@@ -126,14 +126,15 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, da
 		v, err = p.Fetch(ctx)
 		if err == nil {
 			fmt.Fprintf(stdout, "fetched %s version %d\n", name, v)
-			fmt.Fprintf(stdout, "license:\n  %s\n", p.DS.License())
-			for _, src := range p.DS.Sources() {
-				fmt.Fprintf(stdout, "source: %s\n", src.URL)
+			var sum string
+			if sum, err = p.ReviewSummary(ctx, v); err != nil {
+				break
 			}
+			fmt.Fprint(stdout, sum)
 			if strings.Contains(p.DS.License(), ingest.LicenseUnresolved) {
 				fmt.Fprintf(stdout, "this license is unresolved: approve-license refuses %s until its terms are confirmed (docs/reference-data-licenses.md)\n", name)
 			} else {
-				fmt.Fprintf(stdout, "read the license above before running: ingest %s approve-license --version %d --yes\n", name, v)
+				fmt.Fprintf(stdout, "read the summary above, then run: ingest %s approve-license --version %d (then again with --yes)\n", name, v)
 			}
 		}
 	case "transform":
@@ -149,10 +150,18 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, da
 	case "rollback":
 		err = p.Rollback(ctx)
 	case "approve-license":
-		dv, aerr := p.ApproveLicense(ctx, v)
-		err = aerr
-		if err == nil {
-			fmt.Fprintf(stdout, "approved license for %s version %d:\n  %s\n  source: %s\n", name, v, dv.License, dv.SourceUrl)
+		sum, serr := p.ReviewSummary(ctx, v)
+		if serr != nil {
+			err = serr
+			break
+		}
+		fmt.Fprint(stdout, sum)
+		if !*yes {
+			fmt.Fprintf(stderr, "nothing approved: re-run with --yes to approve %s version %d\n", name, v)
+			return 2
+		}
+		if _, err = p.ApproveLicense(ctx, v); err == nil {
+			fmt.Fprintf(stdout, "approved license for %s version %d\n", name, v)
 		}
 	}
 	if err != nil {

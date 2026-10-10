@@ -1,6 +1,8 @@
 package monitor
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"sync"
 )
@@ -36,11 +38,21 @@ func (w *Window) Take() (requests, errors5xx int) {
 
 // CountResponses records every response's status in w. Wrap it outside
 // web.Common, whose recovery turns a panic into a 500 that this then sees.
+//
+// A response to a request whose context was cancelled is not counted: the
+// client went away (or the server is shutting down), so nobody received it,
+// and the 503 a handler renders after its cancelled lookup fails says nothing
+// about the site. Counting it would let an anonymous client fail the app
+// check by dropping requests. web.Common's timeout derives its own context,
+// so a server-side timeout still counts.
 func CountResponses(w *Window) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 			rec := &statusWriter{ResponseWriter: rw}
 			next.ServeHTTP(rec, r)
+			if errors.Is(r.Context().Err(), context.Canceled) {
+				return
+			}
 			if rec.status == 0 {
 				rec.status = http.StatusOK
 			}

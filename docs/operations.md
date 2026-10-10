@@ -142,7 +142,7 @@ Old versions are kept. You may drop tables older than the last two versions of a
 
 - `docker compose --profile tools run --rm backup` — dumps `DATABASE_URL` (as `tp_backup`, which can read everything and write nothing) with `pg_dump --format=custom`, uploads it to `s3://$BUCKET_NAME/backups/daily/<date>.dump` via `mc`, additionally copies it to `backups/weekly/<iso-week>.dump` on Sundays, then prunes daily copies older than 7 days and weekly copies older than 28. It fails loudly (non-zero exit) if the dump comes out empty.
 
-With `HEARTBEAT_BACKUP_URL` set in `backup.env`, each run pings the `backup` check: `/start`, then success (`backup ok: backups/daily/<date>.dump`), or `/fail` naming the step that failed (for example `backup failed during dump (exit 1)`). A prune failure keeps the exit status at 0 but still fails the check (`dump uploaded; pruning failed: ...`). A run that never starts (Docker down, image missing) sends nothing, and the missed run alerts. See "Monitoring and alerts".
+With `HEARTBEAT_BACKUP_URL` set in `backup.env`, each run pings the `backup` check: `/start`, then success (`backup ok: backups/daily/<date>.dump`), or `/fail` naming the step that failed (for example `backup failed during dump (exit 1)`). A prune failure keeps the exit status at 0 but still fails the check (`dump uploaded; pruning failed: backups/daily`, naming each prefix that failed); `mc`'s error message is only in the run's log, since it can carry the object store's IP. A run that never starts (Docker down, image missing) sends nothing, and the missed run alerts. See "Monitoring and alerts".
 
 Schedule it with the systemd timer below (preferred: its output goes to the journal, which rotates itself) or with cron. For cron, add to root's crontab on the VPS (`crontab -e`):
 
@@ -443,11 +443,11 @@ Start with the check's event log in Healthchecks.io: the last ping body says wha
 | `app` missing ping | Is the VPS up? `docker compose ps`. Is outbound HTTPS open? |
 | `app` not ready | `docker compose ps db`, `docker compose logs --since 30m db app` |
 | `app` 5xx or errors | Read the check's event log, then `docker compose logs --since 15m app \| grep -E '"level":"ERROR"\|"status":5'` |
-| `admin-auth` | `docker compose exec db psql -U tp -d thymeandplace -c "SELECT at, ip, method, outcome FROM admin_login_log ORDER BY at DESC LIMIT 20"`. If it wasn't you: `docker compose exec app /app/admin revoke-sessions`, then `docker compose exec app /app/admin set-backup`. For login log growth, see "Sign-in limits" |
+| `admin-auth` | `docker compose exec db psql -U tp -d thymeandplace -c "SELECT at, ip, method, outcome FROM admin_login_log ORDER BY at DESC LIMIT 20"`. If it wasn't you: `docker compose exec app /app/admin revoke-sessions`, then `docker compose exec app /app/admin set-backup`. For login log growth, see "Admin table pruning" |
 | `drift` | `docker compose exec db psql -U tp -d thymeandplace -c "SELECT * FROM calibration_run ORDER BY id DESC LIMIT 5"`. Consider `docker compose --profile tools run --rm ingest <dataset> rollback`. For a failed run, `docker compose logs --since 25h app \| grep 'calibration drift'`. Recovery the next day means no further drop, not fixed |
 | `backup` | `journalctl -u thymeandplace-backup` (systemd timer) or `/var/log/thymeandplace-backup.log` (cron), then rerun by hand |
 | `restore-test` | Read the count table in the check's event log (or `journalctl -u thymeandplace-restore-test`, or the log file). Don't trust the backups until it passes. An admin edit between the 03:15 backup and the test can make `catalog_history` differ; rerun `backup`, then the test, by hand |
 
-A `drift` alert that clears the next day means the score didn't drop again, not that it recovered: each run compares with the previous run, which is already the lower score. Check `calibration_run` before closing it. A failed drift run also logs `ERROR`, so `app` fails once as well.
+A `drift` alert that clears the next day means the score didn't drop again, not that it recovered: each run compares with the previous run, which is already the lower score. Check `calibration_run` before closing it. A failed drift run also logs `ERROR`, and so does each retry (after 1, 2, 4 … 60 minutes), so `app` fails once per failed attempt while the drift check keeps failing.
 
 The logs that explain an alert rotate away; `calibration_run` (every drift score) and `admin_login_log` (every sign-in attempt, 90 days) are the durable records.

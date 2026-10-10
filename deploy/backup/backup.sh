@@ -52,14 +52,17 @@ fi
 
 # Pruning failures must not fail the backup itself (today's dump is already
 # uploaded) but must not be silent either: they fail the heartbeat check.
+# The ping names only the prefix. mc's own message stays in stderr (the
+# journal or log file): a network error there carries the store's IP, and
+# ping bodies never carry an IP (docs/operations.md, "Privacy").
 step=prune
 if ! err=$(mc rm --recursive --force --older-than 7d "store/$BUCKET_NAME/backups/daily/" 2>&1 >/dev/null); then
   echo "backup: warning: pruning backups/daily failed: $err" >&2
-  prune_err="backups/daily: $(printf %s "$err" | head -c 300)"
+  prune_err="backups/daily"
 fi
 if ! err=$(mc rm --recursive --force --older-than 28d "store/$BUCKET_NAME/backups/weekly/" 2>&1 >/dev/null); then
   echo "backup: warning: pruning backups/weekly failed: $err" >&2
-  prune_err="${prune_err:+$prune_err; }backups/weekly: $(printf %s "$err" | head -c 300)"
+  prune_err="${prune_err:+$prune_err; }backups/weekly"
 fi
 
 echo "backup ok: backups/daily/$day.dump"

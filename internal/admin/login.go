@@ -49,6 +49,20 @@ func (a *Admin) startSession(w http.ResponseWriter, r *http.Request, method stri
 	return nil
 }
 
+// logStoreError logs a store failure on a route an anonymous caller can
+// reach. ERROR pages the owner, so it is kept for real store failures. When
+// the request's own context is already done (the client went away, or the
+// server is shutting down) the failure is the caller's doing, not the
+// store's, and it is logged at WARN: a client that disconnects mid-request
+// must never be able to page the owner.
+func (a *Admin) logStoreError(ctx context.Context, msg string, args ...any) {
+	if ctx.Err() != nil {
+		a.d.Log.Warn(msg, args...)
+		return
+	}
+	a.d.Log.Error(msg, args...)
+}
+
 func (a *Admin) passkeyBegin(w http.ResponseWriter, r *http.Request) {
 	opts, state, err := a.d.Auth.BeginLogin(r.Context())
 	if errors.Is(err, auth.ErrNoPasskeys) {
@@ -56,7 +70,7 @@ func (a *Admin) passkeyBegin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		a.d.Log.Error("passkey begin failed", "err", err)
+		a.logStoreError(r.Context(), "passkey begin failed", "err", err)
 		jsonError(w, http.StatusInternalServerError, "Couldn't start passkey sign-in.")
 		return
 	}
@@ -89,7 +103,7 @@ const (
 func (a *Admin) admit(ctx context.Context, c auth.Caller, method string, refuse func(int, string)) bool {
 	ok, err := a.d.Auth.AllowAttempt(ctx, c, method)
 	if err != nil {
-		a.d.Log.Error("sign-in budget check failed", "err", err, "method", method, "request_id", web.RequestIDFrom(ctx))
+		a.logStoreError(ctx, "sign-in budget check failed", "err", err, "method", method, "request_id", web.RequestIDFrom(ctx))
 		refuse(http.StatusServiceUnavailable, msgBudgetCheck)
 		return false
 	}
@@ -218,7 +232,7 @@ func (a *Admin) backupSubmit(w http.ResponseWriter, r *http.Request) {
 		page(http.StatusUnauthorized, "Password or code is wrong.")
 	default:
 		a.d.Auth.LogAttempt(ctx, c, "backup", "error")
-		a.d.Log.Error("backup login error", "err", err, "request_id", web.RequestIDFrom(ctx))
+		a.logStoreError(ctx, "backup login error", "err", err, "request_id", web.RequestIDFrom(ctx))
 		page(http.StatusInternalServerError, "Something went wrong. Try again.")
 	}
 }
@@ -226,7 +240,7 @@ func (a *Admin) backupSubmit(w http.ResponseWriter, r *http.Request) {
 func (a *Admin) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(auth.CookieName); err == nil {
 		if err := a.d.Auth.DeleteSession(r.Context(), c.Value); err != nil {
-			a.d.Log.Error("logout: session delete failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
+			a.logStoreError(r.Context(), "logout: session delete failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
 		}
 	}
 	auth.ClearSessionCookie(w)
@@ -244,7 +258,7 @@ func (a *Admin) enrollPage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// A database error says nothing about the link; don't tell the
 		// owner it is invalid or expired.
-		a.d.Log.Error("enrollment check failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
+		a.logStoreError(r.Context(), "enrollment check failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
 		http.Error(w, "Something went wrong. Try again.", http.StatusServiceUnavailable)
 		return
 	}
@@ -262,7 +276,7 @@ func (a *Admin) enrollBegin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		a.d.Log.Error("enrollment begin failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
+		a.logStoreError(r.Context(), "enrollment begin failed", "err", err, "request_id", web.RequestIDFrom(r.Context()))
 		jsonError(w, http.StatusServiceUnavailable, "Couldn't start passkey registration. Try again.")
 		return
 	}
@@ -299,7 +313,7 @@ func (a *Admin) enrollFinish(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		a.d.Auth.LogAttempt(ctx, c, "enroll", "failure")
 		if !errors.Is(err, auth.ErrCeremony) {
-			a.d.Log.Error("enrollment finish failed", "err", err, "request_id", web.RequestIDFrom(ctx))
+			a.logStoreError(ctx, "enrollment finish failed", "err", err, "request_id", web.RequestIDFrom(ctx))
 		}
 		jsonError(w, http.StatusBadRequest, "The passkey couldn't be registered. Try again.")
 		return

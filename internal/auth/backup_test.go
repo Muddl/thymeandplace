@@ -252,12 +252,16 @@ func TestAttemptRateLimitCountsOnlyLoginFailures(t *testing.T) {
 }
 
 // Monitoring hook: backup login use and a new lockout fire events; plain
-// failures, attempts while locked and passkey outcomes don't.
+// failures, attempts while locked and passkey outcomes don't. A new lockout
+// also logs exactly one WARN "backup login locked" (spec §4.3).
 func TestSecurityEvents(t *testing.T) {
 	ctx := context.Background()
 	s, c, secret := setup(t)
 	var events []string
 	s.onEvent = func(k string) { events = append(events, k) }
+	var logs bytes.Buffer
+	s.log = slog.New(slog.NewTextHandler(&logs, nil))
+	const lockedLine = `level=WARN msg="backup login locked"`
 
 	s.LogAttempt(ctx, v4("192.0.2.1"), "passkey", "success")
 	s.LogAttempt(ctx, v4("192.0.2.1"), "passkey", "failure")
@@ -276,12 +280,41 @@ func TestSecurityEvents(t *testing.T) {
 	if len(events) != 0 {
 		t.Fatalf("failures before the lockout: %v", events)
 	}
+	if n := strings.Count(logs.String(), lockedLine); n != 0 {
+		t.Fatalf("lock WARN logged %d times before the lockout:\n%s", n, logs.String())
+	}
 	_ = s.BackupLogin(ctx, "nope", "000000")
 	if len(events) != 1 || events[0] != "backup_lockout" {
 		t.Fatalf("lockout: %v", events)
 	}
+	if n := strings.Count(logs.String(), lockedLine); n != 1 {
+		t.Fatalf("lock WARN logged %d times at the lockout, want 1:\n%s", n, logs.String())
+	}
 	_ = s.BackupLogin(ctx, pw, code(t, secret, c.now())) // refused while locked
 	if len(events) != 1 {
 		t.Fatalf("an attempt while locked must not fire: %v", events)
+	}
+	if n := strings.Count(logs.String(), lockedLine); n != 1 {
+		t.Fatalf("lock WARN logged %d times after an attempt while locked, want 1:\n%s", n, logs.String())
+	}
+}
+
+// Sign-in routes are open to anonymous callers, and ERROR pages the owner: an
+// audit write that fails because the request was cancelled (the client went
+// away) is a WARN. A real store failure stays ERROR.
+func TestAuditWriteFailureOnCancelIsWarn(t *testing.T) {
+	s, _ := newTestService(t, true)
+	var logs bytes.Buffer
+	s.log = slog.New(slog.NewTextHandler(&logs, nil))
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.LogAttempt(cctx, v4("192.0.2.30"), "passkey", "failure")
+	s.LogRefusal(cctx, v4("192.0.2.30"), "passkey")
+	out := logs.String()
+	if strings.Contains(out, "level=ERROR") {
+		t.Fatalf("cancelled audit write logged at ERROR:\n%s", out)
+	}
+	if n := strings.Count(out, `level=WARN msg="login audit write failed"`); n != 2 {
+		t.Fatalf("cancelled audit writes logged %d WARNs, want 2:\n%s", n, out)
 	}
 }

@@ -540,13 +540,10 @@ func TestLoadConfigHeartbeats(t *testing.T) {
 	}
 }
 
-// TestAppSendsHeartbeat: with HEARTBEAT_APP_URL set, the running app pings
-// it; the checks whose variables are unset stay off (spec §6).
-func TestAppSendsHeartbeat(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	pool := dbtest.New(t)
-	got := make(chan string, 16)
+// pingReceiver records each heartbeat ping as "<path> <body>".
+func pingReceiver(t *testing.T) (*httptest.Server, <-chan string) {
+	t.Helper()
+	got := make(chan string, 64)
 	recv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		select {
@@ -554,7 +551,19 @@ func TestAppSendsHeartbeat(t *testing.T) {
 		default: // never block a handler, or recv.Close would wait on it
 		}
 	}))
-	defer recv.Close()
+	t.Cleanup(recv.Close)
+	return recv, got
+}
+
+// TestAppSendsHeartbeat: with HEARTBEAT_APP_URL set, the running app pings
+// it with a success report that counts the requests served through
+// a.handler (so the CountResponses wrap is wired); the checks whose
+// variables are unset stay off (spec §6).
+func TestAppSendsHeartbeat(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool := dbtest.New(t)
+	recv, got := pingReceiver(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg, err := loadConfig(func(k string) string {
 		return map[string]string{"DATABASE_URL": dbtest.URLAs(pool, dbtest.App), "HEARTBEAT_APP_URL": recv.URL + "/app-check"}[k]
@@ -574,13 +583,77 @@ func TestAppSendsHeartbeat(t *testing.T) {
 	if p, ok := a.watchdog.AdminAuth.(*monitor.Pinger); !ok || p.Enabled() {
 		t.Fatalf("admin-auth check must be off with HEARTBEAT_ADMIN_AUTH_URL unset: %#v", a.watchdog.AdminAuth)
 	}
+	// Ready before the first sample, so the first report is a success.
+	if err := a.waitForSnapshot(ctx, 10*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	a.handler.ServeHTTP(rec, httptest.NewRequest("GET", "/robots.txt", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /robots.txt: %d", rec.Code)
+	}
 	a.start(ctx)
 	select {
 	case p := <-got:
-		if !strings.HasPrefix(p, "/app-check") {
-			t.Fatalf("unexpected ping %q", p)
+		if want := "/app-check ok requests=1 5xx=0"; p != want {
+			t.Fatalf("first ping %q, want %q", p, want)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("no app heartbeat")
+	}
+}
+
+// TestAppWiresMonitoringHooks: the one-line wires in newApp reach their
+// checks. A backup login (auth.Config.OnEvent → Watchdog.Event) fails
+// admin-auth with its count, and the drift check (Drift.Notify) pings drift.
+func TestAppWiresMonitoringHooks(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool := dbtest.New(t)
+	recv, got := pingReceiver(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	cfg, err := loadConfig(func(k string) string {
+		return map[string]string{
+			"DATABASE_URL": dbtest.URLAs(pool, dbtest.App), "ADMIN_SECRET_KEY": key,
+			"HEARTBEAT_APP_URL": recv.URL + "/app-check", "HEARTBEAT_ADMIN_AUTH_URL": recv.URL + "/auth-check",
+			"HEARTBEAT_DRIFT_URL": recv.URL + "/drift-check",
+		}[k]
+	}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.watchdogSample = 20 * time.Millisecond
+	a, err := newApp(ctx, cfg, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.close()
+	if a.auth == nil {
+		t.Fatal("admin auth service not wired with ADMIN_SECRET_KEY set")
+	}
+	if err := a.waitForSnapshot(ctx, 10*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	a.auth.LogAttempt(ctx, auth.Caller{IP: "192.0.2.10", Key: "192.0.2.10"}, "backup", "success")
+	a.start(ctx)
+	const wantAuth = "/auth-check/fail backup login used: 1; backup lockout: 0; login log growth: 0"
+	var sawAuth, sawDrift bool
+	deadline := time.After(20 * time.Second)
+	for !sawAuth || !sawDrift {
+		select {
+		case p := <-got:
+			switch {
+			case strings.HasPrefix(p, "/auth-check"):
+				if !sawAuth && p != wantAuth {
+					t.Fatalf("first admin-auth ping %q, want %q", p, wantAuth)
+				}
+				sawAuth = true
+			case strings.HasPrefix(p, "/drift-check"):
+				sawDrift = true
+			}
+		case <-deadline:
+			t.Fatalf("missing pings: admin-auth fail %v, drift %v", sawAuth, sawDrift)
+		}
 	}
 }

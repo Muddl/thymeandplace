@@ -329,7 +329,7 @@ Once, when the encrypting backup image first goes to the VPS (spec §7):
 4. Turn on versioning at the provider, at least at the minimum level in "Backup deletion protection". Then consider the preferred level.
 5. After 28 days, `mc ls --recursive "b/$BUCKET_NAME/backups/"` ("Backup deletion protection" shows how to run it) lists no plaintext `.dump` objects, only `.dump.age`. `restore.sh` keeps accepting plaintext dumps (spec §8 question 2).
 
-**Rollback:** redeploy the previous backup image. It uploads plaintext `.dump` files again, and the `.dump.age` backups already uploaded stay restorable with this image and a key.
+**Rollback:** redeploy the previous backup image. It uploads plaintext `.dump` files again, and the `.dump.age` backups already uploaded stay restorable with the encrypting image (rebuild it to restore them) and a key.
 
 ## Backup deletion protection
 

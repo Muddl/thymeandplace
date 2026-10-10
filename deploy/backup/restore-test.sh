@@ -41,7 +41,9 @@ scheme=https
 [ "${BUCKET_USE_SSL:-true}" = "false" ] && scheme=http
 mc alias set store "$scheme://$BUCKET_ENDPOINT" "$BUCKET_ACCESS_KEY" "$BUCKET_SECRET_KEY" >/dev/null
 
-latest=$(mc ls "store/$BUCKET_NAME/backups/daily/" | awk '{print $NF}' | sort | tail -n 1)
+# During the switch to encryption both kinds exist; names sort by date, and
+# on the same date .dump.age sorts after .dump.
+latest=$(mc ls "store/$BUCKET_NAME/backups/daily/" | awk '{print $NF}' | grep -E '\.dump(\.age)?$' | sort | tail -n 1)
 [ -n "$latest" ] || { echo "restore-test: no daily backups found" >&2; exit 1; }
 base=${DATABASE_URL%%\?*}
 scratch_url="${base%/*}/$scratch_db${DATABASE_URL#"$base"}"

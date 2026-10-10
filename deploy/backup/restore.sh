@@ -9,6 +9,7 @@
 # --clean, could fail halfway on post-backup objects and leave the live
 # database gutted). The target defaults to this container's $DATABASE_URL and
 # must be a postgres:// URL. Stop the app before restoring over its database.
+# Encrypted keys (*.age) need AGE_IDENTITY: the path to the recovery or restore-test age identity.
 set -eu
 [ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: RESTORE_CONFIRM=<dbname> restore.sh <key> [target-database-url]" >&2; exit 2; }
 key=$1
@@ -40,15 +41,31 @@ if [ "${RESTORE_CONFIRM:-}" != "$dbname" ]; then
   exit 2
 fi
 
+# An encrypted backup needs an identity: refuse before downloading anything.
+encrypted=false
+case "$key" in
+  *.age)
+    encrypted=true
+    [ -n "${AGE_IDENTITY:-}" ] || { echo "restore: encrypted backup; set AGE_IDENTITY to your recovery or restore-test key; database untouched" >&2; exit 2; }
+    [ -f "$AGE_IDENTITY" ] && [ -r "$AGE_IDENTITY" ] || { echo "restore: AGE_IDENTITY ($AGE_IDENTITY) is not a readable file; database untouched" >&2; exit 2; }
+    ;;
+esac
+
 : "${BUCKET_ENDPOINT:?}" "${BUCKET_NAME:?}" "${BUCKET_ACCESS_KEY:?}" "${BUCKET_SECRET_KEY:?}"
 scheme=https
 [ "${BUCKET_USE_SSL:-true}" = "false" ] && scheme=http
 mc alias set store "$scheme://$BUCKET_ENDPOINT" "$BUCKET_ACCESS_KEY" "$BUCKET_SECRET_KEY" >/dev/null
 tmp=$(mktemp /tmp/restore.XXXXXX)
-trap 'rm -f "$tmp"' EXIT
+trap 'rm -f "$tmp" "$tmp.dump"' EXIT
 
 # Download and check the dump before touching the database.
 mc cp --quiet "store/$BUCKET_NAME/$key" "$tmp"
+# age authenticates its ciphertext: a wrong key or a changed byte fails
+# here, before the database is touched.
+if [ "$encrypted" = true ]; then
+  age -d -i "$AGE_IDENTITY" -o "$tmp.dump" "$tmp" || { echo "restore: $key could not be decrypted with AGE_IDENTITY (wrong key or damaged file); database untouched" >&2; exit 1; }
+  mv "$tmp.dump" "$tmp"
+fi
 [ -s "$tmp" ] || { echo "restore: downloaded dump $key is empty; database untouched" >&2; exit 1; }
 pg_restore --list "$tmp" >/dev/null || { echo "restore: $key is not a readable pg_dump archive; database untouched" >&2; exit 1; }
 # --list reads only the table of contents; reading every data block to

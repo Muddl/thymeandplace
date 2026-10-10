@@ -70,6 +70,10 @@ func TestDBGateShedsWhenFull(t *testing.T) {
 	if code, body, _ := hs.get("/places?q=lis", true); code != 503 || !strings.Contains(body, views.CopySearchUnavailable) {
 		t.Fatalf("/places while the gate is full: %d\n%s", code, body)
 	}
+	// #14: a too-short query takes no gate slot, so it still gets the hint.
+	if code, body, _ := hs.get("/places?q=l", true); code != 200 || !strings.Contains(body, views.CopyKeepTyping) {
+		t.Fatalf("short /places query while the gate is full: %d\n%s", code, body)
+	}
 	cell30 := climate.CellID(30, 30)
 	if code, body, _ := hs.get(fmt.Sprintf("/ingredient/tomato?cell=%d&x=junk", cell30), true); code != 503 || !strings.Contains(body, views.CopyLoadError) ||
 		!strings.Contains(body, fmt.Sprintf(`href="/ingredient/tomato?cell=%d"`, cell30)) || strings.Contains(body, "junk") {

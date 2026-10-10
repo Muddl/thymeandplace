@@ -102,7 +102,11 @@ func TestPlacesShortQueryHint(t *testing.T) {
 	if code != 200 || !strings.Contains(body, views.CopyKeepTyping) || !strings.Contains(body, `value="l"`) {
 		t.Fatalf("full page: %d\n%s", code, body)
 	}
-	if _, body, _ := hs.get("/places?q=li", true); strings.Contains(body, views.CopyKeepTyping) {
-		t.Fatalf("two letters must search:\n%s", body)
+	code, body, _ = hs.get("/places?q=li", true)
+	if code != 200 || strings.Contains(body, views.CopyKeepTyping) || !strings.Contains(body, "No places match 'li'") {
+		t.Fatalf("two letters must search: %d\n%s", code, body)
+	}
+	if n := hs.places.searches.Load(); n != 1 {
+		t.Fatalf("Search called %d times; two letters must search once", n)
 	}
 }

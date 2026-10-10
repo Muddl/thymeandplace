@@ -299,7 +299,7 @@ Each dump is encrypted to two X25519 keys, and either private key decrypts it.
 | **Restore-test** | `/etc/thymeandplace/restore-test.agekey` on the VPS, mode `600`, root-owned. Compose mounts it read-only into the `restore` service only, at `/run/secrets/restore-test.agekey`, and sets `AGE_IDENTITY` to that path | The monthly restore test, and routine restores on the VPS |
 
 1. **Recovery key**, on your own machine (install `age` there, e.g. `apt install age` or `brew install age`): `age-keygen -o recovery.key`. It prints `Public key: age1…`. Save the whole file in your password manager and write it on paper (the `AGE-SECRET-KEY-1…` line is the private key), then delete the file. It never goes on the VPS.
-2. **Restore-test key**, on the VPS, from a root shell in `/opt/thymeandplace/deploy`. This runs `age-keygen` from the backup image, so the host needs no `age`:
+2. **Restore-test key**, on the VPS, from a root shell in `/opt/thymeandplace/deploy`. This runs `age-keygen` from the backup image, so the host needs no `age`, but the image has to be one with `age` in it. On a fresh VPS the command builds it. On a VPS that already has a backup image from before encryption, build first (`git pull && docker compose --profile tools build backup`), or the command fails with "executable file not found" and leaves an empty key file behind (delete it and run the command again):
    ```bash
    (umask 077; docker compose --profile tools run --rm --no-deps -T --entrypoint age-keygen backup > /etc/thymeandplace/restore-test.agekey)
    ```
@@ -323,8 +323,8 @@ Add the new recipient to `BACKUP_AGE_RECIPIENTS`, next to the old one, and run a
 
 Once, when the encrypting backup image first goes to the VPS (spec §7):
 
-1. Generate both keys and set `BACKUP_AGE_RECIPIENTS` ("Keys" above).
-2. Deploy the image: `git pull && docker compose --profile tools build backup`. `backup` and `restore` share it.
+1. Build the image: `git pull && docker compose --profile tools build backup`. `backup` and `restore` share it. The old image has no `age-keygen`, so this comes before the keys. Do steps 1 to 3 in one sitting, well away from the 03:15 nightly run: until step 2 sets the recipients, the new image's `backup` exits 2 naming `BACKUP_AGE_RECIPIENTS` before it dumps anything, so a run in between fails loudly and uploads nothing.
+2. Generate both keys and set `BACKUP_AGE_RECIPIENTS` ("Keys" above).
 3. Before the next nightly run, run `docker compose --profile tools run --rm backup` (it prints `backup ok: backups/daily/<date>.dump.age`), then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore` (it prints `restore-test ok (<date>.dump.age)`). Both must succeed.
 4. Turn on versioning at the provider, at least at the minimum level in "Backup deletion protection". Then consider the preferred level.
 5. After 28 days, `mc ls --recursive "b/$BUCKET_NAME/backups/"` ("Backup deletion protection" shows how to run it) lists no plaintext `.dump` objects, only `.dump.age`. `restore.sh` keeps accepting plaintext dumps (spec §8 question 2).

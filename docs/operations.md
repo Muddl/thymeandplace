@@ -5,7 +5,7 @@
 ## First deploy (one VPS)
 
 1. Install Docker Engine + Compose v2 (≥ 2.24). Point `thymeand.place` and `www.thymeand.place` A/AAAA records at the VPS. (On Hetzner Cloud, `docs/hosting-hetzner.md` covers the server, firewall, DNS, host hardening and buckets.)
-2. `git clone` the repo to `/opt/thymeandplace`.
+2. `git clone` the repo to `/opt/thymeandplace`. Then, once, log Docker in to GitHub's container registry, where CI publishes the images that `deploy.sh` runs ("Updating the app"). Create a classic personal access token with only the `read:packages` scope, run `docker login ghcr.io -u <github user>` as root, and paste the token at the password prompt. The login is stored in root's Docker config. (A fine-grained token wasn't verified to read GHCR; the classic token works.)
 3. Create the six env files from the templates in `deploy/env/`:
    ```bash
    sudo install -d -m 700 -o root -g root /etc/thymeandplace
@@ -26,7 +26,7 @@
    grep -vc -e '^#' -e '^AGE-SECRET-KEY-1' /etc/thymeandplace/restore-test.agekey  # must print 0
    ```
    If either check prints anything else, delete the file and run the two commands again. Put both public keys (`age1…`, space-separated) in `BACKUP_AGE_RECIPIENTS` in `backup.env`. `age-keygen` prints each one, and `grep 'public key' /etc/thymeandplace/restore-test.agekey` shows the restore-test one again. Without the recipients `backup` refuses to start, and without the key file `restore` does.
-4. `cd /opt/thymeandplace/deploy && sudo docker compose up -d --build`. On the empty volume, `db` runs `deploy/db/initdb/20-roles.sh` once to create the roles; then the one-shot `migrate` service applies the migrations as `tp_owner` and exits, and `app` starts as `tp_app`. Caddy obtains certificates automatically.
+4. `cd /opt/thymeandplace/deploy && sudo docker compose up -d --build`. On the empty volume, `db` runs `deploy/db/initdb/20-roles.sh` once to create the roles; then the one-shot `migrate` service applies the migrations as `tp_owner` and exits, and `app` starts as `tp_app`. Caddy obtains certificates automatically. This first start builds the images from the checkout; every later update runs the images CI built ("Updating the app").
 5. Owner access: `docker compose exec app /app/admin enroll`. Open the link on your phone, register a passkey, repeat for a second device. Then `docker compose exec app /app/admin set-backup` and scan the QR code.
 6. Reference data, per dataset (`places`, `ocean`, `climate`). Before approving any license, check its row in `docs/reference-data-licenses.md`. **Skip ocean for launch:** its MEOW terms are unresolved, so `approve-license` refuses it (see "Ocean dataset" below), and the site launches with seafood off ("Launching without seafood").
    ```bash
@@ -132,7 +132,27 @@ What to check:
 
 ## Updating the app
 
-`git pull && docker compose up -d --build app`. Compose runs the `migrate` service first (as `tp_owner`) and starts the new app only once it has exited successfully; the app refuses to start while any migration is pending ("database has pending migrations; run the migrate service"). If that happens, `docker compose logs migrate` says why. Migrations must be backward-compatible with the previous version (add columns/tables; never drop or rename in the same release that stops using them).
+Production runs the images CI built and tested, by commit SHA. Wait for the commit's `release` run in GitHub Actions to go green (it runs only after `ci` passed on `main`, and its summary lists each image's digest), then, from `/opt/thymeandplace/deploy`:
+
+```bash
+git pull
+./deploy.sh <sha>
+```
+
+`<sha>` is that commit's full 40-character SHA, as shown on the green `release` run. `deploy.sh` refuses anything else (a short SHA, `main`, a tag) and exits 2 before pulling. `git pull` brings `compose.yaml`, `compose.release.yaml` and `deploy.sh` itself up to date. The script pulls the images built for that commit (`ghcr.io/muddl/thymeandplace-{app,ingest,transform,backup}:<sha>`), runs the one-shot `migrate` service (as `tp_owner`), starts the new app only once `migrate` has exited successfully, and waits for the app's health check. It then appends `<time> <sha> <app image digest> <seconds>s` to `/var/lib/thymeandplace/deploys.log` and prints `deploy ok: <sha> (<digest>); maintenance window about Ns`, the time the start step took, migrations included.
+
+The app refuses to start while any migration is pending ("database has pending migrations; run the migrate service"). If that happens, or `deploy.sh` stops at `migrate`, `docker compose logs migrate` says why. Migrations must be backward-compatible with the previous version (add columns/tables; never drop or rename in the same release that stops using them). That is what makes "Rolling back the app" safe.
+
+Only commands given the release overlay use the registry images. `exec`, `logs`, `ps`, `restart`, `stop` and `start` act on the running containers and are unaffected. But a plain `docker compose up -d` recreates `app` from `compose.yaml`'s locally built `thymeandplace-app:latest`, which after a registry deploy is an unintended rollback, so don't run one. The plain `docker compose --profile tools run` commands in this document (the backup and restore-test timers included) run the locally built `thymeandplace-*:latest` tools images, as before, and build them from the checkout if they're missing. To run a tool from the deployed release instead:
+
+```bash
+sha=$(tail -n 1 /var/lib/thymeandplace/deploys.log | cut -d' ' -f2)
+TP_IMAGE_TAG=$sha docker compose -f compose.yaml -f compose.release.yaml --profile tools run --rm ingest places fetch
+```
+
+**Emergency path.** If GHCR or GitHub Actions is unavailable, build from the checkout as before: `git pull && docker compose up -d --build app`. Compose runs `migrate` first in the same way. Nothing is written to `deploys.log`. Go back to `deploy.sh` with the next release.
+
+**Moving over from source builds.** The first `deploy.sh` run replaces the locally built app with the registry image for the same commit. Keep the old `thymeandplace-app:latest` image (no `docker image rm`, no `docker image prune -a`) until the registry deploy has run for a day. Until then, `docker compose up -d app` (without `--build`) puts it back.
 
 ### The shared `ingest_work` volume and file ownership
 
@@ -144,6 +164,65 @@ A volume that already holds files from before this was fixed (created root-owned
 docker compose --profile tools build ingest transform
 docker compose --profile tools run --rm --user 0 --entrypoint chown transform -R 65532:65532 /work
 ```
+
+## Rolling back the app
+
+From `/opt/thymeandplace/deploy`:
+
+```bash
+tail -n 5 /var/lib/thymeandplace/deploys.log   # one line per deploy: time, SHA, app digest, window
+./deploy.sh <previous sha>
+```
+
+The previous SHA is the second field of the line before the newest one. No rebuild is involved: every release's images stay in the registry (and usually on the host), so `deploy.sh` starts the previous release's images like any deploy and logs its own line. Its `migrate` finds nothing to apply. The newer migrations stay in the database, and the previous app works with them because migrations are backward-compatible ("Updating the app"). Roll forward again the same way, with the newer SHA.
+
+`compose.yaml` and `deploy.sh` come from the checkout, not from the images. If the release you're leaving changed `deploy/compose.yaml` in a way the previous images can't run with, run `git checkout <previous sha>` first, then `git checkout main` before the next `git pull`.
+
+## Base images and updates
+
+Everything the builds and CI pull is pinned:
+
+- GitHub Actions by commit SHA, with the version in a comment.
+- Every `FROM` and `image:` by digest (`name:tag@sha256:…`).
+- The Go tools (`templ`, `staticcheck`, `govulncheck`) by `go.mod` `tool` lines.
+
+Dependabot (`.github/dependabot.yml`) opens weekly grouped pull requests, one per ecosystem:
+
+- `gomod`
+- `github-actions`
+- `docker`: the Dockerfiles in `deploy/`, `deploy/backup/` and `pipeline/transform/`
+- `docker-compose`: `deploy/compose.yaml`
+- `pip`
+- `npm`
+
+Merge one when CI is green, then deploy the release it produces as usual. Read the release notes first for a new major version. The actions are pinned to the majors CI already used, so the first `github-actions` pull request is likely to propose majors.
+
+**Compose digests.** Whether Dependabot bumps the digests in `deploy/compose.yaml` wasn't verified (spec §4.1). Check after its first weekly run. If it doesn't, bump them by hand every quarter. Check `deploy/compose.dev.yaml` either way: its name isn't a standard compose file name, so Dependabot may skip it. To bump a digest, take the top `Digest:` line (the multi-platform index) from
+
+```bash
+docker buildx imagetools inspect <image>:<tag>     # e.g. postgis/postgis:17-3.5, caddy:2.11
+```
+
+and replace the `@sha256:…` part. The PostGIS reference must be identical in three places, so that tests run on the production database image:
+
+- `deploy/compose.yaml`
+- `deploy/compose.dev.yaml`
+- `Image` in `internal/dbtest/dbtest.go`
+
+`go test -run TestImageMatchesCompose ./internal/dbtest/` fails if they differ, and so does CI.
+
+**Pins Dependabot doesn't update.** Bump these by hand on the same quarterly pass, and run CI on the change:
+
+| Pin | Where | How |
+|---|---|---|
+| `go 1.26.x` | `go.mod` | Dependabot bumps the `golang:1.26.x` image in `deploy/Dockerfile.app` and `deploy/Dockerfile.ingest`, but not this line. Raise it to the same version in that pull request. CI's `setup-go` installs exactly this version, so govulncheck checks the standard library CI builds with. A govulncheck failure on a standard-library fix means raising both |
+| PostGIS `Image` | `internal/dbtest/dbtest.go` | Copy the reference from `deploy/compose.yaml` (above) |
+| `zenko/cloudserver:latest@sha256:…` | `deploy/backup/verify.sh` and its recipe in "Verifying locally before relying on it" | `imagetools inspect zenko/cloudserver:latest`. It has no maintained version tags, so the tag stays `latest` and the digest is the pin |
+| `sqlc/sqlc:<version>@sha256:…` | `scripts/sqlc.sh` | `imagetools inspect sqlc/sqlc:<version>`, then `./scripts/sqlc.sh generate` and commit any change |
+| `# syntax=docker/dockerfile:1.<minor>@sha256:…` | First line of `deploy/Dockerfile.app`, `deploy/Dockerfile.ingest` and `deploy/backup/Dockerfile` | `imagetools inspect docker/dockerfile:1.<minor>`. Keep the three lines identical |
+| `koalaman/shellcheck:<version>@sha256:…` | `.github/workflows/ci.yml`, `deploy` job | `imagetools inspect koalaman/shellcheck:<version>`. It's a `run:` step, so the `github-actions` updates skip it |
+| `rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` | Run by hand on workflow changes: `docker run --rm -v "$PWD:/repo" -w /repo <that reference> -color` | `imagetools inspect rhysd/actionlint:<version>` |
+| MinIO client (`MC_VERSION`, `MC_SHA256_*`) | `deploy/backup/Dockerfile` | As its comment says |
 
 ## Rolling back reference data
 
@@ -237,7 +316,7 @@ C="docker compose -p thymeandplace-e2e -f compose.yaml -f compose.e2e.yaml"   # 
 $C up -d --build --wait db app
 $C --profile tools run --rm --entrypoint /app/devseed ingest
 
-docker run -d --name tp-minio -e ENDPOINT=tp-minio -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver:latest
+docker run -d --name tp-minio -e ENDPOINT=tp-minio -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver:latest@sha256:b53e57829cf7df357323e60a19c9f98d2218f1b7ccb1d7cea5761a5a227a9ee3   # the pin in deploy/backup/verify.sh
 docker network connect thymeandplace-e2e_default tp-minio
 $C --profile tools build backup
 $C --profile tools run --rm --entrypoint sh backup -c "mc alias set m http://tp-minio:8000 accessKey1 verySecretKey1 && mc mb m/tp-backups"

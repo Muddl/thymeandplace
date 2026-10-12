@@ -663,11 +663,13 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.10 CI
 
-Units, scoring, auth, store integration, and pipeline tests run on every push. End-to-end tests run on `main`.
+Units, scoring, auth, store integration, and pipeline tests run on every push, under the race detector (`go test -race`). Every push also runs `go vet`, `staticcheck` and `govulncheck` (a reachable known vulnerability fails the build) and lints the shell scripts with `shellcheck`. End-to-end tests run on `main`. Release images are built only after CI passes on `main`, from that exact commit (§14). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
 
 ## 14. Deployment and operations
 
 - Images: `app` (distroless; contains `server` and `admin` binaries), `ingest` (Go), `transform` (Python + xarray), official Postgres/PostGIS, Caddy.
+- Releases: after CI passes on `main`, the `release` workflow builds `app`, `ingest`, `transform` and `backup` for `linux/amd64` with provenance and SBOM attestations, and pushes them to GHCR (private) tagged with the commit SHA. Production runs these registry images by commit SHA: `deploy/deploy.sh <sha>` pulls them, runs `migrate`, starts the app, waits for its health check and logs the deploy to `/var/lib/thymeandplace/deploys.log`. Rollback is a redeploy of the previous SHA, with no rebuild; backward-compatible migrations make it safe. Building from source (`docker compose up -d --build`) stays as the emergency path. (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
+- Supply chain: base images are pinned by digest and GitHub Actions by commit SHA, and the Go tools come from `go.mod` `tool` lines. Dependabot opens weekly grouped update pull requests; pins it doesn't reach are bumped by hand (`docs/operations.md`, "Base images and updates"). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
 - Secrets (`ADMIN_SECRET_KEY`, DB credentials, bucket credentials) come from root-only env files (mode 600) on the host, not stored in the repo: one per service (`db`, `migrate`, `app`, `ingest`, `backup`, `restore`), so no container gets a secret it doesn't use.
 - Database roles: the bootstrap superuser only for init and restores; `tp_owner` owns the schema and runs migrations, ingest and devseed; `tp_app` is the runtime (and admin CLI) with no DDL rights, no file or program access and append-only audit tables; `tp_backup` reads everything for `pg_dump` (`pg_read_all_data`).
 - Migrations: `goose` runs in the one-shot `migrate` service as `tp_owner`, before the app starts; the app refuses to serve while migrations are pending. Migrations must be backward-compatible with the previous app version.

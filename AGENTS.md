@@ -59,3 +59,4 @@ For `/admin`, also set `ADMIN_SECRET_KEY` (`openssl rand -base64 32`), `ADMIN_RP
 - Skills live in `.cursor/skills/` and subagents in `.cursor/agents/`. They are vendored from upstream, so don't hand-edit them. Run `scripts/sync-pstack.sh` instead.
 - Project-specific skills (for example `verify-thymeandplace`) go in their own `.cursor/skills/<name>/` folder and are not part of the pstack sync.
 - Without a per-user model rule, use the defaults in `.cursor/skills/PSTACK_VENDORED.md`.
+- The session's skill list is built at startup. If a skill or subagent named here isn't in it, read `.cursor/skills/<name>/SKILL.md` directly and follow it. For `poteto-agent`, spawn a `generalPurpose` subagent and tell it to read `.cursor/skills/poteto-mode/SKILL.md` in full before anything else.

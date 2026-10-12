@@ -58,6 +58,12 @@ If a model in these defaults isn't available to the agent, the agent should use 
 - `node` runs `poteto-mode/scripts/check-plan.mjs`.
 - `bun` runs the `watch-pr` and `orch` scripts and their tests. It isn't installed on the cloud image by default. Without it, `watch-pr` and `orch` can't run, so use the `gh` commands the playbooks name. The scripts install `commander` into `poteto-mode/scripts/node_modules/` on first run, which `.gitignore` excludes.
 
+## Registration
+
+The session skill list is built at startup, and a cloud session started on a feature branch did not list these skills. Two fresh cloud sessions on the branch that added them (one on a draft environment build of that branch) each saw 29 skills, all from user and plugin paths and none from `/workspace/.cursor/skills/`, even though all 49 entries were on disk. Cloud agents on this repo therefore shouldn't count on registration. `AGENTS.md` tells them to read `.cursor/skills/<name>/SKILL.md` directly when a skill isn't listed. To recheck after the skills reach `main`, start a new cloud agent and look for `/workspace/.cursor/skills/...` paths in its skill list. If they are still missing, refresh the environment build, which snapshots the default branch.
+
+One frontmatter value may matter. Cursor's docs say a skill's `name` must match its folder, and upstream `poteto-mode` sets `name: Poteto Mode` (with `mode: true`). It is kept as upstream has it. If `poteto-mode` is the one skill that stays unregistered after the others appear, change that line to `name: poteto-mode` in the sync script rather than by hand.
+
 ## Updating
 
 ```bash

@@ -26,5 +26,6 @@ These keep their own licenses, and nothing above changes them.
 | GeoNames place names | Downloaded by `cmd/ingest places` | CC BY 4.0: credited on every page and on the About page |
 | Natural Earth land polygons | Downloaded by `cmd/ingest ocean` | Public domain, as recorded |
 | Marine Ecoregions of the World | Downloaded by `cmd/ingest ocean` | **Unresolved**; not used while seafood is off |
+| pstack and cursor-team-kit agent skills | `.cursor/skills/`, `.cursor/agents/` (developer tooling, not shipped); see `.cursor/skills/PSTACK_VENDORED.md` | MIT, © 2026 Lauren Tan and © 2026 Cursor (notices in `.cursor/skills/PSTACK_LICENSE` and `.cursor/skills/CURSOR_TEAM_KIT_LICENSE`) |
 
 The terms, obligations and evidence for each dataset are recorded in `docs/reference-data-licenses.md`, which is the authority for reference data. If a dataset's terms change, that register changes first.

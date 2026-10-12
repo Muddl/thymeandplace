@@ -36,11 +36,13 @@ The set is the transitive closure of the skill names and relative links reachabl
 
 ## Local changes from upstream
 
-Paths only. `scripts/sync-pstack.sh` reapplies both fixes and fails if any `pstack/skills/` path survives.
+Two kinds of change. `scripts/sync-pstack.sh` reapplies all of them, is idempotent, and fails if any `pstack/skills/` path survives or any `disable-model-invocation: true` line remains.
 
 - Upstream paths assume pstack sits at a repo root (`pstack/skills/<name>/...`). They now read `.cursor/skills/<name>/...`. This touches `poteto-mode/playbooks/multi-phase-plan.md`, `autopilot-full.md` and `autopilot-stack.md`.
 - Playbooks name helper scripts relative to the skill (`scripts/watch-pr/watch-pr`, `scripts/orch/orch.ts`, `scripts/worktree-audit.sh`). An agent running from the repo root would hit this repo's own `scripts/` instead, so they now read `.cursor/skills/poteto-mode/scripts/...`. This touches `babysit.md`, `shipping.md`, `orchestrate.md` and `worktree-cleanup.md`.
- 
+- Frontmatter, so cloud sessions register the skills. 43 upstream `SKILL.md` files set `disable-model-invocation: true`, and a skill with that flag is left out of the cloud session's skill list. The script deletes that line from each vendored skill's frontmatter. Only `control-cli`, `control-ui` and `deslop` registered before. This touches the `SKILL.md` of each of those 43 skills.
+- `poteto-mode`'s `name:` is `poteto-mode`, not upstream's `Poteto Mode`, to match its folder. Its `mode: true` and the rest of its frontmatter are unchanged.
+
 Skill-to-skill links are relative (`../principle-...`) and need no change because the flat layout matches upstream's.
 
 ## Model configuration without `~/.cursor/rules/pstack-models.mdc`
@@ -62,7 +64,7 @@ If a model in these defaults isn't available to the agent, the agent should use 
 
 The session skill list is built at startup, and a cloud session started on a feature branch did not list these skills. Two fresh cloud sessions on the branch that added them (one on a draft environment build of that branch) each saw 29 skills, all from user and plugin paths and none from `/workspace/.cursor/skills/`, even though all 49 entries were on disk. Cloud agents on this repo therefore shouldn't count on registration. `AGENTS.md` tells them to read `.cursor/skills/<name>/SKILL.md` directly when a skill isn't listed. To recheck after the skills reach `main`, start a new cloud agent and look for `/workspace/.cursor/skills/...` paths in its skill list. If they are still missing, refresh the environment build, which snapshots the default branch.
 
-One frontmatter value may matter. Cursor's docs say a skill's `name` must match its folder, and upstream `poteto-mode` sets `name: Poteto Mode` (with `mode: true`). It is kept as upstream has it. If `poteto-mode` is the one skill that stays unregistered after the others appear, change that line to `name: poteto-mode` in the sync script rather than by hand.
+The two frontmatter edits above exist for registration. They are untested on a cloud session until this lands on `main` and an environment build snapshots it, so recheck then as described above. A skill that registers now can also be invoked by the model on its own, which upstream chose to prevent for most of these.
 
 ## Updating
 
@@ -71,4 +73,4 @@ scripts/sync-pstack.sh                # latest main
 scripts/sync-pstack.sh <commit-sha>   # pin a commit
 ```
 
-The script clones <https://github.com/cursor/plugins>, replaces each vendored folder wholesale, refreshes the two license files and the agents, reapplies the path fix and rewrites the `Source commit` line above. Review `git diff --stat`, commit, and open a PR. To add or drop a skill, edit the arrays at the top of the script and the lists above in the same PR. Don't hand-edit vendored files, because the next sync overwrites them. Fix upstream or add the change to the script.
+The script clones <https://github.com/cursor/plugins>, replaces each vendored folder wholesale, refreshes the two license files and the agents, reapplies the path and frontmatter fixes and rewrites the `Source commit` line above. Review `git diff --stat`, commit, and open a PR. To add or drop a skill, edit the arrays at the top of the script and the lists above in the same PR. Don't hand-edit vendored files, because the next sync overwrites them. Fix upstream or add the change to the script.

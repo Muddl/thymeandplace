@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -65,5 +66,34 @@ func TestDatasetsDeclareLicenseAndAttribution(t *testing.T) {
 	// The MEOW resolution commit removes this check along with the marker.
 	if !strings.HasPrefix(NewOcean("").License(), LicenseUnresolved) {
 		t.Error("ocean's MEOW terms are unconfirmed: its license must carry the UNRESOLVED marker (docs/reference-data-licenses.md)")
+	}
+}
+
+var hexSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// Spec §4.4: every default source says exactly how its content is trusted.
+func TestDefaultSourcesDeclareProvenance(t *testing.T) {
+	for _, ds := range []Dataset{NewPlaces(), NewOcean(""), NewClimate("")} {
+		for _, s := range ds.Sources() {
+			pinned, reason := s.SHA256 != "", strings.TrimSpace(s.Unpinned) != ""
+			if pinned == reason {
+				t.Errorf("%s/%s: want exactly one of SHA256 or Unpinned (got %q, %q)", ds.Name(), s.File, s.SHA256, s.Unpinned)
+			}
+			if pinned && !hexSHA256.MatchString(s.SHA256) {
+				t.Errorf("%s/%s: SHA256 %q is not 64 lowercase hex characters", ds.Name(), s.File, s.SHA256)
+			}
+		}
+	}
+	// Overriding a URL keeps the content pin.
+	if o := NewOcean("https://mirror.example/meow.geojson"); o.Source.SHA256 == "" {
+		t.Error("NewOcean with a URL override lost the MEOW pin")
+	}
+	for _, s := range NewClimate("https://mirror.example/clim").Sources() {
+		if s.SHA256 == "" {
+			t.Errorf("NewClimate with a base override lost the pin for %s", s.File)
+		}
+	}
+	if strings.Contains(DefaultLandURL, "/master/") {
+		t.Error("DefaultLandURL must name a commit, not a branch")
 	}
 }

@@ -11,7 +11,7 @@ trap '$C down -v >/dev/null 2>&1 || true' EXIT
 # app waits for the one-shot migrate service (tp_owner) to finish first.
 $C up -d --build --wait db app caddy
 [ "$($C ps -a --format '{{.ExitCode}}' migrate)" = "0" ] || { echo "migrate did not exit 0"; $C logs migrate; exit 1; }
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   curl -ksf https://localhost/healthz >/dev/null && break
   sleep 1
 done

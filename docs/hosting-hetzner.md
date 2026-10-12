@@ -42,7 +42,7 @@ A low-cost setup for the first deployment: one Hetzner Cloud server running the 
 - **x86, not Arm.** `postgis/postgis:17-3.5` is published for `linux/amd64` only (checked with `docker buildx imagetools inspect` on 2026-09-28). The Arm CAX servers would need a different Postgres image. The other images (Caddy, distroless, Go, Python, `postgres:17-bookworm`) are multi-arch.
 - **2 vCPU and 4 GB.** The capacity spec's defaults assume this size: 16 pooled connections and 12 public DB slots (`docs/superpowers/specs/2026-09-27-db-capacity-and-load-protection-design.md`). With 2 GB you'd have to drop to `DB_MAX_CONNS=10`, and the one-off climate transform would have little headroom.
 - **An EU location.** EU plans include 20 TB of traffic, against 1 TB in Hetzner's US locations, where plans start around $20 a month. The pages are small and server-rendered, so the extra 100–150 ms for visitors across the Atlantic is acceptable. Pick the EU location nearest most of your expected visitors. All locations include Hetzner's DDoS protection.
-- **Buckets at another provider.** Backups kept with a different provider survive losing the Hetzner account or project. B2 also fits the planned backup hardening (issue #12, `2026-09-27-backup-encryption-design.md`): application keys can be limited to one bucket and denied delete, and the bucket keeps earlier file versions. It's free up to 10 GB. This system stores roughly 4–8 GB: about 3 GB of NetCDF per climate version, plus a few small dumps and datasets.
+- **Buckets at another provider.** Backups kept with a different provider survive losing the Hetzner account or project. B2 also fits the backup hardening (issue #12, `2026-09-27-backup-encryption-design.md`): application keys can be limited to one bucket and denied delete, and the bucket keeps earlier file versions. It's free up to 10 GB. This system stores roughly 4–8 GB: about 3 GB of NetCDF per climate version, plus a few small dumps and datasets.
 - **The all-Hetzner alternative** is Hetzner Object Storage: about €6.49 a month including 1 TB, with free traffic to a server in the same location. It's one fewer vendor, but it roughly doubles the bill and keeps the backups with the server's provider.
 
 ## Getting a server (stock, September 2026)
@@ -103,17 +103,23 @@ Then continue with `docs/operations.md`, "First deploy", from step 2.
 2. Create two **private** buckets. Names are global, so add a suffix, e.g. `thymeandplace-datasets-<suffix>` and `thymeandplace-backups-<suffix>`. On the backups bucket, set the lifecycle to keep earlier versions for 35 days. That way, a dump that pruning (or an attacker on the server) deletes stays recoverable, as the issue #12 design wants.
 3. Create one application key per bucket, each limited to its bucket:
    - The datasets key goes in `ingest.env`.
-   - The backups key goes in `backup.env` and `restore.env`. For now it needs delete permission, because `backup.sh` prunes old dumps with `mc rm`. Issue #12 replaces that with lifecycle expiry and a key that can't delete.
+   - The backups key goes in `backup.env` and `restore.env`. It needs delete permission, because `backup.sh` prunes old dumps with `mc rm`; the 35-day version history from step 2 covers a malicious delete. That's the minimum level of `docs/operations.md`, "Backup deletion protection", which also describes the preferred level: a backup key that can't delete, a read-only restore key, lifecycle expiry and `BACKUP_PRUNE=lifecycle`.
 4. Set `BUCKET_ENDPOINT` to the S3 endpoint shown on the bucket page (e.g. `s3.eu-central-003.backblazeb2.com`), with `BUCKET_USE_SSL=true`.
-5. Before relying on it, run a backup and `restore-test.sh` (runbook step 9) and check for `restore-test ok`.
+5. Before relying on it, run a backup and `restore-test.sh` (runbook step 10) and check for `restore-test ok`.
 
 ## Watching it (free)
 
 - The Hetzner Console graphs CPU, disk and network per server.
-- Add an external uptime check on `https://thymeand.place/readyz` every few minutes, with email alerts. Most uptime services have a free tier that covers one site. The fuller plan is in `docs/superpowers/specs/2026-09-27-observability-and-alerting-design.md`.
+- Add an external uptime check on `https://thymeand.place/readyz` every few minutes, with email alerts. Most uptime services have a free tier that covers one site. It's one of the checks in `docs/operations.md`, "Monitoring and alerts", with the requirements it must meet.
 - Disk is 40 GB, which is enough with some housekeeping:
   - check `df -h` and `docker system df` now and then;
-  - run `docker builder prune -f` after app updates (images are built on the server);
+  - every `deploy.sh` run pulls a new set of release images (about 300 MB), and old ones stay on the disk Postgres uses. Now and then, from `/opt/thymeandplace/deploy` as root, remove all but the last three releases in `deploys.log` (the newest line is the one running; the two before it are for a quick rollback, and older releases can still be pulled from GHCR):
+    ```bash
+    keep=$(awk '{print $2}' /var/lib/thymeandplace/deploys.log | tac | awk '!seen[$0]++' | head -n 3)
+    docker image ls --format '{{.Repository}}:{{.Tag}}' | grep '^ghcr.io/muddl/thymeandplace-' | grep -v ':<none>$' | grep -vF "$keep" | xargs -r docker image rm
+    docker image prune -f
+    ```
+    With no `deploys.log` yet, `keep` is empty and nothing is removed. After building on the server (the first deploy or the emergency path in `docs/operations.md`, "Updating the app"), also run `docker builder prune -f`;
   - once a climate version is live, delete its raw NetCDF files from the `ingest_work` volume, since the bucket keeps a copy.
 
 ## Growing later

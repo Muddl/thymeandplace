@@ -41,7 +41,7 @@ func TestClimateExternalTransform(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)
 	base := serveFiles(t, map[string][]byte{"a_tmin.nc": []byte("x"), "a_tmax.nc": []byte("x"), "a_ppt.nc": []byte("x")})
-	ds := &Climate{SourceList: []Source{{base + "/a_tmin.nc", "a_tmin.nc"}, {base + "/a_tmax.nc", "a_tmax.nc"}, {base + "/a_ppt.nc", "a_ppt.nc"}}}
+	ds := &Climate{SourceList: []Source{{URL: base + "/a_tmin.nc", File: "a_tmin.nc"}, {URL: base + "/a_tmax.nc", File: "a_tmax.nc"}, {URL: base + "/a_ppt.nc", File: "a_ppt.nc"}}}
 	p := newPipeline(t, pool, ds)
 	v, err := p.Fetch(ctx)
 	if err != nil {

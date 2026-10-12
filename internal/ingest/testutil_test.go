@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -60,5 +59,3 @@ func newPipeline(t *testing.T, pool *pgxpool.Pool, ds Dataset) *Pipeline {
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
-
-func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }

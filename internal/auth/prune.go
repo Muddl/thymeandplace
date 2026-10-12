@@ -51,6 +51,7 @@ func (s *Service) Prune(ctx context.Context) (PruneResult, error) {
 	}
 	if r.LoginLogLastDay > s.growthWarn {
 		s.log.Warn("admin login log growing fast", "rows_last_24h", r.LoginLogLastDay)
+		s.event("login_log_growth")
 	}
 	return r, nil
 }

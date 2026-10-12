@@ -22,7 +22,8 @@ import (
 	"thymeandplace/internal/db"
 )
 
-const Image = "postgis/postgis:17-3.5"
+// Same pinned image as deploy/compose.yaml's db service.
+const Image = "postgis/postgis:17-3.5@sha256:01a6a70e41e6c4467c8f55f6063555ed72db2d6662cd0d571040d42eadaeb6f6"
 
 var (
 	once     sync.Once

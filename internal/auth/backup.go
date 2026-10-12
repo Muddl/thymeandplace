@@ -108,6 +108,10 @@ func (s *Service) BackupLogin(ctx context.Context, password, code string) error 
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+	if until.Valid {
+		s.log.Warn("backup login locked", "until", until.Time)
+		s.event("backup_lockout")
+	}
 	return ErrBadCredentials
 }
 

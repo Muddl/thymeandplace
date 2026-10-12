@@ -57,7 +57,7 @@ func TestPlacesDown(t *testing.T) {
 }
 
 func TestPlacesRateLimited(t *testing.T) {
-	hs := newHarness(t)
+	hs := newHarness(t, frozenLimiter)
 	var code int
 	var body string
 	var hdr = map[string][]string{}
@@ -83,5 +83,30 @@ func TestPlacesNoMatchTruncatesQuery(t *testing.T) {
 	_, body, _ := hs.get("/places?q="+url.QueryEscape(strings.Repeat("é", 150)), true)
 	if !strings.Contains(body, "No places match '"+strings.Repeat("é", 100)+"'") {
 		t.Fatalf("body = %s", body)
+	}
+}
+
+// #14: a query under 2 letters gets a hint, not a search.
+func TestPlacesShortQueryHint(t *testing.T) {
+	hs := newHarness(t)
+	for _, q := range []string{"l", "%25", "a.", "%C3%A9"} { // l, %, a., é
+		code, body, _ := hs.get("/places?q="+q, true)
+		if code != 200 || !strings.Contains(body, views.CopyKeepTyping) || strings.Contains(body, "No places match") {
+			t.Fatalf("q=%s: %d\n%s", q, code, body)
+		}
+	}
+	if n := hs.places.searches.Load(); n != 0 {
+		t.Fatalf("Search called %d times for short queries", n)
+	}
+	code, body, _ := hs.get("/places?q=l", false)
+	if code != 200 || !strings.Contains(body, views.CopyKeepTyping) || !strings.Contains(body, `value="l"`) {
+		t.Fatalf("full page: %d\n%s", code, body)
+	}
+	code, body, _ = hs.get("/places?q=li", true)
+	if code != 200 || strings.Contains(body, views.CopyKeepTyping) || !strings.Contains(body, "No places match 'li'") {
+		t.Fatalf("two letters must search: %d\n%s", code, body)
+	}
+	if n := hs.places.searches.Load(); n != 1 {
+		t.Fatalf("Search called %d times; two letters must search once", n)
 	}
 }

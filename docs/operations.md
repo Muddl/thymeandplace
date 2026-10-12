@@ -5,7 +5,7 @@
 ## First deploy (one VPS)
 
 1. Install Docker Engine + Compose v2 (≥ 2.24). Point `thymeand.place` and `www.thymeand.place` A/AAAA records at the VPS. (On Hetzner Cloud, `docs/hosting-hetzner.md` covers the server, firewall, DNS, host hardening and buckets.)
-2. `git clone` the repo to `/opt/thymeandplace`.
+2. `git clone` the repo to `/opt/thymeandplace`. Then, once, log Docker in to GitHub's container registry, where CI publishes the images that `deploy.sh` runs ("Updating the app"). Create a classic personal access token with only the `read:packages` scope, run `docker login ghcr.io -u <github user>` as root, and paste the token at the password prompt. The login is stored in root's Docker config. (A fine-grained token wasn't verified to read GHCR; the classic token works.)
 3. Create the six env files from the templates in `deploy/env/`:
    ```bash
    sudo install -d -m 700 -o root -g root /etc/thymeandplace
@@ -17,28 +17,44 @@
    sudoedit /etc/thymeandplace/*.env
    ```
    Hex passwords, because base64's `/` and `+` would break the `DATABASE_URL`s. All four go in `db.env`; each also goes in the `DATABASE_URL` of the files that connect as that role: `POSTGRES_PASSWORD` → `restore.env`, `TP_OWNER_PASSWORD` → `migrate.env` and `ingest.env`, `TP_APP_PASSWORD` → `app.env`, `TP_BACKUP_PASSWORD` → `backup.env`. Put the dataset bucket's keys in `ingest.env` and the backup bucket's in `backup.env` and `restore.env`. Check with `sudo stat -c '%a %U %n' /etc/thymeandplace /etc/thymeandplace/*.env` → `700 root` for the directory and `600 root` for every file.
-4. `cd /opt/thymeandplace/deploy && sudo docker compose up -d --build`. On the empty volume, `db` runs `deploy/db/initdb/20-roles.sh` once to create the roles; then the one-shot `migrate` service applies the migrations as `tp_owner` and exits, and `app` starts as `tp_app`. Caddy obtains certificates automatically.
+
+   Then the two backup encryption keys (details in "Backup encryption"). On your own machine, not the VPS, run `age-keygen -o recovery.key` and store the file in your password manager and on paper. On the VPS, from a root shell in `/opt/thymeandplace/deploy`, build the backup image, then create the restore-test key. `age-keygen` writes the key file itself, mode `600`, through a bind mount, so the private key never passes through the container's output or its log.
+   ```bash
+   docker compose --profile tools build backup
+   docker compose --profile tools run --rm --no-deps -v /etc/thymeandplace:/out --entrypoint age-keygen backup -o /out/restore-test.agekey
+   grep -c '^AGE-SECRET-KEY-1' /etc/thymeandplace/restore-test.agekey             # must print 1
+   grep -vc -e '^#' -e '^AGE-SECRET-KEY-1' /etc/thymeandplace/restore-test.agekey  # must print 0
+   ```
+   If either check prints anything else, delete the file and run the two commands again (`age-keygen` won't overwrite an existing file). Put both public keys (`age1…`, space-separated) in `BACKUP_AGE_RECIPIENTS` in `backup.env`, and keep them nowhere else except your password manager ("Backup encryption" › "Threat model"). `age-keygen` prints each one, and `grep 'public key' /etc/thymeandplace/restore-test.agekey` shows the restore-test one again. Without the recipients `backup` refuses to start, and without the key file `restore` does.
+4. `cd /opt/thymeandplace/deploy && sudo docker compose up -d --build`. On the empty volume, `db` runs `deploy/db/initdb/20-roles.sh` once to create the roles; then the one-shot `migrate` service applies the migrations as `tp_owner` and exits, and `app` starts as `tp_app`. Caddy obtains certificates automatically. This first start builds the images from the checkout; every later update runs the images CI built ("Updating the app").
 5. Owner access: `docker compose exec app /app/admin enroll`. Open the link on your phone, register a passkey, repeat for a second device. Then `docker compose exec app /app/admin set-backup` and scan the QR code.
 6. Reference data, per dataset (`places`, `ocean`, `climate`). Before approving any license, check its row in `docs/reference-data-licenses.md`. **Skip ocean for launch:** its MEOW terms are unresolved, so `approve-license` refuses it (see "Ocean dataset" below), and the site launches with seafood off ("Launching without seafood").
    ```bash
-   docker compose --profile tools run --rm ingest places fetch        # note the version N and read the license it prints
+   docker compose --profile tools run --rm ingest places fetch        # note the version N and read the per-file summary it prints
+   docker compose --profile tools run --rm ingest places approve-license --version N         # dry run: repeats the summary, changes nothing, exits 2
    docker compose --profile tools run --rm ingest places approve-license --version N --yes
    docker compose --profile tools run --rm ingest places all --version N
    ```
+   `fetch` prints the license and, for each file, its URL, its sha256, whether it is `pinned` or `unpinned: <reason>`, and how it compares with the live version (`same as live vK`, `changed (live vK: …)` or `no live version`). A file whose sha256 differs from its pin fails the fetch; see "When a pinned source changes". The labels describe the version's recorded checksums, so a version fetched before the pins existed can show `pin mismatch (pin …)` or `sha256 (no record)`: don't approve it; fetch again. `approve-license --version N` without `--yes` prints the same summary and approves nothing; with `--yes` it prints it again as the record and approves. A review carries over to a later fetch only when the license, URLs and every file's checksum are the same. GeoNames regenerates its dumps at fixed URLs, so places is unpinned and every places refresh needs `approve-license` again.
+
    Climate needs the transform container once per version (all from `/opt/thymeandplace/deploy`):
    ```bash
    docker compose --profile tools run --rm ingest climate fetch
+   docker compose --profile tools run --rm ingest climate approve-license --version N --yes   # after reading the summary
    docker compose --profile tools run --rm ingest climate transform --version N   # exits 3 and prints the next command
    docker compose --profile tools run --rm transform /work/climate/vN
    docker compose --profile tools run --rm ingest climate all --version N
    ```
 7. Import the launch catalog in `/admin/import` (see Plan 9; without a live ocean version, import the no-seafood file from "Launching without seafood") and check the preview's calibration score. After any later admin edit, export the catalog to `content/catalog/launch.json` and run `go test ./content/`: the calibration score can't see an ingredient in a city whose guide doesn't list it, and the content gates can (`content/AUTHORING.md`, "After editing in the admin").
-8. Backups: see "Nightly backups" below for the cron entry.
-9. **Before launch:** run `docker compose --profile tools run --rm backup` then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore`. It must print `restore-test ok`.
+8. Backups: see "Nightly backups" below for the timer or cron entries.
+9. **Set up monitoring:** create the checks, put their ping URLs in the env files and configure the external monitor ("Monitoring and alerts" below, "Setting up").
+10. **Before launch:** run `docker compose --profile tools run --rm backup` then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore`. It must print `restore-test ok`, and the `backup` and `restore-test` checks should go green. Compose won't start `restore` until `/etc/thymeandplace/restore-test.agekey` exists (step 3).
 
 ### Pre-launch checklist
 
-- [ ] `restore-test ok` (step 9).
+- [ ] `restore-test ok` (step 10).
+- [ ] The recovery key is in your password manager and on paper, and not on the VPS ("Backup encryption").
+- [ ] Every check in "Monitoring and alerts" is green, and a test notification reached you.
 - [ ] Seafood is off: `FEATURE_SEAFOOD` is unset or `off` in `app.env`, `docker compose logs app | grep 'seafood feature'` shows `enabled=false`, and `/about/data` doesn't mention seafood or marine data. (Only once the MEOW row in `docs/reference-data-licenses.md` is confirmed and an ocean version is live may it be `on`; see "Turning seafood on".)
 - [ ] `SELECT id, license, license_reviewed, is_live, promoted_at FROM dataset_versions WHERE dataset = 'ocean'` shows no approved or promoted row whose license starts with `UNRESOLVED:`. If one exists, withdraw it ("Withdrawing a dataset").
 
@@ -49,7 +65,7 @@
 - **MEOW ecoregions** (`OCEAN_SOURCE_URL`, defaults to the Esri Oceans ArcGIS Online feature service, item `74b6ac5c8fc24dcb8abaad6428a5dfa4`) — Marine Ecoregions of the World (Spalding et al., 2007, *BioScience*). The ArcGIS item states no licence, and the terms have **not** been confirmed. `Ocean.License()` therefore starts with `UNRESOLVED:`, and until the resolution commit removes it, `ingest ocean approve-license` fails with "license terms not confirmed" and `validate`/`swap` report `license unresolved`, even if `license_reviewed` is set by hand. The procedure for confirming the terms is in `docs/reference-data-licenses.md`.
 - **Natural Earth land mask** (optional `OCEAN_LAND_URL`, defaults to `ne_50m_land.geojson`, the 1:50m land polygon layer) — recorded as public domain (naturalearthdata.com). Used only to clip the MEOW polygons to water, since the raw MEOW polygons run well inland along coastlines.
 
-Both licenses are printed together by `ingest ocean fetch`. Once the terms are resolved, both must be read before `approve-license --version N --yes`. A review carries over to later fetches with the same license text and source URLs, so it must only ever be given for confirmed terms.
+Both licenses are printed together by `ingest ocean fetch`. Once the terms are resolved, both must be read before `approve-license --version N --yes`. A review carries over only to later fetches of identical bytes (same license text, source URLs and file checksums), so it must only ever be given for confirmed terms.
 
 ### Launching without seafood
 
@@ -74,11 +90,11 @@ Keep the seafood items in `content/catalog/launch.json`; they're what gets impor
 ### Turning seafood on
 
 1. Resolve MEOW ("Resolving MEOW" in `docs/reference-data-licenses.md`; that commit also updates the About page's marine credits).
-2. Ingest ocean: `fetch`, read the license, `approve-license --version N --yes`, `all --version N`.
+2. Ingest ocean: `fetch`, read the license and per-file summary it prints, `approve-license --version N --yes`, `all --version N`.
 3. Import `content/catalog/launch.json` in `/admin/import`. Import only upserts, so this adds the seafood items and pairings back.
-4. Set `FEATURE_SEAFOOD=on` in `/etc/thymeandplace/app.env` and run `sudo docker compose up -d app` (the flag is read at startup). The log should show `seafood feature enabled=true`.
+4. Set `FEATURE_SEAFOOD=on` in `/etc/thymeandplace/app.env` and recreate `app` with the release overlay ("Recreating `app` after a settings change" in "Updating the app"); the flag is read at startup. The log should show `seafood feature enabled=true`.
 
-To turn it off again, set it back to `off` and restart `app`; nothing else changes. If the terms are withdrawn, also follow "Withdrawing a dataset".
+To turn it off again, set it back to `off` and recreate `app` the same way; nothing else changes. If the terms are withdrawn, also follow "Withdrawing a dataset".
 
 ### Withdrawing a dataset
 
@@ -93,7 +109,7 @@ SELECT pg_notify('data_version_changed', 'dataset');
 COMMIT;
 ```
 
-This does what `ingest ... swap` does in reverse, and the site picks it up within seconds. Clearing `promoted_at` stops `ingest ocean rollback` from returning to a withdrawn version. Seafood items already in the catalog stay but never show, and admin edits to them fail the ecoregion check until ocean is back. If the terms also forbid keeping copies, delete `raw/ocean/` and `transformed/ocean/` from the bucket and drop each `ocean_ecoregion_v{N}` table; nightly dumps age out within the 28-day backup retention.
+This does what `ingest ... swap` does in reverse, and the site picks it up within seconds. Clearing `promoted_at` stops `ingest ocean rollback` from returning to a withdrawn version. Seafood items already in the catalog stay but never show, and admin edits to them fail the ecoregion check until ocean is back. If the terms also forbid keeping copies, delete `raw/ocean/` and `transformed/ocean/` from the bucket and drop each `ocean_ecoregion_v{N}` table; nightly dumps age out within the 28-day backup retention, and the bucket's deleted versions 35 days after that ("Backup deletion protection").
 
 ### First TerraClimate ingest (deferred to first production run)
 
@@ -101,21 +117,67 @@ This does what `ingest ... swap` does in reverse, and the site picks it up withi
 
 ```bash
 docker compose --profile tools run --rm ingest climate fetch
+docker compose --profile tools run --rm ingest climate approve-license --version N --yes   # after reading the summary
 docker compose --profile tools run --rm ingest climate transform --version N
 docker compose --profile tools run --rm transform /work/climate/vN
 docker compose --profile tools run --rm ingest climate all --version N
 ```
 
 What to check:
-- `fetch` prints the license (CC0, citation requested) and the version number `N` — note it.
+- `fetch` prints the version number `N` (note it), the license (CC0, citation requested) and a per-file summary: each `.nc` file's URL and sha256, `pinned`, and how it compares with the live version. A file that doesn't match its pin fails the fetch (see "When a pinned source changes"). Approve with `ingest climate approve-license --version N --yes` before `all`.
 - `transform` (step run through the `ingest` binary) exits `3` and prints the exact `docker compose --profile tools run --rm transform /work/climate/vN` command to run next; run that literally from `/opt/thymeandplace/deploy` (the `deploy/` directory, next to `compose.yaml`), where every `docker compose` command in this document runs.
 - The transform container's own log should finish without error and leave `out/climate.csv` under the shared `ingest_work` volume.
-- `ingest climate all --version N` runs load/validate/swap; validate compares interpolated values at twelve fixed reference cities (London, Moscow, Cairo, Singapore, …) against known climatology figures within a 4°C tolerance (`internal/ingest/climate.go`). If validate fails, do not approve the version — check the download completed and the transform didn't silently truncate.
+- `ingest climate all --version N` runs load/validate/swap; validate compares interpolated values at twelve fixed reference cities (London, Moscow, Cairo, Singapore, …) against known climatology figures within a 4°C tolerance (`internal/ingest/climate.go`). If validate fails, do not swap it in by hand — check the download completed and the transform didn't silently truncate.
 - Watch disk and memory on the VPS during this step; the raw NetCDF files plus the transform's intermediate arrays are the heaviest thing this system ever does in one step.
 
 ## Updating the app
 
-`git pull && docker compose up -d --build app`. Compose runs the `migrate` service first (as `tp_owner`) and starts the new app only once it has exited successfully; the app refuses to start while any migration is pending ("database has pending migrations; run the migrate service"). If that happens, `docker compose logs migrate` says why. Migrations must be backward-compatible with the previous version (add columns/tables; never drop or rename in the same release that stops using them).
+Production runs the images CI built and tested, by commit SHA. Wait for the commit's `release` run in GitHub Actions to go green (it runs only after `ci` passed on `main`, and its summary lists each image's digest), then, from `/opt/thymeandplace/deploy`:
+
+```bash
+git pull
+./deploy.sh <sha>
+```
+
+`<sha>` is that commit's full 40-character SHA, as shown on the green `release` run. `deploy.sh` refuses anything else (a short SHA, `main`, a tag) and exits 2 before pulling. `git pull` brings `compose.yaml`, `compose.release.yaml` and `deploy.sh` itself up to date. The script pulls the images built for that commit (`ghcr.io/muddl/thymeandplace-{app,ingest,transform,backup}:<sha>`) and the `db` and `caddy` images pinned in `compose.yaml`, all before the maintenance window starts. It then runs the one-shot `migrate` service (as `tp_owner`), starts the new app only once `migrate` has exited successfully, waits for the app's health check, and starts `caddy`. Compose recreates `db` and `caddy` only when their image or settings changed, so a `compose.yaml` digest update is applied by the next deploy; a new PostGIS image restarts the database inside the window. The script then writes `deploy/.env` (below), appends `<time> <sha> <app image digest> <seconds>s` to `/var/lib/thymeandplace/deploys.log` and prints `deploy ok: <sha> (<digest>); maintenance window about Ns`, the time the start step took, migrations included.
+
+The app refuses to start while any migration is pending ("database has pending migrations; run the migrate service"). If that happens, or `deploy.sh` stops at `migrate`, `docker compose logs migrate` says why. Migrations must be backward-compatible with the previous version (add columns/tables; never drop or rename in the same release that stops using them). That is what makes "Rolling back the app" safe.
+
+**`deploy/.env`.** After a successful start, `deploy.sh` writes `/opt/thymeandplace/deploy/.env` (root-owned and git-ignored) with `COMPOSE_FILE=compose.yaml:compose.release.yaml` and `TP_IMAGE_TAG=<sha>`. Compose reads `.env` from the directory it runs in, so from then on every plain `docker compose` command in this document runs the deployed release: `up -d`, `exec`, `ps`, the `--profile tools run` commands, and the backup and restore-test timers. `cat .env` shows which release that is, and every deploy or rollback rewrites it. Don't edit it. A command that names its own `-f` files (`smoke.sh`, `e2e/run.sh`, `deploy/backup/verify.sh`) ignores `COMPOSE_FILE`. Before the first `deploy.sh` there is no `.env`, and the same commands build and run from source as before.
+
+**Recreating `app` after a settings change.** The app reads its env file only at startup, and `docker compose restart app` keeps the old environment, so a change to `app.env` (or a `compose.yaml` setting such as log options) needs the container recreated:
+
+```bash
+docker compose up -d app
+```
+
+Compose runs the one-shot `migrate` again first (it finds nothing to apply), recreates `app` only if its settings changed, uses the release named in `.env`, and writes nothing to `deploys.log`. `docker compose ps app` shows what runs: an `IMAGE` of `ghcr.io/muddl/thymeandplace-app:<sha>` is a release, `thymeandplace-app:latest` a source build.
+
+**Emergency path.** If GHCR or GitHub Actions is unavailable, build from the checkout:
+
+```bash
+rm -f .env && git pull
+docker compose --profile tools build
+docker compose up -d app
+```
+
+Removing `.env` puts every plain command back on the local `thymeandplace-*:latest` images, and the `build` line rebuilds all of them from the checkout: `app` (which `migrate` shares) and the `ingest`, `transform` and `backup` images that the tools and the backup and restore-test timers run. Don't skip it or narrow it to `app`. Nothing else rebuilds the tool images, and on a VPS that has run `deploy.sh` the local ones are whatever was last built from source, possibly before backup encryption (an old backup image uploads plaintext dumps and can't restore `.dump.age`). With `.env` in place, `build` has nothing to build and Compose keeps the release. `up -d app` runs `migrate` first in the same way. Nothing is written to `deploys.log`. Go back to `deploy.sh` with the next release; it writes `.env` again.
+
+**Moving over from source builds.** The first `deploy.sh` run replaces the locally built app with the registry image for the same commit. Keep the old `thymeandplace-app:latest` image (no `docker image rm`, no `docker image prune -a`) until the registry deploy has run for a day. Until then, this puts it back, and rebuilds the tool images from the checkout so the timers don't fall back to old local ones (naming the three leaves `thymeandplace-app:latest` as it is):
+
+```bash
+rm -f .env
+docker compose --profile tools build ingest transform backup
+docker compose up -d app
+```
+
+**First update of a running VPS to `deploy.sh`.** The release that brings `deploy.sh` also brings backup encryption and the heartbeat checks, and the three one-time procedures depend on each other. Once `deploy.sh` has run, the nightly timer uses the release's encrypting backup image, which exits 2 until `BACKUP_AGE_RECIPIENTS` is set. Nothing alerts on that until `HEARTBEAT_BACKUP_URL` is set, which is also new in this release. So, in order and in one sitting, well away from the 03:15 backup:
+
+1. Log Docker in to GHCR, as in "First deploy" step 2 (once per VPS).
+2. Wait for the release's green `release` run, then `git pull && ./deploy.sh <sha>` ("Updating the app"). This is "Backup encryption" › "Rollout" step 1.
+3. "Rollout" steps 2 and 3: generate both keys, set `BACKUP_AGE_RECIPIENTS`, then run `backup` and the restore test by hand. Both must succeed before you stop.
+4. "Monitoring and alerts" › "Setting up", so a failed nightly backup alerts from now on.
+5. Later: "Rollout" step 4 (versioning) and, after 28 days, step 5.
 
 ### The shared `ingest_work` volume and file ownership
 
@@ -128,22 +190,111 @@ docker compose --profile tools build ingest transform
 docker compose --profile tools run --rm --user 0 --entrypoint chown transform -R 65532:65532 /work
 ```
 
+After the first `deploy.sh`, the `build` line prints `No services to build`: the release images already have the fix.
+
+## Rolling back the app
+
+From `/opt/thymeandplace/deploy`:
+
+```bash
+tail -n 5 /var/lib/thymeandplace/deploys.log   # one line per deploy: time, SHA, app digest, window
+./deploy.sh <previous sha>
+```
+
+The previous SHA is the second field of the newest line whose SHA differs from the release running now (`docker compose ps app` shows that one in its image tag). Lines can repeat a SHA, and an emergency source build writes no line at all. No rebuild is involved: every release's images stay in the registry (and usually on the host), so `deploy.sh` starts the previous release's images like any deploy and logs its own line. Its `migrate` finds nothing to apply. The newer migrations stay in the database, and the previous app works with them because migrations are backward-compatible ("Updating the app"). Roll forward again the same way, with the newer SHA.
+
+`compose.yaml` and `deploy.sh` come from the checkout, not from the images. If the release you're leaving changed `deploy/compose.yaml` in a way the previous images can't run with, run `git checkout <previous sha>` first, then `git checkout main` before the next `git pull`.
+
+## Base images and updates
+
+Everything the builds and CI pull is pinned:
+
+- GitHub Actions by commit SHA, with the version in a comment.
+- Every `FROM` and `image:` by digest (`name:tag@sha256:…`).
+- The release build's BuildKit and SBOM scanner images by digest (`.github/workflows/release.yml`).
+- The Go tools (`templ`, `staticcheck`, `govulncheck`) by `go.mod` `tool` lines.
+
+Dependabot (`.github/dependabot.yml`) opens weekly grouped pull requests, one per ecosystem:
+
+- `gomod`
+- `github-actions`
+- `docker`: the Dockerfiles in `deploy/`, `deploy/backup/` and `pipeline/transform/`
+- `docker-compose`: `deploy/compose.yaml`
+- `pip`
+- `npm`
+
+Merge one when CI is green, then deploy the release it produces as usual. That includes `docker-compose` updates: `deploy.sh` pulls and applies the `db` and `caddy` images too. Read the release notes first for a new major version. The actions are pinned to the majors CI already used, so the first `github-actions` pull request is likely to propose majors.
+
+**Compose digests.** Whether Dependabot bumps the digests in `deploy/compose.yaml` wasn't verified (spec §4.1). Check after its first weekly run. If it doesn't, bump them by hand every quarter. Check `deploy/compose.dev.yaml` either way: its name isn't a standard compose file name, so Dependabot may skip it. To bump a digest, take the top `Digest:` line (the multi-platform index) from
+
+```bash
+docker buildx imagetools inspect <image>:<tag>     # e.g. postgis/postgis:17-3.5, caddy:2.11
+```
+
+and replace the `@sha256:…` part. The PostGIS reference must be identical in three places, so that tests run on the production database image:
+
+- `deploy/compose.yaml`
+- `deploy/compose.dev.yaml`
+- `Image` in `internal/dbtest/dbtest.go`
+
+`go test -run TestImageMatchesCompose ./internal/dbtest/` fails if they differ, and so does CI.
+
+**Pins Dependabot doesn't update.** Bump these by hand on the same quarterly pass, and run CI on the change:
+
+| Pin | Where | How |
+|---|---|---|
+| `go 1.26.x` | `go.mod` | Dependabot bumps the `golang:1.26.x` image in `deploy/Dockerfile.app` and `deploy/Dockerfile.ingest`, but not this line. Raise it to the same version in that pull request. CI's `setup-go` installs exactly this version, so govulncheck checks the standard library CI builds with. A govulncheck failure on a standard-library fix means raising both |
+| PostGIS `Image` | `internal/dbtest/dbtest.go` | Copy the reference from `deploy/compose.yaml` (above) |
+| `zenko/cloudserver:latest@sha256:…` | `deploy/backup/verify.sh` and its recipe in "Verifying locally before relying on it" | `imagetools inspect zenko/cloudserver:latest`. It has no maintained version tags, so the tag stays `latest` and the digest is the pin |
+| `sqlc/sqlc:<version>@sha256:…` | `scripts/sqlc.sh` | `imagetools inspect sqlc/sqlc:<version>`, then `./scripts/sqlc.sh generate` and commit any change |
+| `# syntax=docker/dockerfile:1.<minor>@sha256:…` | First line of `deploy/Dockerfile.app`, `deploy/Dockerfile.ingest` and `deploy/backup/Dockerfile` | `imagetools inspect docker/dockerfile:1.<minor>`. Keep the three lines identical |
+| `koalaman/shellcheck:<version>@sha256:…` | `.github/workflows/ci.yml`, `deploy` job | `imagetools inspect koalaman/shellcheck:<version>`. It's a `run:` step, so the `github-actions` updates skip it |
+| `moby/buildkit:v<version>@sha256:…` | `.github/workflows/release.yml`, `driver-opts` of `setup-buildx-action` | The BuildKit that builds and pushes the release images. `imagetools inspect moby/buildkit:buildx-stable-1` shows the current stable digest; pin the `v…` tag with that digest. It's an action input, so the `github-actions` updates skip it |
+| `docker/buildkit-syft-scanner:<version>@sha256:…` | `.github/workflows/release.yml`, `sbom: generator=…` | The SBOM scanner that runs inside the release build. `imagetools inspect docker/buildkit-syft-scanner:stable-1`, then pin the matching version tag with that digest |
+| `rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` | Run by hand on workflow changes: `docker run --rm -v "$PWD:/repo" -w /repo <that reference> -color` | `imagetools inspect rhysd/actionlint:<version>` |
+| MinIO client (`MC_VERSION`, `MC_SHA256_*`) | `deploy/backup/Dockerfile` | As its comment says |
+
 ## Rolling back reference data
 
 `docker compose --profile tools run --rm ingest <dataset> rollback`. It takes one transaction and the site picks it up via `NOTIFY` within seconds.
 
 Old versions are kept. You may drop tables older than the last two versions of a dataset by hand, for example: `docker compose exec db psql -U tp -d thymeandplace -c "SELECT id, table_name, is_live FROM dataset_versions WHERE dataset = 'climate' ORDER BY id"`, then `DROP TABLE climate_cell_v<old id>;` for versions that are neither live nor one of the two most recent. (Rollback refuses to return to a dropped version.)
 
+## When a pinned source changes
+
+Every climate and ocean file has a reviewed sha256 pin in `internal/ingest/<dataset>.go` (the values recorded in `docs/calibration-baseline.md`). The pin belongs to the content, so it still applies when `OCEAN_SOURCE_URL`, `OCEAN_LAND_URL` or `CLIMATE_SOURCE_BASE` points somewhere else. GeoNames (places) is the only unpinned source. Plain `http://` is allowed only for a pinned source, and a redirect from HTTPS to HTTP is refused.
+
+1. **The fetch fails and live data is untouched.** The error names the file and both hashes: `<file>: sha256 <got> does not match the pin <want>; live data unchanged; …`. No `dataset_versions` row is written and nothing is uploaded, so there is nothing to clean up.
+2. **Download the file by hand and compare it with the archived copy.** Every fetched version keeps its raw files in the reference-data bucket (`BUCKET_NAME` in `ingest.env`) at `raw/<dataset>/v<live>/<file>`, where `<live>` is the live version's id (`SELECT id, source_checksum FROM dataset_versions WHERE dataset = '<dataset>' AND is_live`). Copy it out with any S3 client (for example `mc cp`), `curl -fsSL` the source URL, and compare `sha256sum` and the contents. A changed header, reordered features or a re-encoded file with the same data is still a change: the pin covers bytes, not meaning.
+3. **If the change is legitimate, update the pin in a commit that says why**: what the publisher changed, the old and new sha256, and how you checked it. Keep that commit to the pin (and `docs/calibration-baseline.md`'s checksum row). If the change isn't legitimate (an unexpected mirror, a truncated or tampered file), leave the pin and find out why before fetching again.
+4. **Re-run calibration, then fetch, approve and swap.** On staging (the local dev stack), fetch with the new pin, approve and run `all`, then check the calibration score as in `docs/calibration-baseline.md` ("How this was measured"): it should stay within 0.02 of the baseline, or the baseline gets updated with the reason. Then merge the new pin and deploy its release (`./deploy.sh <sha>`, "Updating the app"; before the first `deploy.sh`, `docker compose --profile tools build ingest`) and run `fetch`, `approve-license --version N` (read the summary: only the changed file should say `changed`), `approve-license --version N --yes` and `all --version N` in production. Because the bytes changed, the earlier review doesn't carry over, so the approval is needed.
+
 ## Nightly backups
 
-`deploy/backup` builds a small `postgres:17-bookworm` image with `pg_dump`/`pg_restore`/`psql` and a pinned MinIO client (`mc`) added on top, entrypoint `backup.sh`. Nightly:
+`deploy/backup` builds a small `postgres:17-bookworm` image with `pg_dump`/`pg_restore`/`psql`, Debian's `age` and a pinned MinIO client (`mc`) added on top, entrypoint `backup.sh`. Nightly:
 
-- `docker compose --profile tools run --rm backup` — dumps `DATABASE_URL` (as `tp_backup`, which can read everything and write nothing) with `pg_dump --format=custom`, uploads it to `s3://$BUCKET_NAME/backups/daily/<date>.dump` via `mc`, additionally copies it to `backups/weekly/<iso-week>.dump` on Sundays, then prunes daily copies older than 7 days and weekly copies older than 28. It fails loudly (non-zero exit) if the dump comes out empty.
+- `docker compose --profile tools run --rm backup` — dumps `DATABASE_URL` (as `tp_backup`, which can read everything and write nothing) with `pg_dump --format=custom` to a temporary file, checks it is non-empty and that `pg_restore --list` reads it, encrypts it with `age` to every key in `BACKUP_AGE_RECIPIENTS` ("Backup encryption"), deletes the plaintext, and uploads the ciphertext to `s3://$BUCKET_NAME/backups/daily/<date>.dump.age` via `mc`. On Sundays it also copies it to `backups/weekly/<iso-week>.dump.age`. Then it prunes daily copies older than 7 days and weekly copies older than 28, unless `BACKUP_PRUNE=lifecycle` leaves that to bucket lifecycle rules ("Backup deletion protection"). It fails loudly (non-zero exit) and uploads nothing if the dump comes out empty or unreadable, and it exits 2 before dumping anything if `BACKUP_AGE_RECIPIENTS` is empty or lists anything but `age1…` public keys.
 
-Add to root's crontab on the VPS (`crontab -e`):
+With `HEARTBEAT_BACKUP_URL` set in `backup.env`, each run pings the `backup` check: `/start`, then success (`backup ok: backups/daily/<date>.dump.age`), or `/fail` naming the step that failed (for example `backup failed during dump (exit 1)`; the steps are `env`, `alias`, `dump`, `verify`, `encrypt`, `upload`, `weekly` and `prune`). A prune failure keeps the exit status at 0 but still fails the check (`dump uploaded; pruning failed: backups/daily`, naming each prefix that failed); `mc`'s error message is only in the run's log, since it can carry the object store's IP. A run that never starts (Docker down, image missing) sends nothing, and the missed run alerts. See "Monitoring and alerts".
+
+Schedule it with the systemd timer below (preferred: its output goes to the journal, which rotates itself) or with cron. For cron, add to root's crontab on the VPS (`crontab -e`):
 
 ```
 15 3 * * * cd /opt/thymeandplace/deploy && docker compose --profile tools run --rm backup >> /var/log/thymeandplace-backup.log 2>&1
+15 4 1 * * cd /opt/thymeandplace/deploy && docker compose --profile tools run --rm --entrypoint restore-test.sh restore >> /var/log/thymeandplace-backup.log 2>&1
+```
+
+The second line is the monthly restore test (below). Nothing else rotates that log file, so with cron also add:
+
+```
+# /etc/logrotate.d/thymeandplace-backup
+/var/log/thymeandplace-backup.log {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+}
 ```
 
 Or, with systemd, a timer + oneshot service:
@@ -169,17 +320,19 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-Enable with `systemctl enable --now thymeandplace-backup.timer`.
+Enable with `systemctl enable --now thymeandplace-backup.timer`, and read its output with `journalctl -u thymeandplace-backup`.
 
-Periodically (e.g. monthly, right after a successful backup) verify restores still work:
+On the 1st of each month, an hour after that night's backup, the restore test checks that the newest dump still restores (the `15 4 1 * *` cron line above). With systemd, copy the two units as `thymeandplace-restore-test.service` and `.timer`, with `ExecStart=/usr/bin/docker compose --profile tools run --rm --entrypoint restore-test.sh restore` and `OnCalendar=*-*-01 04:15:00`. To run it by hand:
 
 ```bash
 docker compose --profile tools run --rm --entrypoint restore-test.sh restore
 ```
 
-Restores run in the `restore` service (the backup image, with `restore.env`), which connects as the bootstrap superuser: dropping and recreating the database and reinstalling PostGIS need it. The nightly `backup` job never gets that password.
+With `HEARTBEAT_RESTORE_TEST_URL` set in `restore.env`, it pings the `restore-test` check: `/start`, then success, or `/fail` with the count table. It restores into a scratch database on the production Postgres, so the server needs disk for one more copy of the database for a few minutes.
 
-`restore-test.sh` restores the newest daily dump into a scratch database (`thymeandplace_restore_test`) on the same Postgres server by calling `restore.sh` on it (the exact drop/create/single-transaction path a real restore takes, see "Restoring from backup"), compares row counts of `ingredient`, `ingredient_pairing`, `seafood_region`, `catalog_history`, `dataset_versions`, `admin_passkey`, `admin_backup`, `climate_cell`, `ocean_ecoregion`, and `place` against the live database, prints a table of `live=`/`restored=` counts, and drops the scratch database afterwards even if the comparison fails (it's under a `trap ... EXIT`). It exits non-zero — "fail loudly" — on any count mismatch or if no daily backup is found. Because a backup taken mid-day can legitimately trail the live `catalog_history` count if edits happened since, run it immediately after a fresh `backup` run rather than at an arbitrary time.
+Restores run in the `restore` service (the backup image, with `restore.env`), which connects as the bootstrap superuser: dropping and recreating the database and reinstalling PostGIS need it. The nightly `backup` job never gets that password. The restore-test key (`/etc/thymeandplace/restore-test.agekey`) is mounted into `restore` only, and `AGE_IDENTITY` points at it there, so `restore` decrypts `.dump.age` backups without further settings.
+
+`restore-test.sh` restores today's daily dump, or yesterday's if today's isn't there yet (`backups/daily/<YYYY-MM-DD>.dump.age`, dates in UTC as `backup.sh` names them, matched exactly; never a plaintext `.dump` or a later-dated name, since anyone who can write to the bucket can add one, see "Threat model"), into a scratch database (`thymeandplace_restore_test`) on the same Postgres server by calling `restore.sh` on it (the exact drop/create/single-transaction path a real restore takes, see "Restoring from backup"), compares row counts of `ingredient`, `ingredient_pairing`, `seafood_region`, `catalog_history`, `dataset_versions`, `admin_passkey`, `admin_backup`, `climate_cell`, `ocean_ecoregion`, and `place` against the live database, prints a table of `live=`/`restored=` counts, and drops the scratch database afterwards even if the comparison fails (it's under a `trap ... EXIT`). It exits non-zero — "fail loudly" — on any count mismatch or if neither today's nor yesterday's backup is in the bucket. Because a backup taken mid-day can legitimately trail the live `catalog_history` count if edits happened since, run it immediately after a fresh `backup` run rather than at an arbitrary time.
 
 ### Verifying locally before relying on it
 
@@ -193,7 +346,7 @@ C="docker compose -p thymeandplace-e2e -f compose.yaml -f compose.e2e.yaml"   # 
 $C up -d --build --wait db app
 $C --profile tools run --rm --entrypoint /app/devseed ingest
 
-docker run -d --name tp-minio -e ENDPOINT=tp-minio -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver:latest
+docker run -d --name tp-minio -e ENDPOINT=tp-minio -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver:latest@sha256:b53e57829cf7df357323e60a19c9f98d2218f1b7ccb1d7cea5761a5a227a9ee3   # the pin in deploy/backup/verify.sh
 docker network connect thymeandplace-e2e_default tp-minio
 $C --profile tools build backup
 $C --profile tools run --rm --entrypoint sh backup -c "mc alias set m http://tp-minio:8000 accessKey1 verySecretKey1 && mc mb m/tp-backups"
@@ -204,7 +357,7 @@ $C --profile tools run --rm $BK --entrypoint restore-test.sh restore     # as th
 
 # Full restore over the (e2e) live database, exactly as in "Restoring from backup":
 $C stop app
-$C --profile tools run --rm $BK -e RESTORE_CONFIRM=thymeandplace restore backups/daily/<date>.dump
+$C --profile tools run --rm $BK -e RESTORE_CONFIRM=thymeandplace restore backups/daily/<date>.dump.age
 $C start app
 
 docker rm -f tp-minio; $C --profile tools down -v
@@ -212,7 +365,11 @@ docker rm -f tp-minio; $C --profile tools down -v
 
 `compose.e2e.yaml` sets the project name `thymeandplace-e2e`, so this stack's containers and volumes (`thymeandplace-e2e_*`) are separate from production's (`thymeandplace_*`) and the final `down -v` (like the ones in `deploy/smoke.sh` and `e2e/run.sh`) cannot touch production data, even on the VPS. Always pass both `-f compose.yaml -f compose.e2e.yaml` for test stacks.
 
-Expected output: `backup ok: backups/daily/<date>.dump`, then a table of equal `live=`/`restored=` counts per table, then `restore-test ok (<date>.dump)`, then `restore ok: backups/daily/<date>.dump → thymeandplace`. When this was verified, a table with a PostGIS `geography` column (plus a view on it) created after the backup was gone after the restore, and every catalog count matched the counts at backup time. `accessKey1`/`verySecretKey1` are `zenko/cloudserver`'s built-in defaults, used only for this throwaway local container — never real credentials.
+As in production, the dumps are encrypted to two recipients, both test-only, listed in `deploy/e2e/backup.env` with extra spaces and a tab between them. `restore` decrypts with the restore-test identity, `deploy/e2e/restore-test.agekey`, mounted the same way as production's key; `deploy/e2e/recovery-test.agekey` stands in for the recovery key. Both key pairs are committed, so they protect nothing: never use them outside the e2e stack.
+
+Expected output: `backup ok: backups/daily/<date>.dump.age`, then a table of equal `live=`/`restored=` counts per table, then `restore-test ok (<date>.dump.age)`, then `restore ok: backups/daily/<date>.dump.age → thymeandplace`. When this was verified, a table with a PostGIS `geography` column (plus a view on it) created after the backup was gone after the restore, and every catalog count matched the counts at backup time. `accessKey1`/`verySecretKey1` are `zenko/cloudserver`'s built-in defaults, used only for this throwaway local container — never real credentials.
+
+`./deploy/backup/verify.sh` runs this recipe with every check (encrypted upload to both recipients, restore-test, a disaster restore over the live database with the stand-in recovery key in exactly the `-v …:/run/secrets/recovery.agekey:ro -e AGE_IDENTITY=…` form of "Disaster restore with the recovery key", refusals without the right key or with a changed byte, restore-test ignoring planted later-dated objects, a plaintext dump refused without `RESTORE_ALLOW_PLAINTEXT=1` and restored with it, bad recipients, a failed dump and a zero-byte dump) and runs in CI on `main`. It prints one `verify: ok:` line per check and `verify: all backup checks passed` at the end. Like the recipe, it uses the `thymeandplace-e2e` project, so don't run it while another e2e stack is up on the same machine.
 
 **Windows / Git Bash note:** Git Bash rewrites a leading `/` in arguments as a Windows path, which breaks `--entrypoint /app/devseed` and similar. `MSYS_NO_PATHCONV=1` (exported above) turns that off; it's a no-op on Linux.
 
@@ -221,20 +378,158 @@ Expected output: `backup ok: backups/daily/<date>.dump`, then a table of equal `
 A restore **replaces the whole database** with the dump. `restore.sh <key> [target-url]` (the `restore` service's entrypoint; the target defaults to its own `DATABASE_URL` from `restore.env`, i.e. the live database, as the bootstrap superuser):
 
 1. refuses unless `RESTORE_CONFIRM` is set to the exact database name in the target URL (the last path segment before any `?params`), before anything is downloaded or touched — this stops a stale or copy-pasted URL from overwriting the wrong database;
-2. downloads the dump and checks it is non-empty and a readable `pg_dump` archive, so a missing, empty or corrupt backup exits non-zero with the database untouched;
-3. connects to the `postgres` maintenance database on the same server and runs `DROP DATABASE <db> WITH (FORCE)` then `CREATE DATABASE <db>` (the name is quoted as an identifier);
-4. runs `pg_restore --single-transaction --exit-on-error --no-owner` into the empty database. Nothing created after the backup survives (tables, views, PostGIS-dependent objects), and there is no object-by-object `--clean` that could fail halfway through the live data;
-5. hands the database and its objects back to `tp_owner` (`deploy/backup/own-objects.sql`), since `--no-owner` leaves them owned by the superuser. The grants to `tp_app` come back with the dump.
+2. for an encrypted key (`*.age`), refuses before downloading unless `AGE_IDENTITY` names a readable identity file: "encrypted backup; set AGE_IDENTITY to your recovery or restore-test key". A plaintext key is refused unless `RESTORE_ALLOW_PLAINTEXT=1` is set (see below);
+3. downloads the dump, decrypts it if it's encrypted, and checks it is non-empty and a readable `pg_dump` archive, so a missing, empty or corrupt backup exits non-zero with the database untouched. `age` authenticates its ciphertext, so a wrong key or a single changed byte also refuses here ("could not be decrypted with AGE_IDENTITY"). It doesn't prove who encrypted the file ("Backup encryption" › "Threat model");
+4. connects to the `postgres` maintenance database on the same server and runs `DROP DATABASE <db> WITH (FORCE)` then `CREATE DATABASE <db>` (the name is quoted as an identifier);
+5. runs `pg_restore --single-transaction --exit-on-error --no-owner` into the empty database. Nothing created after the backup survives (tables, views, PostGIS-dependent objects), and there is no object-by-object `--clean` that could fail halfway through the live data;
+6. hands the database and its objects back to `tp_owner` (`deploy/backup/own-objects.sql`), since `--no-owner` leaves them owned by the superuser. The grants to `tp_app` come back with the dump.
 
-Dumps live in the bucket at `backups/daily/<YYYY-MM-DD>.dump` (last 7 days) and `backups/weekly/<YYYY>-W<ww>.dump` (last 4 weeks). From `/opt/thymeandplace/deploy`:
+Dumps live in the bucket at `backups/daily/<YYYY-MM-DD>.dump.age` (last 7 days) and `backups/weekly/<YYYY>-W<ww>.dump.age` (last 4 weeks). `mc ls` lists them ("Backup deletion protection" shows how to run it). On the VPS, the `restore` service decrypts with the restore-test key by default. From `/opt/thymeandplace/deploy`:
 
 ```bash
 docker compose stop app
-docker compose --profile tools run --rm -e RESTORE_CONFIRM=thymeandplace restore backups/daily/<date>.dump
+docker compose --profile tools run --rm -e RESTORE_CONFIRM=thymeandplace restore backups/daily/<date>.dump.age
 docker compose start app
 ```
 
 `thymeandplace` is `POSTGRES_DB` from `/etc/thymeandplace/db.env`; if it refuses with "refusing to restore over ...", the name after `-e RESTORE_CONFIRM=` doesn't match the database name in `restore.env`'s `DATABASE_URL`. The app must be stopped first: `WITH (FORCE)` terminates its connections, and it must not write to the database mid-restore. After `start app`, check `curl -s https://thymeand.place/readyz` returns `ready`.
+
+Plaintext `.dump` keys from before encryption (`backups/daily/<date>.dump`) need no identity, but `restore.sh` refuses them unless you add `-e RESTORE_ALLOW_PLAINTEXT=1` to the command. Add it only for a dump you know your own backup job wrote: the restore runs the dump's SQL as the database superuser, and nothing in a plaintext object shows who uploaded it ("Threat model"). The prune removes them within 28 days of the switch, but with versioning on (the minimum level) each one stays as a hidden version for 35 more days ("Backup encryption" › "Rollout" step 5).
+
+### Disaster restore with the recovery key
+
+Use the recovery key when the restore-test key can't decrypt the backup: the VPS or its key file is lost, or you're restoring onto a new server.
+
+1. **On a new server**, follow "First deploy" steps 1–4 first, including the restore-test key in step 3. Compose refuses to start `restore` without `/etc/thymeandplace/restore-test.agekey`, even when the recovery key does the decrypting. The new restore-test key can't read the old backups, but list its public key in `BACKUP_AGE_RECIPIENTS` next to the recovery key's, so new backups are encrypted to it.
+2. Copy the recovery key to the VPS for the length of the restore. As root, run `(umask 077; cat > /root/recovery.key)`, paste the key file's contents from your password manager, then press Ctrl-D.
+3. Restore, from `/opt/thymeandplace/deploy`, then delete the copy straight away, even if the restore failed:
+   ```bash
+   docker compose stop app
+   docker compose --profile tools run --rm -v /root/recovery.key:/run/secrets/recovery.agekey:ro -e AGE_IDENTITY=/run/secrets/recovery.agekey -e RESTORE_CONFIRM=thymeandplace restore backups/daily/<date>.dump.age
+   docker compose start app
+   shred -u /root/recovery.key
+   ```
+4. Run a backup and the restore test, as in "First deploy" step 10, so the newest backup is one the on-host key can read.
+
+## Backup encryption
+
+Every dump is encrypted with [`age`](https://age-encryption.org) before it leaves the host, so the bucket holds only ciphertext (`*.dump.age`). A dump holds the admin password hash, the sealed TOTP secret, passkey public keys, session token hashes and `admin_login_log`'s IP addresses, as well as the catalog. Design: `docs/superpowers/specs/2026-09-27-backup-encryption-design.md`.
+
+### Keys
+
+Each dump is encrypted to two X25519 keys, and either private key decrypts it.
+
+| Key | Private key kept | Used for |
+|---|---|---|
+| **Recovery** | In your password manager and on paper. Never on the VPS, except while a disaster restore runs | Restoring when the VPS or its key is lost ("Disaster restore with the recovery key") |
+| **Restore-test** | `/etc/thymeandplace/restore-test.agekey` on the VPS, mode `600`, root-owned. Compose mounts it read-only into the `restore` service only, at `/run/secrets/restore-test.agekey`, and sets `AGE_IDENTITY` to that path | The monthly restore test, and routine restores on the VPS |
+
+1. **Recovery key**, on your own machine (install `age` there, e.g. `apt install age` or `brew install age`): `age-keygen -o recovery.key`. It prints `Public key: age1…`. Save the whole file in your password manager and write it on paper (the `AGE-SECRET-KEY-1…` line is the private key), then delete the file. It never goes on the VPS.
+2. **Restore-test key**, on the VPS, from a root shell in `/opt/thymeandplace/deploy`. This runs `age-keygen` from the backup image, so the host needs no `age`, but the image has to be one with `age` in it. Always build it first, as its own command (`git pull` first on a VPS that is already running). On a VPS whose backup image predates encryption, skipping the build makes the keygen fail with "executable file not found". After the first `deploy.sh`, the deployed release's backup image is used instead (it has `age`), and the `build` line prints `No services to build`. `age-keygen -o` writes the file itself, mode `600`, into `/etc/thymeandplace` through a bind mount, and refuses to overwrite an existing file. Don't redirect its standard output into the file instead: Docker's `json-file` log driver would also write the private key to the container's log on disk.
+   ```bash
+   docker compose --profile tools build backup
+   docker compose --profile tools run --rm --no-deps -v /etc/thymeandplace:/out --entrypoint age-keygen backup -o /out/restore-test.agekey
+   ```
+   It prints its public key; `grep 'public key' /etc/thymeandplace/restore-test.agekey` shows it again. Check the file:
+   - `grep -c '^AGE-SECRET-KEY-1' /etc/thymeandplace/restore-test.agekey` prints `1`: one private key.
+   - `grep -vc -e '^#' -e '^AGE-SECRET-KEY-1' /etc/thymeandplace/restore-test.agekey` prints `0`: nothing but comments and the key.
+   - `stat -c '%a %U' /etc/thymeandplace/restore-test.agekey` prints `600 root`.
+
+   If a check fails, delete the file and run both commands again.
+3. **Recipients.** Put both public keys, space-separated, in `/etc/thymeandplace/backup.env`: `BACKUP_AGE_RECIPIENTS=age1<recovery> age1<restore-test>`. Only public keys go there. Keep the public keys confidential too: anyone who has one can make a `.dump.age` that a restore accepts ("Threat model"). They belong only in `backup.env`, the restore-test key file and your password manager, never in the repo, an issue or a chat. An empty value, or any entry that isn't `age1…` (a pasted `AGE-SECRET-KEY-…`, say), makes `backup` exit 2 and name the variable before it dumps anything. `backup.env` is read on every run, so a change applies from the next backup.
+
+### Threat model
+
+- **Bucket-only compromise** (leaked bucket keys, or an incident at the storage provider): reveals nothing. Every object is ciphertext, and neither private key is in the bucket. The exception is plaintext `.dump` objects from before the switch. The prune removes them within 28 days, but at the minimum level of "Backup deletion protection" that only hides them: each stays readable as a hidden version for 35 more days, about 63 days after the switch in all, to anyone with a bucket key. "Rollout" step 5 shows how to delete them sooner.
+- **Bucket write access** (the same leaked keys: at the minimum level of "Backup deletion protection" both keys can upload and delete): the attacker can't read the backups but can add or replace objects. A restore runs the dump's SQL as the database superuser on the production server, so a planted dump that got restored would run the attacker's SQL there. Three things keep that from happening:
+  - `restore.sh` refuses a plaintext `.dump` key unless `RESTORE_ALLOW_PLAINTEXT=1` is set ("Restoring from backup"), and the monthly restore test never sets it.
+  - `restore-test.sh` restores only today's or yesterday's `<YYYY-MM-DD>.dump.age`, by exact name, so a planted `backups/daily/2099-12-31.dump` or a later-dated `.dump.age` is never picked.
+  - A `.dump.age` decrypts only if it was encrypted to one of your keys, which needs that key's public half. `age` checks that the file wasn't changed, not who made it, so the public keys are confidential: they live only in `backup.env`, the restore-test key file and your password manager. If one leaks, replace that key ("Key rotation", "A lost key").
+- **Host compromise:** the attacker can read the restore-test key and so decrypt the backup history. The live database is exposed in that case anyway, so the extra loss is older rows and deleted history. The recovery key stays off the host, and "Backup deletion protection" keeps the history restorable even if the attacker deletes it with the host's bucket key.
+
+### Key rotation
+
+Add the new recipient to `BACKUP_AGE_RECIPIENTS`, next to the old one, and run a backup by hand. Wait a month (29 days: the prune keeps weekly copies 28 days and the preferred level's lifecycle rule 29), until every kept backup is encrypted to the new key too, then remove the old recipient. Backups made before the removal stay decryptable with the old key until they age out, so keep the old private key until then. Copies that were pruned or expired before then are not gone yet: versioning keeps them hidden for 35 more days, and only the old key decrypts them. If you might need to undelete one, keep the old private key for 64 days after adding the new recipient.
+
+- **Recovery key:** generate the new one as in "Keys" step 1 and store it the same way. Destroy the old copies only after the 29 days, or the 64 if undelete matters.
+- **Restore-test key:** an identity file can hold several keys. Generate the new one into a second file with the "Keys" step 2 command, `-o /out/restore-test.agekey.new` in place of `-o /out/restore-test.agekey`, then append it: `cat /etc/thymeandplace/restore-test.agekey.new >> /etc/thymeandplace/restore-test.agekey && shred -u /etc/thymeandplace/restore-test.agekey.new` (the `grep -c '^AGE-SECRET-KEY-1'` check then prints `2`). After the 29 days, or the 64, delete the old key's three lines (`# created`, `# public key` and its `AGE-SECRET-KEY-1…` line) from the file.
+- **A lost key:** list a new key in its place straight away. Backups made before then can only be decrypted with the other key until they age out.
+
+### Rollout
+
+Once, when the encrypting backup image first goes to the VPS (spec §7):
+
+1. Build the image: `git pull && docker compose --profile tools build backup`. After the first `deploy.sh`, deploy the release that adds encryption instead (`./deploy.sh <sha>`); on a VPS moving to `deploy.sh` with this release, follow "First update of a running VPS to `deploy.sh`" in "Updating the app", which puts these steps in order with the GHCR login and monitoring. `backup` and `restore` share the image. The old image has no `age-keygen`, so this comes before the keys. Do steps 1 to 3 in one sitting, well away from the 03:15 nightly run: until step 2 sets the recipients, the new image's `backup` exits 2 naming `BACKUP_AGE_RECIPIENTS` before it dumps anything, so a run in between fails loudly and uploads nothing.
+2. Generate both keys and set `BACKUP_AGE_RECIPIENTS` ("Keys" above).
+3. Before the next nightly run, run `docker compose --profile tools run --rm backup` (it prints `backup ok: backups/daily/<date>.dump.age`), then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore` (it prints `restore-test ok (<date>.dump.age)`). Both must succeed.
+4. Turn on versioning at the provider, at least at the minimum level in "Backup deletion protection". Then consider the preferred level.
+5. After 28 days, `mc ls --recursive "b/$BUCKET_NAME/backups/"` ("Backup deletion protection" shows how to run it) lists no plaintext `.dump` objects, only `.dump.age`. That listing shows only current objects. At the minimum level the pruned plaintext dumps remain as hidden versions for 35 more days, readable with the bucket key; `mc ls --versions --recursive "b/$BUCKET_NAME/backups/" | grep '\.dump$'` lists them, and it is empty once they are gone. To delete them sooner, any time after step 3 passed, run this in the same `mc` shell (the key in place at the minimum level can delete), or delete every version of each `.dump` file in the B2 console (Browse Files, show file versions):
+   ```sh
+   mc ls --versions --recursive "b/$BUCKET_NAME/backups/" | awk '{print $NF}' | grep '\.dump$' | sort -u |
+     while read -r k; do mc rm --versions --force "b/$BUCKET_NAME/backups/$k"; done
+   ```
+   This removes only keys ending in `.dump`; the `.dump.age` backups and their versions stay. Then the `--versions` listing above must be empty. `restore.sh` keeps accepting plaintext dumps, but only with `RESTORE_ALLOW_PLAINTEXT=1` (spec §8 question 2; "Restoring from backup").
+
+**Rollback:** fix forward. Every release image encrypts, and `deploy.sh` deploys all of a release's images together, so redeploying an older release can't bring plaintext backups back; fix the problem in a new release and deploy that. Until then a failing nightly run uploads nothing and the `backup` check alerts, and the `.dump.age` backups already uploaded stay restorable with any release's `restore` and either key. (Before the first `deploy.sh`, with no `deploy/.env`, the old image can be rebuilt from source: `git checkout <commit before encryption> && docker compose --profile tools build backup && git checkout main`. It uploads plaintext `.dump` files again and, since `restore` shares it, can't restore a `.dump.age`; run `docker compose --profile tools build backup` on `main` again before restoring one.)
+
+## Backup deletion protection
+
+`backup.sh`'s bucket key can delete, because the prune uses `mc rm`. Without protection at the bucket, whoever takes the host could wipe every backup along with the live database. There are two levels (spec §4.4):
+
+- **Minimum** (any provider with versioning): versioning on, with noncurrent versions kept for 35 days. A delete, by the prune or anyone else, then only hides the object behind a delete marker, and the previous version can be brought back for 35 days. No script change.
+- **Preferred** (the provider supports per-key permissions and lifecycle rules): the backup key can upload under `backups/` but not delete, restores use a separate read-only key, and lifecycle rules expire old copies in place of the prune. `BACKUP_PRUNE=lifecycle` in `backup.env` makes `backup.sh` skip its prune. Expire `backups/daily/` after 8 days and `backups/weekly/` after 29, a day longer than the prune's 7 and 28, so there are never fewer than 7 daily and 4 weekly copies. Versioning stays on, so an overwrite also leaves the earlier version for 35 days.
+
+**In place here (awaiting the owner's confirmation):** Backblaze B2, EU Central (`docs/hosting-hetzner.md`), at the **minimum** level. B2 buckets keep earlier versions by default, and "Buckets on B2" step 2 sets the backups bucket's lifecycle to keep them for 35 days. The backups key in `backup.env` and `restore.env` can delete. Update this paragraph when the level changes.
+
+### Running `mc` against the bucket
+
+From `/opt/thymeandplace/deploy`, open a shell in the backup image with `restore.env`'s bucket settings and alias the bucket as `b`:
+
+```bash
+docker compose --profile tools run --rm --no-deps --entrypoint sh restore
+mc alias set b "https://$BUCKET_ENDPOINT" "$BUCKET_ACCESS_KEY" "$BUCKET_SECRET_KEY" >/dev/null
+mc ls --recursive "b/$BUCKET_NAME/backups/"
+```
+
+`exit` leaves the shell. (Use `http://` only if `BUCKET_USE_SSL=false`.)
+
+### Checking versioning
+
+- **B2:** in the web console, the backups bucket's **Lifecycle Settings** must say to keep prior versions for 35 days (or a custom rule with an empty `fileNamePrefix` and `daysFromHidingToDeleting: 35`). B2 buckets keep earlier versions by default, so this setting, which decides how long, is the part to check.
+- **Other providers:** `mc version info "b/$BUCKET_NAME"` must report versioning enabled, and the provider's lifecycle settings must expire noncurrent versions after 35 days, not sooner.
+
+### Undelete drill
+
+Run it once after turning versioning on, and again after any change to the bucket's settings. The drill needs a key that can delete. At the minimum level the `restore.env` key can, so run it in the `mc` shell above:
+
+```sh
+o="b/$BUCKET_NAME/backups/daily/undelete-drill.txt"
+echo drill | mc pipe "$o"
+mc rm "$o"
+mc ls --versions "$o"   # a delete marker above the earlier version
+mc undo "$o"            # removes the delete marker
+mc cat "$o"             # prints: drill
+mc rm "$o"
+```
+
+The drill object doesn't disturb the backups: the restore test only picks `.dump` and `.dump.age` files, and the hidden copy expires with the 35-day rule. If `mc undo` fails against the provider, bring the object back in its console instead (in B2: Browse Files, show file versions, and delete the hide marker).
+
+At the preferred level no key on the VPS can delete: the `restore.env` key is read-only, so the shell above already fails at `mc pipe`, and the backup key can upload but not delete. Run the drill in the B2 console instead. In Browse Files, open `backups/daily/`, upload a small file named `undelete-drill.txt`, hide it, turn on showing file versions, and delete the hide marker; the file must be back and download with its contents. Then delete the file and all its versions. (Or create a temporary key with `deleteFiles`, limited to the backups bucket, run the commands above with it, and delete the key straight after.)
+
+### Moving to the preferred level (B2)
+
+1. Add custom lifecycle rules to the backups bucket (Lifecycle Settings). B2 applies the smallest value of each matching rule, so the three rules combine:
+
+   | `fileNamePrefix` | `daysFromUploadingToHiding` | `daysFromHidingToDeleting` |
+   |---|---|---|
+   | (empty, the whole bucket) | — | 35 |
+   | `backups/daily/` | 8 | 35 |
+   | `backups/weekly/` | 29 | 35 |
+
+2. Create two keys, each limited to the backups bucket. The backup key can upload but not delete, and the restore key can only read (with the B2 CLI: `b2 key create --bucket <backups-bucket> --name-prefix backups/ thymeandplace-backup listBuckets,listFiles,writeFiles`, and `... thymeandplace-restore listBuckets,listFiles,readFiles`). Put them in `backup.env` and `restore.env`. If the check in step 4 fails at `alias` or `upload`, add `readFiles` to the backup key, never `deleteFiles`.
+3. Set `BACKUP_PRUNE=lifecycle` in `backup.env`. Without it, every nightly prune fails with the new key, and the `backup` check alerts "pruning failed".
+4. Check it. Run a backup by hand: it must print `backup ok` and turn the `backup` check green. Then show that the backup key can't delete: `docker compose --profile tools run --rm --no-deps --entrypoint sh backup`, alias the bucket as above, upload `undelete-drill.txt` with `mc pipe`, and check that `mc rm` on it fails with access denied. No key on the VPS can delete that object now, so delete it, with all its versions, in the B2 console (Browse Files, show file versions). Run the restore test (it must print `restore-test ok`).
+5. Delete the old key that could delete, and update "In place here" above.
 
 ## Database roles
 
@@ -250,7 +545,7 @@ The app never connects as a superuser. Each service connects as the least-privil
 - **Audit tables are append-only for the app.** The catalog history and version triggers are `SECURITY DEFINER` functions owned by `tp_owner`, so the app writes history only through them. The only way it can delete login-log rows is `prune_admin_login_log(retention)`, which refuses any retention under 30 days.
 - **New reference tables** that ingest creates as `tp_owner` are readable by `tp_app` with no extra grant (`ALTER DEFAULT PRIVILEGES`).
 - **Secrets per container.** `db` gets the four database passwords and nothing else; `app` gets its own `DATABASE_URL` and the `ADMIN_*` settings, but no bucket keys and no other role's password; `backup` gets the backup role and bucket; `restore` gets the superuser URL. The CI `deploy` job checks this with `docker compose config`, and after a deploy `docker inspect --format '{{.Config.Env}}' $(docker compose ps -q app)` shows what the app actually received.
-- **Rotating a role's password:** `docker compose exec db psql -U tp -d thymeandplace -c "ALTER ROLE tp_app PASSWORD '<new hex password>'"`, then update that role's password in `db.env` and in the one or two files that connect as it (see "First deploy", step 3), and recreate those services (`docker compose up -d app`, for example). For the bootstrap superuser, change `POSTGRES_PASSWORD` in `db.env` and `restore.env` the same way (the postgres image only reads it on an empty volume).
+- **Rotating a role's password:** `docker compose exec db psql -U tp -d thymeandplace -c "ALTER ROLE tp_app PASSWORD '<new hex password>'"`, then update that role's password in `db.env` and in the one or two files that connect as it (see "First deploy", step 3), and recreate the services that stay running: for `tp_app`, recreate `app` with the release overlay ("Recreating `app` after a settings change" in "Updating the app"). The one-shot services (`migrate`, `backup`, `restore`, `ingest`) read their env file on their next run. For the bootstrap superuser, change `POSTGRES_PASSWORD` in `db.env` and `restore.env` the same way (the postgres image only reads it on an empty volume).
 - **Check the grants** with `docker compose exec db psql -U tp -d thymeandplace -c '\dp admin_login_log'`: `tp_app` must have only `r` and `a` (read and append).
 
 ### Adopting an existing database
@@ -323,7 +618,7 @@ DELETE FROM admin_session
 DELETE FROM admin_enrollment_token WHERE used_at IS NOT NULL OR expires_at < now();
 ```
 
-Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Backups keep pruned rows for up to four more weeks (7 daily, 4 weekly copies).
+Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Backups keep pruned rows for up to four more weeks (7 daily, 4 weekly copies), and the bucket keeps deleted copies for 35 days after that ("Backup deletion protection").
 
 ## Capacity
 
@@ -331,7 +626,7 @@ Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Bac
 
 **Public DB gate.** Public database work (a `/season` or `/ingredient` cache miss, a `/places` search, and the `/season` heading label) shares three quarters of the server pool: 12 of 16 slots. The rest stays free for `/admin`, the drift check, catalog reloads and Apply's second connection, so a public spike can't lock the owner out. A request that can't get a slot within 250 ms gets the retry panel with `503` and `Retry-After: 5` straight away instead of queueing until the 2 s deadline. The heading label ("near X") is looked up on every supported `/season` request, cache hits included, so warm `/season` traffic takes a slot too; when none is free the heading falls back to coordinates and the page still loads with `200`. Other cache hits, `/healthz`, `/readyz`, static files and `/admin` never wait on the gate. `/ingredient` and `/season` misses share a cache of each cell's climate normals and ecoregions per data version (20,000 cells), so repeat clicks cost no queries.
 
-**Changing the pool size.** Set `DB_MAX_CONNS` in the app env file and restart the app (`docker compose up -d app`); the gate follows at three quarters. On a VPS with less than 4 GB RAM use 10 (7 public slots). Re-run the load test afterwards.
+**Changing the pool size.** Set `DB_MAX_CONNS` in the app env file and recreate `app` with the release overlay ("Recreating `app` after a settings change" in "Updating the app"); the gate follows at three quarters. On a VPS with less than 4 GB RAM use 10 (7 public slots). Re-run the load test afterwards.
 
 **The `public DB gate full` log line.** When requests are shed, the app logs `INFO "public DB gate full"` at most once a minute, with `shed` (lookups the gate turned away since the last line: 503s plus `/season` headings that fell back to coordinates) and `slots`. Sustained 503s with this line mean the site is at capacity, not that the database is down: `/readyz` still says `ready`. The line without 503s means only headings fell back: the gate is busy but pages still load. Check `SELECT count(*), usename, state FROM pg_stat_activity GROUP BY 2, 3`; the app should hold between 2 and 17 connections.
 
@@ -340,7 +635,98 @@ Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Bac
 ## Health and logs
 
 - `docker compose ps` shows health; `curl -s https://thymeand.place/readyz` returns `ready` when the DB is reachable and the catalog is loaded. The database part of `/readyz` is shared: one ping answers every request for 1 s, so `/readyz` can lag a database outage or recovery by up to a second. Sustained 503s while `/readyz` is `ready` and the log shows `public DB gate full` mean load shedding (see "Capacity"), not an outage.
-- Logs are JSON on stdout: `docker compose logs -f app`. Every service uses Docker's `json-file` driver with rotation (`max-size: 10m`, `max-file: 5`, set once in `deploy/compose.yaml`'s `x-logging` anchor), so each container keeps at most ~50 MB of logs; older lines are gone after rotation. Public requests record `cell_id`, never coordinates. Successful backup logins log at `WARN`, and so do calibration drops of more than 0.02.
-- The drift check runs 24 h after the last recorded run, not at each start: `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1` plus 24 h is the next one. A deploy doesn't trigger it. Until the catalog snapshot loads it waits without logging. A failed run logs `calibration drift check failed` and is retried after 1 min, then 2, 4 … up to 1 h, so a string of those lines minutes apart is retries, not separate days. The admin prune still runs at each start, and its failures (`admin prune failed`) retry the same way. With more than one app replica, each schedules its own checks, and an extra `calibration_run` row is harmless.
+- Logs are JSON on stdout: `docker compose logs -f app`. Every service uses Docker's `json-file` driver with rotation (`max-size: 10m`, `max-file: 20`, `compress: true`, set once in `deploy/compose.yaml`'s `x-logging` anchor), so each container keeps 20 files of up to 10 MB of log each, the rotated ones compressed (at most 200 MB if nothing compressed); older lines are gone after rotation. `docker compose logs` reads the compressed files too. A container keeps the log options it was created with until Compose recreates it ("Recreating `app` after a settings change"); `docker inspect --format '{{.HostConfig.LogConfig}}' $(docker compose ps -q app)` shows what it has. Healthy `/healthz` and `/readyz` lines (2xx) aren't logged, so the probes don't use up the budget; failing probes are. Public requests record `cell_id`, never coordinates. Successful backup logins log at `WARN`, and so do the backup lockout (`backup login locked`) and calibration drops of more than 0.02. Each of these also fails a check ("Monitoring and alerts").
+- The logs rotate away, so the durable records are in the database: `calibration_run` has every drift score, and `admin_login_log` has every sign-in attempt (kept 90 days).
+- The drift check runs 24 h after the last recorded run, not at each start: `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1` plus 24 h is the next one. A deploy doesn't trigger it. Until the catalog snapshot loads it waits without logging. Each run also reports to the `drift` check. A failed run logs `calibration drift check failed` and is retried after 1 min, then 2, 4 … up to 1 h, so a string of those lines minutes apart is retries, not separate days. The admin prune still runs at each start, and its failures (`admin prune failed`) retry the same way. With more than one app replica, each schedules its own checks, and an extra `calibration_run` row is harmless.
 - A logged `cell_id`, with the month and the live data version, determines everything a cook saw except the heading. To reproduce it, open `/season?lat=<90 − (⌊id/1440⌋ + 0.5) × 0.25>&lng=<−180 + (id mod 1440 + 0.5) × 0.25>`, or `/ingredient/{slug}?cell=<id>`.
-- Docker Compose does not restart containers just for being unhealthy. The app exits on fatal errors, and `restart: unless-stopped` brings it back. If you want automatic restarts on failed `/healthz` checks, add a supervisor; it isn't included.
+- The app exits on fatal errors, and `restart: unless-stopped` brings it back. Nothing restarts an unhealthy container. The `app` and `site` alerts tell you to (see "Monitoring and alerts").
+
+## Monitoring and alerts
+
+The app and the backup jobs ping hosted [Healthchecks.io](https://healthchecks.io) checks, and an external uptime monitor probes the site. A check that misses its ping alerts too, so a dead app, VPS or network still reaches you. Monitoring is off until configured: an unset `HEARTBEAT_*` variable turns that ping off, and dev, CI and e2e set none. A malformed URL logs `ERROR "heartbeat URL invalid; check disabled" check=<name>` and turns that ping off, and the site keeps serving; the check then alerts as missed. Design: `docs/superpowers/specs/2026-09-27-observability-and-alerting-design.md`.
+
+### Checks
+
+| Check | Sent by | Healthchecks.io schedule | Goes down when | Ping URL |
+|---|---|---|---|---|
+| `app` | the app's watchdog | Period 5 min, grace 5 min | No ping (app, VPS or outbound network down), or the watchdog reports a failure | `HEARTBEAT_APP_URL` in `app.env` |
+| `admin-auth` | the app's watchdog | Period 1 day, grace 1 h | The backup login was used, the backup lockout engaged, or the login log grew fast ("Admin table pruning"). The long period means an app outage alerts only through `app` | `HEARTBEAT_ADMIN_AUTH_URL` in `app.env` |
+| `drift` | the drift check | Period 1 day, grace 2 h | The score dropped by more than 0.02, the run failed, or no run happened | `HEARTBEAT_DRIFT_URL` in `app.env` |
+| `backup` | `backup.sh` | Cron `15 3 * * *`, VPS time zone, grace 1 h | Non-zero exit, prune failure, no success within the grace time after `/start`, or no run | `HEARTBEAT_BACKUP_URL` in `backup.env` |
+| `restore-test` | `restore-test.sh` | Cron `15 4 1 * *`, VPS time zone, grace 2 h | Count mismatch, no dump, or no run | `HEARTBEAT_RESTORE_TEST_URL` in `restore.env` |
+| `site` | external uptime monitor | Every 5 min or less | Not 200, body not `ready`, TLS error, or certificate expiring within 14 days | the vendor's settings |
+
+Set every Healthchecks.io check to accept `POST` pings only, so a link preview or crawler that opens a ping URL can't flip it. Give the two cron checks the VPS's time zone (`timedatectl` shows it); their schedules match the backup timer and cron entries in "Nightly backups".
+
+The watchdog samples readiness every minute and reports every 5 minutes, so it sends at most one ping per check a minute. A report fails `app`, with one line per reason, when:
+
+- `not ready: catalog not loaded` or `not ready: database unavailable`: 3 samples in a row failed. This one is sent at once, not at the next 5-minute report. A site still waiting for its first catalog snapshot reports it too.
+- `5xx: <n> of <m> requests`: at least 5 responses, and at least 5% of the non-probe responses, were 5xx.
+- `errors: <n> (<message>; ...)`: the app logged at least one `ERROR`. Up to 3 distinct messages are sent; a message with anything but letters, spaces and `:;,'_-` is sent as `(message withheld)`.
+
+Otherwise it sends `ok requests=<m> 5xx=<n>`. `admin-auth` gets `backup login used: <n>; backup lockout: <n>; login log growth: <n>` when any of those happened, and `ok` otherwise. On shutdown the app stops without pinging, and the grace time covers a deploy. With more than one app replica, give each its own `app` check, or a healthy replica hides a dead one.
+
+### Ping URLs are secrets
+
+Use each check's own UUID ping URL (`https://hc-ping.com/<uuid>`), not the project ping key + slug form, where one leaked key exposes every check. Anyone holding a ping URL can flip its check, so the URLs live only in the root-only env files above, never in the repo or `compose.yaml`, and neither the app nor the scripts print them. The app reads its three at startup, so after changing them recreate `app` with the release overlay ("Recreating `app` after a settings change" in "Updating the app"); `backup` and `restore-test` read theirs on each run. If one leaks, replace the check with a new one and update its env file.
+
+### Privacy
+
+Monitoring keeps the promise in "Reverse proxy trust and logging" and on the About page: nothing that leaves the VPS identifies a visitor.
+
+| Channel | May carry | Never carries |
+|---|---|---|
+| App log (stdout) | Unchanged: request ID, path without query, `cell_id`, admin IP on admin events | Coordinates, query strings, public visitor IPs, ping URLs |
+| Ping bodies (Healthchecks.io) | Counts, reason labels, constant `ERROR` messages, calibration scores, data-version strings, backup object keys, table row counts | Paths, `cell_id`, coordinates, any IP, log attributes, secrets |
+| External monitor | Its own probe of `/readyz` or `/` | Anything about visitors |
+| A future metrics endpoint | Status class and fixed route class (`season`, `places`, `ingredient`, `admin`, `static`, `other`) | Raw paths, query values, `cell_id`, IPs or slugs as labels |
+
+A future metrics endpoint must use its own port. Caddy must never proxy that port, and `ports:` must never publish it.
+
+### External uptime monitor
+
+The `site` check runs at an uptime monitoring vendor, not in this repo, and catches what in-app pings can't: Caddy, TLS, DNS and firewall faults. The vendor must support:
+
+- an HTTPS check that `https://thymeand.place/readyz` returns 200 with a body of exactly `ready`, every 5 minutes or less;
+- alerting only after 2 consecutive failures, so a deploy's brief maintenance page doesn't page you;
+- a certificate-expiry warning at 14 days (Caddy starts renewing with a third of a certificate's lifetime left, so this warning means renewal has been failing for a while);
+- email and push notifications.
+
+If `/readyz` is ever taken off the public site, check `/` for the text `Find your town` instead; database readiness then rests on the `app` check.
+
+### Setting up
+
+1. In a Healthchecks.io project, create the five checks above with their schedules, `POST` only, and the cron checks in the VPS time zone. Attach email and one push channel (ntfy, Pushover, Telegram or Signal; SMS and phone calls need a paid plan) to every check, and send a test notification.
+2. Put each check's ping URL in its env file (`sudoedit /etc/thymeandplace/app.env` and so on).
+3. Configure the external monitor, and turn on the VPS provider's disk and CPU alerts if it offers them.
+4. Recreate the running services (from the deployed release, through `deploy/.env`; see "Updating the app"):
+   ```bash
+   docker compose up -d
+   ```
+   Compose recreates the containers whose settings changed, so they pick up the new env and log options. `app` and `admin-auth` go green within a few minutes. `drift` goes green at the next scheduled run, 24 h after `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1`; a deploy doesn't trigger one.
+5. Run a backup by hand (`docker compose --profile tools run --rm backup`): the `backup` check shows `/start`, then success. Then run `docker compose --profile tools run --rm -e BUCKET_NAME=missing backup`: expect a failure alert naming `upload`. Run a normal backup again to clear it.
+6. Optional drill, on a quiet evening: `docker compose stop app` for 12 minutes. Expect `site` and `app` alerts, then recovery after `docker compose start app`.
+
+### Planned work
+
+Before planned work that keeps the site or a job down for more than 10 minutes (a restore, a VPS upgrade, a long migration), pause the affected checks in Healthchecks.io and the external monitor, and resume them afterwards. Without a ping, `app` alerts after its 5-minute period plus 5 minutes' grace. A normal deploy fits inside that.
+
+### Runbook
+
+Start with the check's event log in Healthchecks.io: the last ping body says what failed, and the alert itself may not include it. Run the commands from `/opt/thymeandplace/deploy`.
+
+| Alert | First step |
+|---|---|
+| `site` | `docker compose ps`, `docker compose logs --since 30m caddy app`. Run `docker compose restart app` if it is hung |
+| TLS warning | `docker compose logs caddy \| grep -i acme` |
+| `app` missing ping | Is the VPS up? `docker compose ps`. Is outbound HTTPS open? |
+| `app` not ready | `docker compose ps db`, `docker compose logs --since 30m db app` |
+| `app` 5xx or errors | Read the check's event log, then `docker compose logs --since 15m app \| grep -E '"level":"ERROR"\|"status":5'` |
+| `admin-auth` | `docker compose exec db psql -U tp -d thymeandplace -c "SELECT at, ip, method, outcome FROM admin_login_log ORDER BY at DESC LIMIT 20"`. If it wasn't you: `docker compose exec app /app/admin revoke-sessions`, then `docker compose exec app /app/admin set-backup`. For login log growth, see "Admin table pruning" |
+| `drift` | `docker compose exec db psql -U tp -d thymeandplace -c "SELECT * FROM calibration_run ORDER BY id DESC LIMIT 5"`. Consider `docker compose --profile tools run --rm ingest <dataset> rollback`. For a failed run, `docker compose logs --since 25h app \| grep 'calibration drift'`. Recovery the next day means no further drop, not fixed |
+| `backup` | `journalctl -u thymeandplace-backup` (systemd timer) or `/var/log/thymeandplace-backup.log` (cron), then rerun by hand. `during env` means a setting in `backup.env` is missing or wrong, such as `BACKUP_AGE_RECIPIENTS` ("Backup encryption"); `during verify` means the dump was empty or unreadable, and nothing was uploaded |
+| `restore-test` | Read the count table in the check's event log (or `journalctl -u thymeandplace-restore-test`, or the log file). Don't trust the backups until it passes. An admin edit between the 03:15 backup and the test can make `catalog_history` differ; rerun `backup`, then the test, by hand |
+
+A `drift` alert that clears the next day means the score didn't drop again, not that it recovered: each run compares with the previous run, which is already the lower score. Check `calibration_run` before closing it. A failed drift run also logs `ERROR`, and so does each retry (after 1, 2, 4 … 60 minutes), so `app` fails once per failed attempt while the drift check keeps failing.
+
+The logs that explain an alert rotate away; `calibration_run` (every drift score) and `admin_login_log` (every sign-in attempt, 90 days) are the durable records.

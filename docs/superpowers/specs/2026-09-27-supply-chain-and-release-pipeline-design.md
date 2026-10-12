@@ -125,16 +125,17 @@ If the least-privilege design (`2026-09-27-least-privilege-deployment-design.md`
 
 1. Refuse unless `<sha>` is 40 hex characters.
 2. Run `export TP_IMAGE_TAG=<sha>` and `C="docker compose -f compose.yaml -f compose.release.yaml"`.
-3. Run `$C pull app ingest transform backup` (plus `migrate` and `restore` once S2 lands).
-4. Run `$C up -d --wait app`. This runs `migrate` first once S2 lands, and waits for the health check.
-5. Append `<date> <sha> <app digest>` to `/var/lib/thymeandplace/deploys.log`. The digest comes from `docker image inspect --format '{{index .RepoDigests 0}}'`.
-6. Print the elapsed time from step 4, which is the downtime measurement in §4.6.
+3. Run `$C pull app ingest transform backup` (plus `migrate` and `restore` once S2 lands), and `db caddy` too, so their `compose.yaml` pins download before the window starts.
+4. Run `$C up -d --wait app caddy`. This runs `migrate` first once S2 lands, and waits for the health check. Compose recreates a changed dependency of `app` (`db`) but never a dependent, so `caddy` is named: a merged `docker-compose` update of its pin is applied by the next deploy, and an unchanged `caddy` is left running.
+5. Write `deploy/.env` (git-ignored, replaced atomically) with `COMPOSE_FILE=compose.yaml:compose.release.yaml` and `TP_IMAGE_TAG=<sha>`. Compose reads it from the directory it runs in, so every plain `docker compose` command on the VPS, the backup and restore-test timers and the `tools` runs included, uses the deployed release, and a plain `up -d` can't roll `app` back to a source-built image. Commands with their own `-f` ignore it.
+6. Append `<date> <sha> <app digest>` to `/var/lib/thymeandplace/deploys.log`. The digest comes from `docker image inspect --format '{{index .RepoDigests 0}}'`.
+7. Print the elapsed time from step 4, which is the downtime measurement in §4.6.
 
 **Rollback:** `deploy/deploy.sh <previous sha>` from `deploys.log`. The existing rule that migrations stay backward-compatible with the previous release (`docs/operations.md:66`) is what makes this safe.
 
 **One-time VPS setup:** `docker login ghcr.io` with a token that only has `read:packages`. The login is stored in root's Docker config. Whether fine-grained tokens can read GHCR wasn't verified; a classic token limited to `read:packages` works.
 
-Local development, `deploy/smoke.sh` and `e2e/run.sh` don't use `compose.release.yaml`, so `--build` keeps working unchanged.
+Local development, `deploy/smoke.sh` and `e2e/run.sh` don't use `compose.release.yaml` (they pass their own `-f`, so `deploy/.env` doesn't apply to them either), so `--build` keeps working unchanged.
 
 ### 4.5 Documentation of single-replica assumptions (F22)
 
@@ -172,7 +173,7 @@ We don't build zero-downtime deploys now. `deploy.sh` records the window on ever
 
 - **Order:** CI hardening first (steps 1–4). It is independent and low-risk. Then the release workflow. Then switch the VPS to `deploy.sh` for the next deploy.
 - **Transition:** the first `deploy.sh` run replaces the locally built image with the registry one for the same commit. Keep the old `thymeandplace-app:latest` image until the new one has passed a day.
-- **Rollback of the pipeline itself:** the source-build path (`git pull && docker compose up -d --build app`) keeps working, because `compose.yaml` still has `build:`. It becomes the documented emergency path if GHCR or Actions is unavailable.
+- **Rollback of the pipeline itself:** the source-build path (`rm -f .env && git pull && docker compose --profile tools build && docker compose up -d app`; removing `deploy/.env` drops the release overlay, and the build covers the tool images too, which the backup and restore-test timers run and nothing else rebuilds) keeps working, because `compose.yaml` still has `build:`. It becomes the documented emergency path if GHCR or Actions is unavailable.
 
 ## 8. Open questions for the owner
 

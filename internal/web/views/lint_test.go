@@ -71,6 +71,7 @@ func TestTemplatesFitCSP(t *testing.T) {
 		"PlaceList":         places,
 		"PlacesNoMatch":     PlacesNoMatch("zzz"),
 		"PlacesPaused":      PlacesPaused(),
+		"PlacesKeepTyping":  PlacesKeepTyping(),
 		"PlacesUnavailable": PlacesUnavailable(),
 		"About":             About(true),
 		"About land":        About(false),

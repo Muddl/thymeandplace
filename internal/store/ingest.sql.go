@@ -119,18 +119,26 @@ func (q *Queries) LatestDatasetVersion(ctx context.Context, dataset string) (Dat
 const licenseReviewedBefore = `-- name: LicenseReviewedBefore :one
 SELECT EXISTS (
   SELECT 1 FROM dataset_versions
-  WHERE dataset = $1 AND license = $2 AND source_url = $3 AND license_reviewed
+  WHERE dataset = $1 AND license = $2 AND source_url = $3
+    AND source_checksum = $4 AND license_reviewed
 )
 `
 
 type LicenseReviewedBeforeParams struct {
-	Dataset   string
-	License   string
-	SourceUrl string
+	Dataset        string
+	License        string
+	SourceUrl      string
+	SourceChecksum string
 }
 
+// An approval covers exact bytes: same license, same URLs, same checksums.
 func (q *Queries) LicenseReviewedBefore(ctx context.Context, arg LicenseReviewedBeforeParams) (bool, error) {
-	row := q.db.QueryRow(ctx, licenseReviewedBefore, arg.Dataset, arg.License, arg.SourceUrl)
+	row := q.db.QueryRow(ctx, licenseReviewedBefore,
+		arg.Dataset,
+		arg.License,
+		arg.SourceUrl,
+		arg.SourceChecksum,
+	)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

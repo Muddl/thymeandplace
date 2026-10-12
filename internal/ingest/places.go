@@ -18,6 +18,9 @@ import (
 
 type PlaceCheck struct{ Query, Country string }
 
+// geonamesUnpinned is why the GeoNames sources carry no sha256 pin.
+const geonamesUnpinned = "GeoNames regenerates its dumps at fixed, unversioned URLs"
+
 // Places is the GeoNames cities1000 dataset.
 type Places struct {
 	SourceList []Source
@@ -27,8 +30,8 @@ type Places struct {
 func NewPlaces() *Places {
 	return &Places{
 		SourceList: []Source{
-			{URL: "https://download.geonames.org/export/dump/cities1000.zip", File: "cities1000.zip"},
-			{URL: "https://download.geonames.org/export/dump/admin1CodesASCII.txt", File: "admin1CodesASCII.txt"},
+			{URL: "https://download.geonames.org/export/dump/cities1000.zip", File: "cities1000.zip", Unpinned: geonamesUnpinned},
+			{URL: "https://download.geonames.org/export/dump/admin1CodesASCII.txt", File: "admin1CodesASCII.txt", Unpinned: geonamesUnpinned},
 		},
 		SpotChecks: []PlaceCheck{
 			{"London", "GB"}, {"Paris", "FR"}, {"Tokyo", "JP"}, {"Sydney", "AU"}, {"Cairo", "EG"},

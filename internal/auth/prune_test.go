@@ -74,6 +74,8 @@ func TestPruneWarnsWhenLoginLogGrowsFast(t *testing.T) {
 	var logs bytes.Buffer
 	s.log = slog.New(slog.NewTextHandler(&logs, nil))
 	s.growthWarn = 3
+	var fired []string
+	s.onEvent = func(k string) { fired = append(fired, k) }
 	for i := 0; i < 3; i++ {
 		s.LogAttempt(ctx, v4("192.0.2.40"), "passkey", "failure")
 	}
@@ -83,11 +85,17 @@ func TestPruneWarnsWhenLoginLogGrowsFast(t *testing.T) {
 	if strings.Contains(logs.String(), "admin login log growing fast") {
 		t.Fatal("warned at the threshold; it must warn only above it")
 	}
+	if len(fired) != 0 {
+		t.Fatalf("event fired at the threshold: %v", fired)
+	}
 	s.LogAttempt(ctx, v4("192.0.2.40"), "passkey", "failure")
 	if _, err := s.Prune(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(logs.String(), "admin login log growing fast") {
 		t.Fatalf("no growth warning above the threshold:\n%s", logs.String())
+	}
+	if len(fired) != 1 || fired[0] != "login_log_growth" {
+		t.Fatalf("growth event: %v", fired)
 	}
 }

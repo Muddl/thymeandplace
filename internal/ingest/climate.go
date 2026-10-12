@@ -29,9 +29,18 @@ type Climate struct {
 	ToleranceC float64
 }
 
-// DefaultClimateBase is the THREDDS HTTP file server for the TerraClimate
-// 1991–2020 climatologies (verified 2026-09-25). Override with CLIMATE_SOURCE_BASE.
-const DefaultClimateBase = "http://thredds.northwestknowledge.net:8080/thredds/fileServer/TERRACLIMATE_ALL/climatology"
+// DefaultClimateBase is the THREDDS HTTPS file server for the TerraClimate
+// 1991–2020 climatologies (verified 2026-09-30: serves the pinned ppt file).
+// Override with CLIMATE_SOURCE_BASE.
+const DefaultClimateBase = "https://thredds.northwestknowledge.net/thredds/fileServer/TERRACLIMATE_ALL/climatology"
+
+// climatePins are the reviewed sha256s of the TerraClimate files
+// (docs/calibration-baseline.md). They apply whatever CLIMATE_SOURCE_BASE says.
+var climatePins = map[string]string{
+	"tmin": "93961a5e423c02282bc1aea2761dbdd28bb8ec1ee79ca571f4b8b1db29d42a7a",
+	"tmax": "04e1293284826d5c9814336a52c389d8552523dbe3ccd3aca072e6ca17ac6f58",
+	"ppt":  "eae7eaa3f27c17376178af7a51e6cc5918287d99df35dc00e93ef274b174f211",
+}
 
 func NewClimate(base string) *Climate {
 	if base == "" {
@@ -40,7 +49,7 @@ func NewClimate(base string) *Climate {
 	var src []Source
 	for _, v := range []string{"tmin", "tmax", "ppt"} {
 		f := "TerraClimate_19912020_" + v + ".nc"
-		src = append(src, Source{URL: strings.TrimRight(base, "/") + "/" + f, File: f})
+		src = append(src, Source{URL: strings.TrimRight(base, "/") + "/" + f, File: f, SHA256: climatePins[v]})
 	}
 	return &Climate{
 		SourceList: src,

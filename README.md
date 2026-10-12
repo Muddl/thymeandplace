@@ -72,7 +72,7 @@ e2e/run.sh                                 # Playwright against the full Compose
 deploy/smoke.sh                            # Compose smoke test: roles, migrate, health, maintenance page
 ```
 
-CI (`.github/workflows/ci.yml`) runs the first two, checks that generated code is current, and validates the Compose layout. The e2e job runs on `main`.
+CI (`.github/workflows/ci.yml`) runs the first two (the Go tests with `-race`), plus `go vet`, `go tool staticcheck` and `go tool govulncheck`. It also checks that generated code is current, validates the Compose layout and the release overlay, builds the images and runs shellcheck on the deploy scripts. The e2e and backup-restore jobs run on `main`. "Before you open a pull request" in `CONTRIBUTING.md` lists the same checks to run locally.
 
 ## Configuration
 

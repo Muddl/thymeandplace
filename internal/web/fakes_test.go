@@ -128,11 +128,13 @@ type fakePlaces struct {
 	down      bool
 	blockByID bool                                        // ByID hangs until its context ends
 	nearest   func(lat, lng float64) (places.Place, bool) // when set, answers Nearest
+	searches  atomic.Int32
 }
 
 var lisbon = places.Place{ID: 1, Name: "Lisbon", Admin1: "Lisbon", Country: "PT", Lat: 38.72, Lng: -9.14}
 
 func (f *fakePlaces) Search(_ context.Context, q string) ([]places.Place, error) {
+	f.searches.Add(1)
 	if f.down {
 		return nil, errDown
 	}
@@ -231,6 +233,15 @@ func (hs *harness) ping(ctx context.Context) error {
 
 // seafoodOff turns the seafood feature off, as at launch (FEATURE_SEAFOOD unset).
 func seafoodOff(d *Deps) { d.Seafood = false }
+
+// frozenLimiter stops the rate limiter's clock, so no tokens refill during
+// the test. A test that spends a burst and expects the next request to get a
+// 429 then doesn't depend on how fast the requests run (under -race on a
+// loaded runner they can outlast a refill interval).
+func frozenLimiter(d *Deps) {
+	t0 := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	d.limiterNow = func() time.Time { return t0 }
+}
 
 // shortTimeout shrinks the per-request deadline so timeout tests stay fast.
 func shortTimeout(d *Deps) { d.timeout = 100 * time.Millisecond }

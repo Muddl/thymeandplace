@@ -22,7 +22,14 @@ import (
 	"thymeandplace/internal/store"
 )
 
-type Source struct{ URL, File string }
+// Source is one file a dataset fetches. Its content is trusted either by a
+// pin (SHA256, checked on every fetch whatever the URL) or not at all, with
+// Unpinned saying why. A test requires exactly one of the two.
+type Source struct {
+	URL, File string
+	SHA256    string // expected hex sha256; empty only when Unpinned is set
+	Unpinned  string // why the content can't be pinned; empty when SHA256 is set
+}
 
 // LicenseUnresolved marks a License() whose terms nobody has confirmed yet.
 // A version whose recorded license contains it can't be approved and never
@@ -120,21 +127,27 @@ func (p *Pipeline) Fetch(ctx context.Context) (int64, error) {
 	}
 	var urls, sums []string
 	for _, src := range p.DS.Sources() {
-		sum, err := download(ctx, p.HTTP, src.URL, filepath.Join(incoming, src.File))
+		sum, err := p.get(ctx, src, filepath.Join(incoming, src.File))
 		if err != nil {
 			return 0, fmt.Errorf("download %s: %w", src.URL, err)
+		}
+		// The pin is checked before any row is written or file uploaded.
+		if src.SHA256 != "" && sum != src.SHA256 {
+			return 0, fmt.Errorf("%s: sha256 %s does not match the pin %s; live data unchanged; if the publisher changed this file on purpose, review it and update the pin in internal/ingest/%s.go",
+				src.File, sum, src.SHA256, name)
 		}
 		urls = append(urls, src.URL)
 		sums = append(sums, src.File+"="+sum)
 	}
 	sourceURL := strings.Join(urls, "\n")
+	checksum := "sha256:" + strings.Join(sums, ";")
 	reviewed, err := p.q().LicenseReviewedBefore(ctx, store.LicenseReviewedBeforeParams{
-		Dataset: name, License: p.DS.License(), SourceUrl: sourceURL})
+		Dataset: name, License: p.DS.License(), SourceUrl: sourceURL, SourceChecksum: checksum})
 	if err != nil {
 		return 0, err
 	}
 	id, err := p.q().CreateDatasetVersion(ctx, store.CreateDatasetVersionParams{
-		Dataset: name, SourceUrl: sourceURL, SourceChecksum: "sha256:" + strings.Join(sums, ";"),
+		Dataset: name, SourceUrl: sourceURL, SourceChecksum: checksum,
 		License: p.DS.License(), LicenseReviewed: reviewed,
 	})
 	if err != nil {
@@ -177,7 +190,8 @@ func (p *Pipeline) finishFetch(ctx context.Context, id int64, name, incoming str
 
 // Transform produces the load-ready CSV once per version.
 func (p *Pipeline) Transform(ctx context.Context, v int64) error {
-	if _, err := p.version(ctx, v); err != nil {
+	dv, err := p.version(ctx, v)
+	if err != nil {
 		return err
 	}
 	name, key := p.DS.Name(), csvKey(p.DS.Name(), v)
@@ -194,6 +208,25 @@ func (p *Pipeline) Transform(ctx context.Context, v int64) error {
 			if err := p.Blob.GetFile(ctx, rawKey(name, v, src.File), local); err != nil {
 				return fmt.Errorf("download raw %s: %w", src.File, err)
 			}
+		}
+	}
+	// The bytes about to be transformed must be the ones fetched and
+	// reviewed; the bucket copy could have changed since.
+	want, err := parseChecksums(dv.SourceChecksum)
+	if err != nil {
+		return fmt.Errorf("version %d: %w", v, err)
+	}
+	for _, src := range p.DS.Sources() {
+		got, err := hashFile(filepath.Join(dir, "raw", src.File))
+		if err != nil {
+			return fmt.Errorf("hash raw %s: %w", src.File, err)
+		}
+		w, ok := want[src.File]
+		if !ok {
+			return fmt.Errorf("raw file %s has no recorded checksum in version %d; refusing to transform it", src.File, v)
+		}
+		if got != w {
+			return fmt.Errorf("raw file %s differs from what was fetched and reviewed (sha256 %s, recorded %q)", src.File, got, w)
 		}
 	}
 	out := filepath.Join(dir, "data.csv")

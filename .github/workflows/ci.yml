@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
       - name: Generated code is current
@@ -26,15 +26,19 @@ jobs:
           ./scripts/sqlc.sh generate
           git diff --exit-code
       - run: go vet ./...
+      - name: staticcheck
+        run: go tool staticcheck ./...
+      - name: govulncheck (reachable vulnerabilities only)
+        run: go tool govulncheck ./...
       - name: Unit, scoring, auth, store integration and ingestion tests
-        run: go test ./... -count=1
+        run: go test -race -count=1 ./...
 
   python:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - run: pip install -r pipeline/transform/requirements-dev.txt
@@ -44,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Compose files are valid
         run: |
           # The production layout reads one env file per service; the
@@ -52,8 +56,39 @@ jobs:
           env_dir="$RUNNER_TEMP/env"
           mkdir -p "$env_dir"
           for f in deploy/env/*.env.example; do cp "$f" "$env_dir/$(basename "$f" .example)"; done
+          # restore bind-mounts the restore-test key and refuses a missing file.
+          touch "$env_dir/restore-test.agekey"
           TP_ENV_DIR="$env_dir" docker compose -f deploy/compose.yaml --profile tools config -q
           TP_ENV_DIR=./e2e docker compose -f deploy/compose.yaml -f deploy/compose.e2e.yaml --profile tools config -q
+      - name: Release overlay resolves only with TP_IMAGE_TAG
+        run: |
+          env_dir="$RUNNER_TEMP/env"
+          sha=0000000000000000000000000000000000000000
+          cfg=$(TP_ENV_DIR="$env_dir" TP_IMAGE_TAG=$sha \
+            docker compose -f deploy/compose.yaml -f deploy/compose.release.yaml --profile tools config --format json)
+          # Every image comes from GHCR by SHA; nothing silently builds.
+          if echo "$cfg" | jq -e '[.services[] | has("build")] | any' >/dev/null; then
+            echo "compose.release.yaml must remove every build:"; exit 1
+          fi
+          expect() { # service, image name
+            got=$(echo "$cfg" | jq -r --arg s "$1" '.services[$s].image')
+            [ "$got" = "ghcr.io/muddl/thymeandplace-$2:$sha" ] || { echo "$1 resolves to '$got'"; exit 1; }
+          }
+          expect app app; expect migrate app; expect ingest ingest
+          expect transform transform; expect backup backup; expect restore backup
+          if err=$(TP_ENV_DIR="$env_dir" docker compose -f deploy/compose.yaml -f deploy/compose.release.yaml --profile tools config -q 2>&1); then
+            echo "compose.release.yaml must fail without TP_IMAGE_TAG"; exit 1
+          fi
+          case "$err" in
+            *TP_IMAGE_TAG*) ;;
+            *) echo "compose.release.yaml failed for another reason: $err"; exit 1 ;;
+          esac
+      - name: deploy.sh refuses anything but a full SHA
+        run: |
+          for bad in "" main abc123 0000000000000000000000000000000000000000x; do
+            rc=0; ./deploy/deploy.sh "$bad" 2>/dev/null || rc=$?
+            [ "$rc" -eq 2 ] || { echo "deploy.sh exited $rc for '$bad', want 2"; exit 1; }
+          done
       - name: No service gets another service's secrets
         run: |
           env_dir="$RUNNER_TEMP/env"
@@ -74,6 +109,16 @@ jobs:
         run: docker build deploy/backup
       - name: Role bootstrap script parses
         run: bash -n deploy/db/initdb/20-roles.sh
+      - name: Backup scripts parse
+        # The image's scripts are POSIX sh (dash); verify.sh is bash.
+        run: for f in deploy/backup/*.sh; do case "$f" in */verify.sh) bash -n "$f" ;; *) sh -n "$f" ;; esac; done
+      - name: shellcheck
+        # A pinned image, not the runner's apt shellcheck (0.9.x), so CI and
+        # local runs report the same checks. -x follows the sourced heartbeat.sh.
+        run: >-
+          docker run --rm -v "$PWD:/mnt" -w /mnt
+          koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+          -x deploy/*.sh deploy/backup/*.sh deploy/db/initdb/*.sh e2e/run.sh scripts/*.sh
 
   e2e:
     if: github.ref == 'refs/heads/main'
@@ -81,13 +126,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
       - run: ./e2e/run.sh
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report
           path: e2e/playwright-report
+
+  backup:
+    if: github.ref == 'refs/heads/main'
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Backup, encryption and restore recipe
+        run: ./deploy/backup/verify.sh

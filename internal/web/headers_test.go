@@ -30,7 +30,7 @@ func siteHandler(hs *harness) http.Handler {
 }
 
 func TestSecurityHeadersOnEveryResponse(t *testing.T) {
-	hs := newHarness(t)
+	hs := newHarness(t, frozenLimiter)
 	site := siteHandler(hs)
 	serve := func(path, ip string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", path, nil)

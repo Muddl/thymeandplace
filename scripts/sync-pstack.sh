@@ -63,5 +63,28 @@ fi
 sed -i -E 's#([` ])scripts/(watch-pr/|orch/|worktree-audit\.sh)#\1.cursor/skills/poteto-mode/scripts/\2#g' \
   "$skills_dir"/poteto-mode/playbooks/*.md "$skills_dir"/poteto-mode/references/*.md
 
+# Cloud sessions skip skills that set disable-model-invocation, and a name that differs from the folder.
+# Both edits touch only the frontmatter (the block between the first two --- lines) and are no-ops on re-run.
+edit_frontmatter() {
+  local file="$1" name_override="${2:-}" out
+  out="$(mktemp)"
+  awk -v name="$name_override" '
+    NR == 1 && $0 == "---" { infm = 1; print; next }
+    infm && $0 == "---" { infm = 0; print; next }
+    infm && $0 ~ /^disable-model-invocation:[[:space:]]*true[[:space:]]*$/ { next }
+    infm && name != "" && $0 ~ /^name:/ { print "name: " name; next }
+    { print }
+  ' "$file" > "$out"
+  cat "$out" > "$file"
+  rm -f "$out"
+}
+for f in "$skills_dir"/*/SKILL.md; do
+  skill="$(basename "$(dirname "$f")")"
+  if [ "$skill" = "poteto-mode" ]; then edit_frontmatter "$f" poteto-mode; else edit_frontmatter "$f"; fi
+done
+if grep -rq '^disable-model-invocation: true' "$skills_dir"/*/SKILL.md; then
+  echo "disable-model-invocation still set in a vendored skill" >&2; exit 1
+fi
+
 sed -i "s#^Source commit: .*#Source commit: \`$sha\`#" "$manifest"
 echo "Synced pstack @ $sha. Review with: git diff --stat"

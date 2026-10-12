@@ -215,8 +215,8 @@ ingest <dataset> fetch|transform|load|validate|swap|all [--version N]
 ingest <dataset> rollback
 ```
 
-1. **Fetch.** Download raw files and record URL, checksum, license, and date. Raw files go to an S3-compatible bucket.
-2. **Transform.** Produce load-ready CSV. For climate, this is the Python + xarray container: select 1991–2020, group by month, take the mean, regrid to 0.25°, mask to land, one row per cell. Output is saved to the bucket so it runs once per source version. Ocean and places transforms run in Go.
+1. **Fetch.** Download raw files and record URL, checksum, license, and date. Raw files go to an S3-compatible bucket. Before downloading, every source must pass the transport check: `https://`, or `http://` or `bucket:` (a reviewed copy in the bucket) only with a sha256 pin; redirects stop at 10 and never go from HTTPS to HTTP. Each file's sha256 must equal its pin (`Source.SHA256`, which still applies when an env var overrides the URL); a source that can't be pinned says why (`Source.Unpinned`; only GeoNames). On a mismatch the fetch fails before any `dataset_versions` row is written or anything is uploaded, so live data is unchanged. `fetch` prints a per-file summary (URL, sha256, pinned or why not, compared with the live version), and `approve-license --version N` without `--yes` repeats it and approves nothing. A license review carries over to a new version only when the license, source URLs and every file's checksum are identical to a reviewed version's.
+2. **Transform.** First re-hash every raw file and compare it with the version's recorded checksums; a file that differs stops the transform ("raw file <file> differs from what was fetched and reviewed"), and so does one the checksums don't list ("raw file <file> has no recorded checksum in version <N>; refusing to transform it"). Then produce load-ready CSV. For climate, this is the Python + xarray container: select 1991–2020, group by month, take the mean, regrid to 0.25°, mask to land, one row per cell. Output is saved to the bucket so it runs once per source version. Ocean and places transforms run in Go.
 3. **Load.** Create `*_v{N}` and fill it with `COPY`. The live view is not touched.
 4. **Validate.** Any failure stops the pipeline with a non-zero exit:
    - Row counts within ±5% of the previous live version (skipped on the first load).
@@ -437,8 +437,8 @@ The expected setup is two passkeys (for example, phone plus hardware key or pass
 - **CSRF:** a per-session synchronizer token in every form, and sent by HTMX as a header (`hx-headers` on `<body>`). It's checked on every non-GET admin request.
 - **Login rate limit:** 5 failed attempts per 15 minutes per client (an IPv4 address or an IPv6 /64), across the passkey, re-auth and backup sign-in routes, checked before any audited work. Enrollment has its own budget of 5 failed attempts. Refused attempts are recorded once per client per window. If the check itself fails, the answer is 503 and nothing is recorded.
 - **Admin request limit:** per client, in memory, before any database work: sign-in and enrollment routes 1 req/s burst 20; other `/admin` routes 10 req/s burst 100; 429 with `Retry-After`.
-- **Backup lockout:** after 5 consecutive failures, the backup path locks globally for 15 minutes, doubling each time it repeats, up to 24 hours. Passkey login keeps working during a lockout. A global lock is acceptable because there is one user, and it stops distributed guessing.
-- **Audit:** every login attempt that reaches a credential check goes to `admin_login_log` (time, IP, client key, method, outcome), kept 90 days. Successful backup logins also log at `WARN`.
+- **Backup lockout:** after 5 consecutive failures, the backup path locks globally for 15 minutes, doubling each time it repeats, up to 24 hours. Passkey login keeps working during a lockout. A global lock is acceptable because there is one user, and it stops distributed guessing. Engaging the lockout logs `WARN "backup login locked"` and alerts the owner (the `admin-auth` check, §14). (Amended by `2026-09-27-observability-and-alerting-design.md`.)
+- **Audit:** every login attempt that reaches a credential check goes to `admin_login_log` (time, IP, client key, method, outcome), kept 90 days. Successful backup logins also log at `WARN` and alert the owner (the `admin-auth` check, §14). (Amended by `2026-09-27-observability-and-alerting-design.md`.)
 - **Headers on every response** (public and admin, set in the app by `web.SecurityHeaders`): strict CSP (self only, `object-src 'none'`, `frame-ancestors 'none'`, no inline script or style), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, a `Permissions-Policy` allowing only geolocation for self, and `Cross-Origin-Opener-Policy`/`Cross-Origin-Resource-Policy: same-origin`. `/admin` replaces the CSP (adding `data:` images) and adds `Cache-Control: no-store`, `X-Robots-Tag: noindex` and `Referrer-Policy: no-referrer`. (Amended by `2026-09-27-public-origin-hardening-design.md`.)
 
 ### 10.5 Tables
@@ -454,7 +454,7 @@ The audit tables are append-only for the app's database role: it can read `catal
 | Route | Returns |
 |---|---|
 | `GET /` | Full page: search box, "Use my location" button, empty results region |
-| `GET /places?q=` | Partial: up to 8 matches (`hx-trigger="keyup changed delay:250ms"`) |
+| `GET /places?q=` | Partial: up to 8 matches (`hx-trigger="keyup changed delay:250ms"`); queries with fewer than 2 letters or digits show a keep-typing hint and don't search |
 | `GET /season?lat=&lng=&date=` | Partial: location header + in-season list grouped Peak / In season / From storage / Year-round, with seafood as its own group |
 | `GET /ingredient/{slug}?cell=&date=` | Partial: tips, pairings, 12-month season bar, disclaimer or note. `cell` is the query cell of the `/season` page that linked it |
 | `GET /about/data` | Full page: sources, licenses, attribution, how estimates work, privacy |
@@ -485,6 +485,8 @@ Requests without an `HX-Request` header get full-page versions of `/season` and 
 
 Request ID → structured `slog` access log → panic recovery → per-IP rate limit → per-request timeout (**2 s**).
 
+The access log skips `/healthz` and `/readyz` lines with a 2xx status, so the probes don't fill the log; failing probes are still logged. (Amended by `2026-09-27-observability-and-alerting-design.md`.)
+
 Public rate limits (token bucket, per IP):
 - `/places`: 10 req/s, burst 20.
 - `/season` and `/ingredient`: 2 req/s, burst 10.
@@ -504,6 +506,7 @@ Principle: the surrounding page stays usable, and every message says what happen
 | Condition | HTTP | What the cook sees |
 |---|---|---|
 | No city match | 200 | Under the search box: "No places match '…'. Try a nearby larger town or city." |
+| Query under 2 letters or digits | 200 | Under the search box: "Keep typing: enter at least 2 letters of your town's name." |
 | Geolocation denied or unavailable | — (client) | Muted hint: "Location access is off, so search for your town instead." Search box focused. No error styling. |
 | No land cell after fallback and no ecoregion in reach | 200 | "We can't estimate seasons here yet. Estimates cover land and coastal waters." + "Search another place". With seafood off (§11.7): no land cell, and the copy is "Estimates cover land areas only." |
 | Inland | 200 | Seafood group omitted, with no message |
@@ -611,7 +614,7 @@ Property tests:
 - Score: mean per-ingredient Jaccard overlap between engine months and guide months, over ingredients present in both.
 - Each fixture's point selects its cell. Inputs are resolved exactly as for `/season`.
 - **Where it runs:** the catalog lives in the database, so calibration gates changes at **apply time** in the admin preview (§9.2), not in CI. CI tests the scoring code itself against a fixed test catalog in `testdata/`.
-- **Production drift check:** a daily in-app drift check runs 24 h after the last recorded run (or at once if none is that recent), waits for the catalog snapshot, and retries failures after 1 min, doubling to 1 h. It scores the live snapshot, stores the result in `calibration_run` (time, data version, score), and logs at `WARN` if the score is lower than the previous run by more than 0.02. This catches score changes that come from reference-data swaps rather than catalog edits.
+- **Production drift check:** a daily in-app drift check runs 24 h after the last recorded run (or at once if none is that recent), waits for the catalog snapshot, and retries failures after 1 min, doubling to 1 h. It scores the live snapshot, stores the result in `calibration_run` (time, data version, score), and logs at `WARN` if the score is lower than the previous run by more than 0.02. Each run also reports to its heartbeat (the `drift` check, §14): a drop or a failed run fails it, and a missing run alerts. (Amended by `2026-09-27-observability-and-alerting-design.md`.) This catches score changes that come from reference-data swaps rather than catalog edits.
 
 ### 13.3 Catalog and changeset tests
 
@@ -640,7 +643,7 @@ Property tests:
 ### 13.6 Pipeline tests
 
 - `pytest`: the xarray transform on a tiny synthetic NetCDF produces the expected normals and grid.
-- Go: a failed validation leaves live data unchanged; swap flips `is_live`, repoints the view, and sends `NOTIFY`; rollback restores the previous version; promotion is refused without a reviewed license, and approval and promotion are both refused for an `UNRESOLVED:` license even when `license_reviewed` is set by SQL; every dataset's `Attribution()` appears on the About page; ocean validation fails if catalog ecoregion IDs are missing.
+- Go: a failed validation leaves live data unchanged; swap flips `is_live`, repoints the view, and sends `NOTIFY`; rollback restores the previous version; promotion is refused without a reviewed license, and approval and promotion are both refused for an `UNRESOLVED:` license even when `license_reviewed` is set by SQL; every dataset's `Attribution()` appears on the About page; ocean validation fails if catalog ecoregion IDs are missing. Source pins and transport (reference-data provenance spec §6): every default source declares exactly one of a sha256 pin or an `Unpinned` reason; a fetch whose file doesn't match its pin fails with no row written and nothing uploaded, a matching one succeeds, and a `bucket:` source is read from the bucket and still checked; `CheckTransport` allows HTTPS, and HTTP or `bucket:` only when pinned; the HTTP client refuses HTTPS→HTTP redirects (including at the last hop of a chain) and an 11th redirect; a review carries over only for identical bytes; transform refuses a raw file that was tampered with in the bucket or is missing from the recorded checksums; the review summary reports `same as live`, `changed` and `no live version`; `ingest approve-license` without `--version` exits 2 before connecting, and without `--yes` prints the summary and approves nothing.
 
 ### 13.7 Cache tests
 
@@ -660,19 +663,22 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.10 CI
 
-Units, scoring, auth, store integration, and pipeline tests run on every push. End-to-end tests run on `main`.
+Units, scoring, auth, store integration, and pipeline tests run on every push, under the race detector (`go test -race`). Every push also runs `go vet`, `staticcheck` and `govulncheck` (a reachable known vulnerability fails the build) and lints the shell scripts with `shellcheck`. End-to-end tests run on `main`. Release images are built only after CI passes on `main`, from that exact commit (§14). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
 
 ## 14. Deployment and operations
 
 - Images: `app` (distroless; contains `server` and `admin` binaries), `ingest` (Go), `transform` (Python + xarray), official Postgres/PostGIS, Caddy.
+- Releases: after CI passes on `main`, the `release` workflow builds `app`, `ingest`, `transform` and `backup` for `linux/amd64` with provenance and SBOM attestations, and pushes them to GHCR (private) tagged with the commit SHA. Production runs these registry images by commit SHA: `deploy/deploy.sh <sha>` pulls them (and the pinned `db` and `caddy` images), runs `migrate`, starts the app, waits for its health check, applies a changed `caddy`, points plain `docker compose` commands on the VPS (timers and tools included) at the release through `deploy/.env`, and logs the deploy to `/var/lib/thymeandplace/deploys.log`. Rollback is a redeploy of the previous SHA, with no rebuild; backward-compatible migrations make it safe. Building from source (`rm -f .env && git pull && docker compose --profile tools build && docker compose up -d app`, rebuilding the tool images too, since the backup and restore-test timers run them) stays as the emergency path. (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
+- Supply chain: base images are pinned by digest and GitHub Actions by commit SHA, and the Go tools come from `go.mod` `tool` lines. Dependabot opens weekly grouped update pull requests; pins it doesn't reach are bumped by hand (`docs/operations.md`, "Base images and updates"). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
 - Secrets (`ADMIN_SECRET_KEY`, DB credentials, bucket credentials) come from root-only env files (mode 600) on the host, not stored in the repo: one per service (`db`, `migrate`, `app`, `ingest`, `backup`, `restore`), so no container gets a secret it doesn't use.
 - Database roles: the bootstrap superuser only for init and restores; `tp_owner` owns the schema and runs migrations, ingest and devseed; `tp_app` is the runtime (and admin CLI) with no DDL rights, no file or program access and append-only audit tables; `tp_backup` reads everything for `pg_dump` (`pg_read_all_data`).
 - Migrations: `goose` runs in the one-shot `migrate` service as `tp_owner`, before the app starts; the app refuses to serve while migrations are pending. Migrations must be backward-compatible with the previous app version.
-- Backups: nightly `pg_dump` (including the catalog and admin tables) to the S3-compatible bucket, keeping 7 daily and 4 weekly copies. A restore test is run manually before launch. Catalog JSON exports are a convenience, not the backup.
+- Backups: nightly `pg_dump` (including the catalog and admin tables) to the S3-compatible bucket, keeping 7 daily and 4 weekly copies. Dumps are verified, encrypted with `age` to an off-host recovery key and an on-host restore-test key, then uploaded. The bucket keeps deleted versions for 35 days (versioning), or expires copies by lifecycle rules with a no-delete writer key. (Amended by `2026-09-27-backup-encryption-design.md`.) Each run pings its own check (`/start`, then success or a failure naming the step). A restore test is run manually before launch, and the monthly restore test runs by cron with its own check. (Amended by `2026-09-27-observability-and-alerting-design.md`.) Catalog JSON exports are a convenience, not the backup.
 - Connection budget: app pool 16 (2 kept open; `DB_MAX_CONNS` overrides) + the app's `LISTEN` connection 1 + `ingest` or `devseed` 4 + admin CLI 4 + backup 1 + `psql` sessions, about 30 in all, well under Postgres's default `max_connections` of 100. A `pool_max_conns` in `DATABASE_URL` wins over a binary's default. A k6 load test (`deploy/loadtest/`) checks the §1 latency targets before launch; results go in `docs/capacity-baseline.md`.
-- Health: Docker and Caddy probe `/healthz`. `/readyz` is for monitoring and does not gate traffic.
+- Health: Docker and Caddy probe `/healthz`, and Caddy routes on it. Nothing restarts an unhealthy container; alerts do. `/readyz` is for monitoring and does not gate traffic. (Amended by `2026-09-27-observability-and-alerting-design.md`.)
 - Client IP: the app trusts exactly one proxy hop (Caddy) and uses the rightmost `X-Forwarded-For` entry. Putting any proxy in front of Caddy requires changing that first.
-- Logs: JSON `slog` to stdout. Public request lat/lng is logged only as `cell_id`.
+- Logs: JSON `slog` to stdout. Public request lat/lng is logged only as `cell_id`. Container logs use `json-file`, 20 files of up to 10 MB each, rotated files compressed, and healthy probe lines are skipped (§11.4). `calibration_run` and `admin_login_log` are the durable records. (Amended by `2026-09-27-observability-and-alerting-design.md`.)
+- Monitoring: outbound heartbeat pings to hosted Healthchecks.io, one per-check secret URL each in the env files (unset → off): `app` (an in-app watchdog: readiness, bursts of 5xx, `ERROR` records), `admin-auth` (backup login used or locked, or the login log grew fast), `drift`, `backup` and `restore-test`. A missing ping alerts too. An external uptime monitor checks `/readyz` and the certificate (`site`). There is no metrics endpoint. A bad monitoring setting never stops the site. Checks and runbook: `docs/operations.md`, "Monitoring and alerts". (Amended by `2026-09-27-observability-and-alerting-design.md`.)
 - The app prunes admin audit (90 days), session and enrollment-token rows daily, starting at boot; failures retry after 1 min, doubling to 1 h.
 
 ## 15. Privacy
@@ -680,6 +686,7 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 - No public accounts, no public cookies.
 - Public locations are not stored. Logs record `cell_id` (~28 km resolution) only.
 - Admin login logs store IP addresses for security auditing, for 90 days.
+- Monitoring payloads (heartbeat ping bodies) carry only counts, reason labels, constant `ERROR` messages, calibration scores, data-version strings, backup object keys and table row counts, never paths, `cell_id`, coordinates, IP addresses, log attributes or secrets. The external monitor only probes the site. A future metrics endpoint gets its own unpublished port and labels only status class and a fixed route class. (Amended by `2026-09-27-observability-and-alerting-design.md`.)
 - The About the data page states this.
 
 ## 16. Values chosen in this spec (confirm or change)
@@ -711,3 +718,15 @@ Units, scoring, auth, store integration, and pipeline tests run on every push. E
 | Admin login log retention | 90 days (growth warning above 10,000 rows / 24 h) |
 | Backup lockout | 5 failures → 15 min, doubling, max 24 h |
 | Backup retention | 7 daily, 4 weekly |
+| Backup encryption | age, two X25519 recipients (recovery off-host, restore-test on-host) |
+| Watchdog sample / report | 1 min / 5 min |
+| Not-ready alert | 3 consecutive failed samples |
+| 5xx alert | ≥ 5 and ≥ 5% of non-probe responses in a report |
+| `ERROR` alert | ≥ 1 record in a report |
+| Check schedules | `app` 5 min + 5 min grace; `admin-auth` 1 day + 1 h; `drift` 1 day + 2 h; `backup` cron `15 3 * * *` + 1 h; `restore-test` cron `15 4 1 * *` + 2 h |
+| Ping timeout / attempts / body cap | 5 s / 3 / 10 kB |
+| External monitor | ≤ 5 min, alert after 2 failures, TLS warning at 14 days |
+| Container logs | `json-file`, 10 MB x 20 files, rotated files compressed |
+| Source pins | sha256 per file (GeoNames unpinned) |
+| Plain HTTP | only for pinned sources; no HTTPS→HTTP redirects |
+| Minimum place query | 2 letters or digits |

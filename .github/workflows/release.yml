@@ -1,0 +1,62 @@
+name: release
+# Builds release images only for commits whose ci run passed on main,
+# including e2e, and only from that exact commit.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: app, context: ., file: deploy/Dockerfile.app }
+          - { name: ingest, context: ., file: deploy/Dockerfile.ingest }
+          - { name: transform, context: pipeline/transform, file: pipeline/transform/Dockerfile }
+          - { name: backup, context: deploy/backup, file: deploy/backup/Dockerfile }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      # BuildKit runs the build and gets the push credentials, so its image is
+      # pinned (by default setup-buildx starts the floating buildx-stable-1).
+      # Bump by hand: docs/operations.md, "Pins Dependabot doesn't update".
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64
+          push: true
+          provenance: mode=max
+          # The SBOM scanner runs inside the build too; pinned like BuildKit.
+          sbom: generator=docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+          tags: |
+            ghcr.io/muddl/thymeandplace-${{ matrix.name }}:${{ github.event.workflow_run.head_sha }}
+            ghcr.io/muddl/thymeandplace-${{ matrix.name }}:main
+      # Each matrix job has its own summary page, so each writes the header.
+      - name: Digest
+        run: |
+          {
+            echo "| image | digest |"
+            echo "|---|---|"
+            echo "| ${{ matrix.name }} | \`${{ steps.build.outputs.digest }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

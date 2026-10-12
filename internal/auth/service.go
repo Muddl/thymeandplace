@@ -21,6 +21,11 @@ type Config struct {
 	BackupEnabled bool
 	Now           func() time.Time
 	Log           *slog.Logger
+
+	// OnEvent, when set, is told about security events the owner must hear
+	// about: "backup_login", "backup_lockout", "login_log_growth". It must
+	// not block. Monitoring hooks it (internal/monitor).
+	OnEvent func(kind string)
 }
 
 type Service struct {
@@ -30,6 +35,8 @@ type Service struct {
 	backup bool
 	now    func() time.Time
 	log    *slog.Logger
+
+	onEvent func(string) // Config.OnEvent; nil is a no-op
 
 	growthWarn int64 // Prune warns above this many login-log rows a day; tests lower it
 }
@@ -59,7 +66,14 @@ func NewService(pool *pgxpool.Pool, cfg Config) (*Service, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
-	return &Service{pool: pool, wa: wa, sealer: sealer, backup: cfg.BackupEnabled, now: cfg.Now, log: cfg.Log, growthWarn: loginLogGrowthWarn}, nil
+	return &Service{pool: pool, wa: wa, sealer: sealer, backup: cfg.BackupEnabled, now: cfg.Now, log: cfg.Log, onEvent: cfg.OnEvent, growthWarn: loginLogGrowthWarn}, nil
+}
+
+// event tells the monitoring hook, if any, about a security event.
+func (s *Service) event(kind string) {
+	if s.onEvent != nil {
+		s.onEvent(kind)
+	}
 }
 
 func (s *Service) q() *store.Queries { return store.New(s.pool) }
@@ -108,14 +122,27 @@ func (s *Service) AllowAttempt(ctx context.Context, c Caller, method string) (bo
 	return n < AttemptLimit, nil
 }
 
+// logAuditFailure logs a failed audit write. Sign-in routes are reachable by
+// anonymous callers and ERROR pages the owner, so a write that failed because
+// the request's context was already done (the client went away, or the server
+// is shutting down) is a WARN. Real store failures stay ERROR.
+func (s *Service) logAuditFailure(ctx context.Context, err error) {
+	if ctx.Err() != nil {
+		s.log.Warn("login audit write failed", "err", err)
+		return
+	}
+	s.log.Error("login audit write failed", "err", err)
+}
+
 // LogAttempt writes the audit row. Failures to log are themselves logged.
 func (s *Service) LogAttempt(ctx context.Context, c Caller, method, outcome string) {
 	err := s.q().InsertLoginAttempt(ctx, store.InsertLoginAttemptParams{At: ts(s.now()), Ip: c.IP, IpKey: c.Key, Method: method, Outcome: outcome})
 	if err != nil {
-		s.log.Error("login audit write failed", "err", err)
+		s.logAuditFailure(ctx, err)
 	}
 	if method == "backup" && outcome == "success" {
 		s.log.Warn("backup login used", "ip", c.IP)
+		s.event("backup_login")
 	}
 }
 
@@ -128,7 +155,7 @@ func (s *Service) LogRefusal(ctx context.Context, c Caller, method string) {
 		At: ts(now), Ip: c.IP, IpKey: c.Key, Method: method, Methods: budget(method), Since: ts(now.Add(-AttemptWindow)),
 	})
 	if err != nil {
-		s.log.Error("login audit write failed", "err", err)
+		s.logAuditFailure(ctx, err)
 		return
 	}
 	if n > 0 {

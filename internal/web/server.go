@@ -261,6 +261,7 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Add("Vary", "HX-Request")
+	theme := themeFor(w, r)
 	w.WriteHeader(status)
 	var c templ.Component
 	switch {
@@ -269,7 +270,7 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 	case partial(r):
 		c = results
 	default:
-		c = views.Page(views.PageVM{Title: title, Description: description, Query: query, Places: placesSlot, Results: results})
+		c = views.Page(views.PageVM{Title: title, Description: description, Query: query, Theme: theme, Places: placesSlot, Results: results})
 	}
 	if c == nil { // an HTMX request for a page with no fragment (e.g. GET / with HX-Request)
 		c = templ.NopComponent

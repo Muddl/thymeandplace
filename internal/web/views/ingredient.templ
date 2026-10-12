@@ -10,6 +10,14 @@ templ Ingredient(vm IngredientVM) {
 				<li class={ "m", b.Class, templ.KV("now", b.Current) } title={ b.Title }>{ b.Letter }</li>
 			}
 		</ol>
+		<ul class="key" aria-label="Key to the chart">
+			<li class="s-peak">Peak</li>
+			<li class="s-in">In season</li>
+			<li class="s-store">From storage</li>
+			<li class="s-year">Year-round</li>
+			<li class="s-out">Out of season</li>
+			<li class="now">This month</li>
+		</ul>
 		if vm.Local {
 			<p class="basis">{ vm.Basis }</p>
 		} else {

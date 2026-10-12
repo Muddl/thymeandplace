@@ -22,3 +22,4 @@ header.site, main, footer.site { max-width: 46rem; margin: 0 auto; padding: 1rem
 .bar .now { outline: 2px solid var(--ink); }
 footer.site { color: var(--muted); font-size: .9rem; display:flex; gap:1rem; flex-wrap:wrap; }
 .htmx-request { opacity: .6; }
+.key { display:none; }

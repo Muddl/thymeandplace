@@ -80,6 +80,7 @@ type PageVM struct {
 	Title       string
 	Description string // the meta description search results show
 	Query       string
+	Theme       string // design exploration: "a", "b", "c", or "" for the shipped stylesheet
 	Places      templ.Component
 	Results     templ.Component
 }

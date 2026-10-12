@@ -3,5 +3,5 @@ package static
 
 import "embed"
 
-//go:embed htmx.min.js app.css app.js admin.js admin.css favicon.svg
+//go:embed htmx.min.js app.css app.js admin.js admin.css favicon.svg design
 var FS embed.FS

@@ -10,7 +10,13 @@ templ Page(p PageVM) {
 			<title>{ p.Title } · Thyme &amp; Place</title>
 			<meta name="description" content={ p.Description }/>
 			<link rel="icon" type="image/svg+xml" href={ Asset("favicon.svg") }/>
-			<link rel="stylesheet" href={ Asset("app.css") }/>
+			if p.Theme == "" {
+				<link rel="stylesheet" href={ Asset("app.css") }/>
+			} else {
+				<link rel="stylesheet" href={ Asset("design/tokens-" + p.Theme + ".css") }/>
+				<link rel="stylesheet" href={ Asset("design/base.css") }/>
+				<link rel="stylesheet" href={ Asset("design/variant-" + p.Theme + ".css") }/>
+			}
 			<script src={ Asset("htmx.min.js") } defer></script>
 			<script src={ Asset("app.js") } defer></script>
 		</head>
@@ -50,6 +56,9 @@ templ Page(p PageVM) {
 			<footer class="site">
 				<a href="/about/data">About the data</a>
 				<span>Place names © GeoNames, CC BY 4.0</span>
+				if p.Theme == "a" || p.Theme == "c" {
+					<span>Plate: A. W. Livingston's Sons, 1897 (public domain; USDA National Agricultural Library, via Biodiversity Heritage Library)</span>
+				}
 			</footer>
 		</body>
 	</html>

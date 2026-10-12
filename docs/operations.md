@@ -92,9 +92,9 @@ Keep the seafood items in `content/catalog/launch.json`; they're what gets impor
 1. Resolve MEOW ("Resolving MEOW" in `docs/reference-data-licenses.md`; that commit also updates the About page's marine credits).
 2. Ingest ocean: `fetch`, read the license and per-file summary it prints, `approve-license --version N --yes`, `all --version N`.
 3. Import `content/catalog/launch.json` in `/admin/import`. Import only upserts, so this adds the seafood items and pairings back.
-4. Set `FEATURE_SEAFOOD=on` in `/etc/thymeandplace/app.env` and run `sudo docker compose up -d app` (the flag is read at startup). The log should show `seafood feature enabled=true`.
+4. Set `FEATURE_SEAFOOD=on` in `/etc/thymeandplace/app.env` and recreate `app` with the release overlay ("Recreating `app` after a settings change" in "Updating the app"); the flag is read at startup. The log should show `seafood feature enabled=true`.
 
-To turn it off again, set it back to `off` and restart `app`; nothing else changes. If the terms are withdrawn, also follow "Withdrawing a dataset".
+To turn it off again, set it back to `off` and recreate `app` the same way; nothing else changes. If the terms are withdrawn, also follow "Withdrawing a dataset".
 
 ### Withdrawing a dataset
 
@@ -143,12 +143,21 @@ git pull
 
 The app refuses to start while any migration is pending ("database has pending migrations; run the migrate service"). If that happens, or `deploy.sh` stops at `migrate`, `docker compose logs migrate` says why. Migrations must be backward-compatible with the previous version (add columns/tables; never drop or rename in the same release that stops using them). That is what makes "Rolling back the app" safe.
 
-Only commands given the release overlay use the registry images. `exec`, `logs`, `ps`, `restart`, `stop` and `start` act on the running containers and are unaffected. But a plain `docker compose up -d` recreates `app` from `compose.yaml`'s locally built `thymeandplace-app:latest`, which after a registry deploy is an unintended rollback, so don't run one. The plain `docker compose --profile tools run` commands in this document (the backup and restore-test timers included) run the locally built `thymeandplace-*:latest` tools images, as before, and build them from the checkout if they're missing. To run a tool from the deployed release instead:
+Only commands given the release overlay use the registry images. `exec`, `logs`, `ps`, `restart`, `stop` and `start` act on the running containers and are unaffected. But a plain `docker compose up -d` recreates `app` from `compose.yaml`'s locally built `thymeandplace-app:latest`, which after a registry deploy is an unintended rollback, so don't run one: every procedure in this document that recreates `app` uses the overlay form below. The plain `docker compose --profile tools run` commands in this document (the backup and restore-test timers included) run the locally built `thymeandplace-*:latest` tools images, as before, and build them from the checkout if they're missing. To run a tool from the deployed release instead:
 
 ```bash
 sha=$(tail -n 1 /var/lib/thymeandplace/deploys.log | cut -d' ' -f2)
 TP_IMAGE_TAG=$sha docker compose -f compose.yaml -f compose.release.yaml --profile tools run --rm ingest places fetch
 ```
+
+**Recreating `app` after a settings change.** The app reads its env file only at startup, and `docker compose restart app` keeps the old environment, so a change to `app.env` (or a `compose.yaml` setting such as log options) needs the container recreated. Recreate it from the release that's running, with the overlay:
+
+```bash
+sha=$(tail -n 1 /var/lib/thymeandplace/deploys.log | cut -d' ' -f2)
+TP_IMAGE_TAG=$sha docker compose -f compose.yaml -f compose.release.yaml up -d app
+```
+
+Compose runs the one-shot `migrate` again first (it finds nothing to apply), recreates `app` only if its settings changed, and writes nothing to `deploys.log`. If there's no `deploys.log` yet, `sha` is empty and Compose stops with `set TP_IMAGE_TAG` without touching anything. Before the first `deploy.sh`, and while an emergency source build is running (it isn't logged, so the newest line is older than what runs), use the plain `docker compose up -d app` instead. `docker compose ps app` shows which: an `IMAGE` of `ghcr.io/muddl/thymeandplace-app:<sha>` is a release, `thymeandplace-app:latest` a source build.
 
 **Emergency path.** If GHCR or GitHub Actions is unavailable, build from the checkout as before: `git pull && docker compose up -d --build app`. Compose runs `migrate` first in the same way. Nothing is written to `deploys.log`. Go back to `deploy.sh` with the next release.
 
@@ -174,7 +183,7 @@ tail -n 5 /var/lib/thymeandplace/deploys.log   # one line per deploy: time, SHA,
 ./deploy.sh <previous sha>
 ```
 
-The previous SHA is the second field of the line before the newest one. No rebuild is involved: every release's images stay in the registry (and usually on the host), so `deploy.sh` starts the previous release's images like any deploy and logs its own line. Its `migrate` finds nothing to apply. The newer migrations stay in the database, and the previous app works with them because migrations are backward-compatible ("Updating the app"). Roll forward again the same way, with the newer SHA.
+The previous SHA is the second field of the newest line whose SHA differs from the release running now (`docker compose ps app` shows that one in its image tag). Lines can repeat a SHA, and an emergency source build writes no line at all. No rebuild is involved: every release's images stay in the registry (and usually on the host), so `deploy.sh` starts the previous release's images like any deploy and logs its own line. Its `migrate` finds nothing to apply. The newer migrations stay in the database, and the previous app works with them because migrations are backward-compatible ("Updating the app"). Roll forward again the same way, with the newer SHA.
 
 `compose.yaml` and `deploy.sh` come from the checkout, not from the images. If the release you're leaving changed `deploy/compose.yaml` in a way the previous images can't run with, run `git checkout <previous sha>` first, then `git checkout main` before the next `git pull`.
 
@@ -511,7 +520,7 @@ The app never connects as a superuser. Each service connects as the least-privil
 - **Audit tables are append-only for the app.** The catalog history and version triggers are `SECURITY DEFINER` functions owned by `tp_owner`, so the app writes history only through them. The only way it can delete login-log rows is `prune_admin_login_log(retention)`, which refuses any retention under 30 days.
 - **New reference tables** that ingest creates as `tp_owner` are readable by `tp_app` with no extra grant (`ALTER DEFAULT PRIVILEGES`).
 - **Secrets per container.** `db` gets the four database passwords and nothing else; `app` gets its own `DATABASE_URL` and the `ADMIN_*` settings, but no bucket keys and no other role's password; `backup` gets the backup role and bucket; `restore` gets the superuser URL. The CI `deploy` job checks this with `docker compose config`, and after a deploy `docker inspect --format '{{.Config.Env}}' $(docker compose ps -q app)` shows what the app actually received.
-- **Rotating a role's password:** `docker compose exec db psql -U tp -d thymeandplace -c "ALTER ROLE tp_app PASSWORD '<new hex password>'"`, then update that role's password in `db.env` and in the one or two files that connect as it (see "First deploy", step 3), and recreate those services (`docker compose up -d app`, for example). For the bootstrap superuser, change `POSTGRES_PASSWORD` in `db.env` and `restore.env` the same way (the postgres image only reads it on an empty volume).
+- **Rotating a role's password:** `docker compose exec db psql -U tp -d thymeandplace -c "ALTER ROLE tp_app PASSWORD '<new hex password>'"`, then update that role's password in `db.env` and in the one or two files that connect as it (see "First deploy", step 3), and recreate the services that stay running: for `tp_app`, recreate `app` with the release overlay ("Recreating `app` after a settings change" in "Updating the app"). The one-shot services (`migrate`, `backup`, `restore`, `ingest`) read their env file on their next run. For the bootstrap superuser, change `POSTGRES_PASSWORD` in `db.env` and `restore.env` the same way (the postgres image only reads it on an empty volume).
 - **Check the grants** with `docker compose exec db psql -U tp -d thymeandplace -c '\dp admin_login_log'`: `tp_app` must have only `r` and `a` (read and append).
 
 ### Adopting an existing database
@@ -592,7 +601,7 @@ Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Bac
 
 **Public DB gate.** Public database work (a `/season` or `/ingredient` cache miss, a `/places` search, and the `/season` heading label) shares three quarters of the server pool: 12 of 16 slots. The rest stays free for `/admin`, the drift check, catalog reloads and Apply's second connection, so a public spike can't lock the owner out. A request that can't get a slot within 250 ms gets the retry panel with `503` and `Retry-After: 5` straight away instead of queueing until the 2 s deadline. The heading label ("near X") is looked up on every supported `/season` request, cache hits included, so warm `/season` traffic takes a slot too; when none is free the heading falls back to coordinates and the page still loads with `200`. Other cache hits, `/healthz`, `/readyz`, static files and `/admin` never wait on the gate. `/ingredient` and `/season` misses share a cache of each cell's climate normals and ecoregions per data version (20,000 cells), so repeat clicks cost no queries.
 
-**Changing the pool size.** Set `DB_MAX_CONNS` in the app env file and restart the app (`docker compose up -d app`); the gate follows at three quarters. On a VPS with less than 4 GB RAM use 10 (7 public slots). Re-run the load test afterwards.
+**Changing the pool size.** Set `DB_MAX_CONNS` in the app env file and recreate `app` with the release overlay ("Recreating `app` after a settings change" in "Updating the app"); the gate follows at three quarters. On a VPS with less than 4 GB RAM use 10 (7 public slots). Re-run the load test afterwards.
 
 **The `public DB gate full` log line.** When requests are shed, the app logs `INFO "public DB gate full"` at most once a minute, with `shed` (lookups the gate turned away since the last line: 503s plus `/season` headings that fell back to coordinates) and `slots`. Sustained 503s with this line mean the site is at capacity, not that the database is down: `/readyz` still says `ready`. The line without 503s means only headings fell back: the gate is busy but pages still load. Check `SELECT count(*), usename, state FROM pg_stat_activity GROUP BY 2, 3`; the app should hold between 2 and 17 connections.
 
@@ -601,7 +610,7 @@ Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Bac
 ## Health and logs
 
 - `docker compose ps` shows health; `curl -s https://thymeand.place/readyz` returns `ready` when the DB is reachable and the catalog is loaded. The database part of `/readyz` is shared: one ping answers every request for 1 s, so `/readyz` can lag a database outage or recovery by up to a second. Sustained 503s while `/readyz` is `ready` and the log shows `public DB gate full` mean load shedding (see "Capacity"), not an outage.
-- Logs are JSON on stdout: `docker compose logs -f app`. Every service uses Docker's `json-file` driver with rotation (`max-size: 10m`, `max-file: 20`, `compress: true`, set once in `deploy/compose.yaml`'s `x-logging` anchor), so each container keeps 20 files of up to 10 MB of log each, the rotated ones compressed (at most 200 MB if nothing compressed); older lines are gone after rotation. `docker compose logs` reads the compressed files too. A container keeps the log options it was created with until `docker compose up -d` recreates it; `docker inspect --format '{{.HostConfig.LogConfig}}' $(docker compose ps -q app)` shows what it has. Healthy `/healthz` and `/readyz` lines (2xx) aren't logged, so the probes don't use up the budget; failing probes are. Public requests record `cell_id`, never coordinates. Successful backup logins log at `WARN`, and so do the backup lockout (`backup login locked`) and calibration drops of more than 0.02. Each of these also fails a check ("Monitoring and alerts").
+- Logs are JSON on stdout: `docker compose logs -f app`. Every service uses Docker's `json-file` driver with rotation (`max-size: 10m`, `max-file: 20`, `compress: true`, set once in `deploy/compose.yaml`'s `x-logging` anchor), so each container keeps 20 files of up to 10 MB of log each, the rotated ones compressed (at most 200 MB if nothing compressed); older lines are gone after rotation. `docker compose logs` reads the compressed files too. A container keeps the log options it was created with until Compose recreates it ("Recreating `app` after a settings change"); `docker inspect --format '{{.HostConfig.LogConfig}}' $(docker compose ps -q app)` shows what it has. Healthy `/healthz` and `/readyz` lines (2xx) aren't logged, so the probes don't use up the budget; failing probes are. Public requests record `cell_id`, never coordinates. Successful backup logins log at `WARN`, and so do the backup lockout (`backup login locked`) and calibration drops of more than 0.02. Each of these also fails a check ("Monitoring and alerts").
 - The logs rotate away, so the durable records are in the database: `calibration_run` has every drift score, and `admin_login_log` has every sign-in attempt (kept 90 days).
 - The drift check runs 24 h after the last recorded run, not at each start: `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1` plus 24 h is the next one. A deploy doesn't trigger it. Until the catalog snapshot loads it waits without logging. Each run also reports to the `drift` check. A failed run logs `calibration drift check failed` and is retried after 1 min, then 2, 4 … up to 1 h, so a string of those lines minutes apart is retries, not separate days. The admin prune still runs at each start, and its failures (`admin prune failed`) retry the same way. With more than one app replica, each schedules its own checks, and an extra `calibration_run` row is harmless.
 - A logged `cell_id`, with the month and the live data version, determines everything a cook saw except the heading. To reproduce it, open `/season?lat=<90 − (⌊id/1440⌋ + 0.5) × 0.25>&lng=<−180 + (id mod 1440 + 0.5) × 0.25>`, or `/ingredient/{slug}?cell=<id>`.
@@ -634,7 +643,7 @@ Otherwise it sends `ok requests=<m> 5xx=<n>`. `admin-auth` gets `backup login us
 
 ### Ping URLs are secrets
 
-Use each check's own UUID ping URL (`https://hc-ping.com/<uuid>`), not the project ping key + slug form, where one leaked key exposes every check. Anyone holding a ping URL can flip its check, so the URLs live only in the root-only env files above, never in the repo or `compose.yaml`, and neither the app nor the scripts print them. The app reads its three at startup (`docker compose up -d app` after changing them); `backup` and `restore-test` read theirs on each run. If one leaks, replace the check with a new one and update its env file.
+Use each check's own UUID ping URL (`https://hc-ping.com/<uuid>`), not the project ping key + slug form, where one leaked key exposes every check. Anyone holding a ping URL can flip its check, so the URLs live only in the root-only env files above, never in the repo or `compose.yaml`, and neither the app nor the scripts print them. The app reads its three at startup, so after changing them recreate `app` with the release overlay ("Recreating `app` after a settings change" in "Updating the app"); `backup` and `restore-test` read theirs on each run. If one leaks, replace the check with a new one and update its env file.
 
 ### Privacy
 
@@ -665,7 +674,12 @@ If `/readyz` is ever taken off the public site, check `/` for the text `Find you
 1. In a Healthchecks.io project, create the five checks above with their schedules, `POST` only, and the cron checks in the VPS time zone. Attach email and one push channel (ntfy, Pushover, Telegram or Signal; SMS and phone calls need a paid plan) to every check, and send a test notification.
 2. Put each check's ping URL in its env file (`sudoedit /etc/thymeandplace/app.env` and so on).
 3. Configure the external monitor, and turn on the VPS provider's disk and CPU alerts if it offers them.
-4. `docker compose up -d`. Compose recreates the containers whose settings changed, so they pick up the new env and log options. `app` and `admin-auth` go green within a few minutes. `drift` goes green at the next scheduled run, 24 h after `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1`; a deploy doesn't trigger one.
+4. Recreate the running services with the release overlay (as in "Recreating `app` after a settings change"; before the first `deploy.sh`, plain `docker compose up -d`):
+   ```bash
+   sha=$(tail -n 1 /var/lib/thymeandplace/deploys.log | cut -d' ' -f2)
+   TP_IMAGE_TAG=$sha docker compose -f compose.yaml -f compose.release.yaml up -d
+   ```
+   Compose recreates the containers whose settings changed, so they pick up the new env and log options. `app` and `admin-auth` go green within a few minutes. `drift` goes green at the next scheduled run, 24 h after `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1`; a deploy doesn't trigger one.
 5. Run a backup by hand (`docker compose --profile tools run --rm backup`): the `backup` check shows `/start`, then success. Then run `docker compose --profile tools run --rm -e BUCKET_NAME=missing backup`: expect a failure alert naming `upload`. Run a normal backup again to clear it.
 6. Optional drill, on a quiet evening: `docker compose stop app` for 12 minutes. Expect `site` and `app` alerts, then recovery after `docker compose start app`.
 

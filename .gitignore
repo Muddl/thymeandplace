@@ -22,3 +22,6 @@ pipeline/.venv/
 /e2e/node_modules/
 /e2e/test-results/
 /e2e/playwright-report/
+
+# vendored pstack skill tooling installs
+/.cursor/skills/poteto-mode/scripts/node_modules/

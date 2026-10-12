@@ -225,12 +225,18 @@ func Page(p PageVM) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if p.Theme == "a" || p.Theme == "c" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<span>Plate: A. W. Livingston's Sons, 1897 (public domain; USDA National Agricultural Library, via Biodiversity Heritage Library)</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<span>Plate: A. W. Livingston's Sons, 1897 (public domain; USDA National Agricultural Library, via Biodiversity Heritage Library)</span> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</footer></body></html>")
+		if p.Theme == "c2" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<span>Engraving: Johnson &amp; Stokes, Garden &amp; Farm Manual, 1890 (public domain; Henry G. Gilbert Nursery and Seed Trade Catalog Collection, via Biodiversity Heritage Library)</span>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</footer></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

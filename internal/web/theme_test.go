@@ -13,7 +13,7 @@ func TestThemeSwitch(t *testing.T) {
 		t.Errorf("no theme should serve the shipped stylesheet only:\n%s", body)
 	}
 
-	for _, v := range []string{"a", "b", "c"} {
+	for _, v := range []string{"a", "b", "c", "c2"} {
 		_, body, h := hs.get("/?theme="+v, false)
 		for _, want := range []string{"design/tokens-" + v + ".css", "design/base.css", "design/variant-" + v + ".css"} {
 			if !strings.Contains(body, want) {

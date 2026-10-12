@@ -2,12 +2,12 @@ package web
 
 import "net/http"
 
-// Design exploration only (branch design/explore): ?theme=a|b|c picks one of
+// Design exploration only (branch design/explore): ?theme=a|b|c|c2 picks one of
 // the candidate stylesheets under static/design and remembers it in a cookie
 // so htmx navigation and reloads keep it; ?theme=off clears it.
 const themeCookie = "tp_theme"
 
-func validTheme(v string) bool { return v == "a" || v == "b" || v == "c" }
+func validTheme(v string) bool { return v == "a" || v == "b" || v == "c" || v == "c2" }
 
 // themeFor returns the theme for a full-page response, and refreshes the
 // cookie when ?theme= was given. It must run before the status is written.

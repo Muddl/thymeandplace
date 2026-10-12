@@ -24,12 +24,20 @@ go tool templ generate            # after editing a .templ file
 ./scripts/sqlc.sh generate        # after editing a query or migration
 gofmt -l cmd internal content     # prints nothing when formatted
 go vet ./...
+go tool staticcheck ./...         # lint
+go tool govulncheck ./...         # fails only on vulnerabilities your code can reach
 go test ./...                     # needs Docker for the PostGIS test containers
 python -m pytest pipeline/tests -q   # when you touch pipeline/
 e2e/run.sh                        # when you change pages, scripts or the Compose stack
 ```
 
 Commit the generated files. CI fails when they're stale.
+
+CI also runs the Go tests with the race detector (`go test -race -count=1 ./...`). `-race` needs cgo, so run it on Linux or macOS with a C compiler, or in the `golang` image on Windows (mount the Docker socket for the test containers). When you change a shell script under `deploy/`, `e2e/` or `scripts/`, run shellcheck the way CI does (the pinned image and file list are in the `shellcheck` step of `.github/workflows/ci.yml`):
+
+```bash
+docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 -x deploy/*.sh deploy/backup/*.sh deploy/db/initdb/*.sh e2e/run.sh scripts/*.sh
+```
 
 ## House rules
 

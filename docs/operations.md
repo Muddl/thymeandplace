@@ -139,29 +139,23 @@ git pull
 ./deploy.sh <sha>
 ```
 
-`<sha>` is that commit's full 40-character SHA, as shown on the green `release` run. `deploy.sh` refuses anything else (a short SHA, `main`, a tag) and exits 2 before pulling. `git pull` brings `compose.yaml`, `compose.release.yaml` and `deploy.sh` itself up to date. The script pulls the images built for that commit (`ghcr.io/muddl/thymeandplace-{app,ingest,transform,backup}:<sha>`), runs the one-shot `migrate` service (as `tp_owner`), starts the new app only once `migrate` has exited successfully, and waits for the app's health check. It then appends `<time> <sha> <app image digest> <seconds>s` to `/var/lib/thymeandplace/deploys.log` and prints `deploy ok: <sha> (<digest>); maintenance window about Ns`, the time the start step took, migrations included.
+`<sha>` is that commit's full 40-character SHA, as shown on the green `release` run. `deploy.sh` refuses anything else (a short SHA, `main`, a tag) and exits 2 before pulling. `git pull` brings `compose.yaml`, `compose.release.yaml` and `deploy.sh` itself up to date. The script pulls the images built for that commit (`ghcr.io/muddl/thymeandplace-{app,ingest,transform,backup}:<sha>`) and the `db` and `caddy` images pinned in `compose.yaml`, all before the maintenance window starts. It then runs the one-shot `migrate` service (as `tp_owner`), starts the new app only once `migrate` has exited successfully, waits for the app's health check, and starts `caddy`. Compose recreates `db` and `caddy` only when their image or settings changed, so a `compose.yaml` digest update is applied by the next deploy; a new PostGIS image restarts the database inside the window. The script then writes `deploy/.env` (below), appends `<time> <sha> <app image digest> <seconds>s` to `/var/lib/thymeandplace/deploys.log` and prints `deploy ok: <sha> (<digest>); maintenance window about Ns`, the time the start step took, migrations included.
 
 The app refuses to start while any migration is pending ("database has pending migrations; run the migrate service"). If that happens, or `deploy.sh` stops at `migrate`, `docker compose logs migrate` says why. Migrations must be backward-compatible with the previous version (add columns/tables; never drop or rename in the same release that stops using them). That is what makes "Rolling back the app" safe.
 
-Only commands given the release overlay use the registry images. `exec`, `logs`, `ps`, `restart`, `stop` and `start` act on the running containers and are unaffected. But a plain `docker compose up -d` recreates `app` from `compose.yaml`'s locally built `thymeandplace-app:latest`, which after a registry deploy is an unintended rollback, so don't run one: every procedure in this document that recreates `app` uses the overlay form below. The plain `docker compose --profile tools run` commands in this document (the backup and restore-test timers included) run the locally built `thymeandplace-*:latest` tools images, as before, and build them from the checkout if they're missing. To run a tool from the deployed release instead:
+**`deploy/.env`.** After a successful start, `deploy.sh` writes `/opt/thymeandplace/deploy/.env` (root-owned and git-ignored) with `COMPOSE_FILE=compose.yaml:compose.release.yaml` and `TP_IMAGE_TAG=<sha>`. Compose reads `.env` from the directory it runs in, so from then on every plain `docker compose` command in this document runs the deployed release: `up -d`, `exec`, `ps`, the `--profile tools run` commands, and the backup and restore-test timers. `cat .env` shows which release that is, and every deploy or rollback rewrites it. Don't edit it. A command that names its own `-f` files (`smoke.sh`, `e2e/run.sh`, `deploy/backup/verify.sh`) ignores `COMPOSE_FILE`. Before the first `deploy.sh` there is no `.env`, and the same commands build and run from source as before.
+
+**Recreating `app` after a settings change.** The app reads its env file only at startup, and `docker compose restart app` keeps the old environment, so a change to `app.env` (or a `compose.yaml` setting such as log options) needs the container recreated:
 
 ```bash
-sha=$(tail -n 1 /var/lib/thymeandplace/deploys.log | cut -d' ' -f2)
-TP_IMAGE_TAG=$sha docker compose -f compose.yaml -f compose.release.yaml --profile tools run --rm ingest places fetch
+docker compose up -d app
 ```
 
-**Recreating `app` after a settings change.** The app reads its env file only at startup, and `docker compose restart app` keeps the old environment, so a change to `app.env` (or a `compose.yaml` setting such as log options) needs the container recreated. Recreate it from the release that's running, with the overlay:
+Compose runs the one-shot `migrate` again first (it finds nothing to apply), recreates `app` only if its settings changed, uses the release named in `.env`, and writes nothing to `deploys.log`. `docker compose ps app` shows what runs: an `IMAGE` of `ghcr.io/muddl/thymeandplace-app:<sha>` is a release, `thymeandplace-app:latest` a source build.
 
-```bash
-sha=$(tail -n 1 /var/lib/thymeandplace/deploys.log | cut -d' ' -f2)
-TP_IMAGE_TAG=$sha docker compose -f compose.yaml -f compose.release.yaml up -d app
-```
+**Emergency path.** If GHCR or GitHub Actions is unavailable, build from the checkout: `rm -f .env && git pull && docker compose up -d --build app`. Removing `.env` puts every plain command back on source builds (with it in place, `--build` has nothing to build and Compose keeps the release). Compose runs `migrate` first in the same way. Nothing is written to `deploys.log`. Go back to `deploy.sh` with the next release; it writes `.env` again.
 
-Compose runs the one-shot `migrate` again first (it finds nothing to apply), recreates `app` only if its settings changed, and writes nothing to `deploys.log`. If there's no `deploys.log` yet, `sha` is empty and Compose stops with `set TP_IMAGE_TAG` without touching anything. Before the first `deploy.sh`, and while an emergency source build is running (it isn't logged, so the newest line is older than what runs), use the plain `docker compose up -d app` instead. `docker compose ps app` shows which: an `IMAGE` of `ghcr.io/muddl/thymeandplace-app:<sha>` is a release, `thymeandplace-app:latest` a source build.
-
-**Emergency path.** If GHCR or GitHub Actions is unavailable, build from the checkout as before: `git pull && docker compose up -d --build app`. Compose runs `migrate` first in the same way. Nothing is written to `deploys.log`. Go back to `deploy.sh` with the next release.
-
-**Moving over from source builds.** The first `deploy.sh` run replaces the locally built app with the registry image for the same commit. Keep the old `thymeandplace-app:latest` image (no `docker image rm`, no `docker image prune -a`) until the registry deploy has run for a day. Until then, `docker compose up -d app` (without `--build`) puts it back.
+**Moving over from source builds.** The first `deploy.sh` run replaces the locally built app with the registry image for the same commit. Keep the old `thymeandplace-app:latest` image (no `docker image rm`, no `docker image prune -a`) until the registry deploy has run for a day. Until then, `rm -f .env && docker compose up -d app` (without `--build`) puts it back.
 
 ### The shared `ingest_work` volume and file ownership
 
@@ -173,6 +167,8 @@ A volume that already holds files from before this was fixed (created root-owned
 docker compose --profile tools build ingest transform
 docker compose --profile tools run --rm --user 0 --entrypoint chown transform -R 65532:65532 /work
 ```
+
+After the first `deploy.sh`, the `build` line prints `No services to build`: the release images already have the fix.
 
 ## Rolling back the app
 
@@ -204,7 +200,7 @@ Dependabot (`.github/dependabot.yml`) opens weekly grouped pull requests, one pe
 - `pip`
 - `npm`
 
-Merge one when CI is green, then deploy the release it produces as usual. Read the release notes first for a new major version. The actions are pinned to the majors CI already used, so the first `github-actions` pull request is likely to propose majors.
+Merge one when CI is green, then deploy the release it produces as usual. That includes `docker-compose` updates: `deploy.sh` pulls and applies the `db` and `caddy` images too. Read the release notes first for a new major version. The actions are pinned to the majors CI already used, so the first `github-actions` pull request is likely to propose majors.
 
 **Compose digests.** Whether Dependabot bumps the digests in `deploy/compose.yaml` wasn't verified (spec §4.1). Check after its first weekly run. If it doesn't, bump them by hand every quarter. Check `deploy/compose.dev.yaml` either way: its name isn't a standard compose file name, so Dependabot may skip it. To bump a digest, take the top `Digest:` line (the multi-platform index) from
 
@@ -246,7 +242,7 @@ Every climate and ocean file has a reviewed sha256 pin in `internal/ingest/<data
 1. **The fetch fails and live data is untouched.** The error names the file and both hashes: `<file>: sha256 <got> does not match the pin <want>; live data unchanged; …`. No `dataset_versions` row is written and nothing is uploaded, so there is nothing to clean up.
 2. **Download the file by hand and compare it with the archived copy.** Every fetched version keeps its raw files in the reference-data bucket (`BUCKET_NAME` in `ingest.env`) at `raw/<dataset>/v<live>/<file>`, where `<live>` is the live version's id (`SELECT id, source_checksum FROM dataset_versions WHERE dataset = '<dataset>' AND is_live`). Copy it out with any S3 client (for example `mc cp`), `curl -fsSL` the source URL, and compare `sha256sum` and the contents. A changed header, reordered features or a re-encoded file with the same data is still a change: the pin covers bytes, not meaning.
 3. **If the change is legitimate, update the pin in a commit that says why**: what the publisher changed, the old and new sha256, and how you checked it. Keep that commit to the pin (and `docs/calibration-baseline.md`'s checksum row). If the change isn't legitimate (an unexpected mirror, a truncated or tampered file), leave the pin and find out why before fetching again.
-4. **Re-run calibration, then fetch, approve and swap.** On staging (the local dev stack), fetch with the new pin, approve and run `all`, then check the calibration score as in `docs/calibration-baseline.md` ("How this was measured"): it should stay within 0.02 of the baseline, or the baseline gets updated with the reason. Then deploy the new pin (`docker compose --profile tools build ingest`) and run `fetch`, `approve-license --version N` (read the summary: only the changed file should say `changed`), `approve-license --version N --yes` and `all --version N` in production. Because the bytes changed, the earlier review doesn't carry over, so the approval is needed.
+4. **Re-run calibration, then fetch, approve and swap.** On staging (the local dev stack), fetch with the new pin, approve and run `all`, then check the calibration score as in `docs/calibration-baseline.md` ("How this was measured"): it should stay within 0.02 of the baseline, or the baseline gets updated with the reason. Then merge the new pin and deploy its release (`./deploy.sh <sha>`, "Updating the app"; before the first `deploy.sh`, `docker compose --profile tools build ingest`) and run `fetch`, `approve-license --version N` (read the summary: only the changed file should say `changed`), `approve-license --version N --yes` and `all --version N` in production. Because the bytes changed, the earlier review doesn't carry over, so the approval is needed.
 
 ## Nightly backups
 
@@ -404,7 +400,7 @@ Each dump is encrypted to two X25519 keys, and either private key decrypts it.
 | **Restore-test** | `/etc/thymeandplace/restore-test.agekey` on the VPS, mode `600`, root-owned. Compose mounts it read-only into the `restore` service only, at `/run/secrets/restore-test.agekey`, and sets `AGE_IDENTITY` to that path | The monthly restore test, and routine restores on the VPS |
 
 1. **Recovery key**, on your own machine (install `age` there, e.g. `apt install age` or `brew install age`): `age-keygen -o recovery.key`. It prints `Public key: age1…`. Save the whole file in your password manager and write it on paper (the `AGE-SECRET-KEY-1…` line is the private key), then delete the file. It never goes on the VPS.
-2. **Restore-test key**, on the VPS, from a root shell in `/opt/thymeandplace/deploy`. This runs `age-keygen` from the backup image, so the host needs no `age`, but the image has to be one with `age` in it. Always build it first, as its own command (`git pull` first on a VPS that is already running). On a VPS whose backup image predates encryption, skipping the build makes the keygen fail with "executable file not found" and leave an empty key file. On a fresh VPS, `run` would build the image itself and write the build's progress into the key file:
+2. **Restore-test key**, on the VPS, from a root shell in `/opt/thymeandplace/deploy`. This runs `age-keygen` from the backup image, so the host needs no `age`, but the image has to be one with `age` in it. Always build it first, as its own command (`git pull` first on a VPS that is already running). On a VPS whose backup image predates encryption, skipping the build makes the keygen fail with "executable file not found" and leave an empty key file. On a fresh VPS, `run` would build the image itself and write the build's progress into the key file. After the first `deploy.sh`, the deployed release's backup image is used instead (it has `age`), and the `build` line prints `No services to build`:
    ```bash
    docker compose --profile tools build backup
    (umask 077; docker compose --profile tools run --rm --no-deps -T --entrypoint age-keygen backup > /etc/thymeandplace/restore-test.agekey)
@@ -434,7 +430,7 @@ Add the new recipient to `BACKUP_AGE_RECIPIENTS`, next to the old one, and run a
 
 Once, when the encrypting backup image first goes to the VPS (spec §7):
 
-1. Build the image: `git pull && docker compose --profile tools build backup`. `backup` and `restore` share it. The old image has no `age-keygen`, so this comes before the keys. Do steps 1 to 3 in one sitting, well away from the 03:15 nightly run: until step 2 sets the recipients, the new image's `backup` exits 2 naming `BACKUP_AGE_RECIPIENTS` before it dumps anything, so a run in between fails loudly and uploads nothing.
+1. Build the image: `git pull && docker compose --profile tools build backup`. After the first `deploy.sh`, deploy the release that adds encryption instead (`./deploy.sh <sha>`). `backup` and `restore` share the image. The old image has no `age-keygen`, so this comes before the keys. Do steps 1 to 3 in one sitting, well away from the 03:15 nightly run: until step 2 sets the recipients, the new image's `backup` exits 2 naming `BACKUP_AGE_RECIPIENTS` before it dumps anything, so a run in between fails loudly and uploads nothing.
 2. Generate both keys and set `BACKUP_AGE_RECIPIENTS` ("Keys" above).
 3. Before the next nightly run, run `docker compose --profile tools run --rm backup` (it prints `backup ok: backups/daily/<date>.dump.age`), then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore` (it prints `restore-test ok (<date>.dump.age)`). Both must succeed.
 4. Turn on versioning at the provider, at least at the minimum level in "Backup deletion protection". Then consider the preferred level.
@@ -674,10 +670,9 @@ If `/readyz` is ever taken off the public site, check `/` for the text `Find you
 1. In a Healthchecks.io project, create the five checks above with their schedules, `POST` only, and the cron checks in the VPS time zone. Attach email and one push channel (ntfy, Pushover, Telegram or Signal; SMS and phone calls need a paid plan) to every check, and send a test notification.
 2. Put each check's ping URL in its env file (`sudoedit /etc/thymeandplace/app.env` and so on).
 3. Configure the external monitor, and turn on the VPS provider's disk and CPU alerts if it offers them.
-4. Recreate the running services with the release overlay (as in "Recreating `app` after a settings change"; before the first `deploy.sh`, plain `docker compose up -d`):
+4. Recreate the running services (from the deployed release, through `deploy/.env`; see "Updating the app"):
    ```bash
-   sha=$(tail -n 1 /var/lib/thymeandplace/deploys.log | cut -d' ' -f2)
-   TP_IMAGE_TAG=$sha docker compose -f compose.yaml -f compose.release.yaml up -d
+   docker compose up -d
    ```
    Compose recreates the containers whose settings changed, so they pick up the new env and log options. `app` and `admin-auth` go green within a few minutes. `drift` goes green at the next scheduled run, 24 h after `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1`; a deploy doesn't trigger one.
 5. Run a backup by hand (`docker compose --profile tools run --rm backup`): the `backup` check shows `/start`, then success. Then run `docker compose --profile tools run --rm -e BUCKET_NAME=missing backup`: expect a failure alert naming `upload`. Run a normal backup again to clear it.

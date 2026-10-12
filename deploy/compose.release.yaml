@@ -1,7 +1,9 @@
 # Production runs images CI built and tested, by commit SHA:
 #   TP_IMAGE_TAG=<sha> docker compose -f compose.yaml -f compose.release.yaml ...
-# deploy/deploy.sh does this. Without the overlay, compose.yaml still builds
-# from source (local dev, e2e, smoke tests, and the emergency path).
+# deploy/deploy.sh does this, then writes deploy/.env (COMPOSE_FILE and
+# TP_IMAGE_TAG) so plain `docker compose` commands on the VPS do the same.
+# Without the overlay, compose.yaml still builds from source (local dev, e2e,
+# smoke tests, and the emergency path).
 services:
   migrate:   { build: !reset null, image: "ghcr.io/muddl/thymeandplace-app:${TP_IMAGE_TAG:?set TP_IMAGE_TAG}" }
   app:       { build: !reset null, image: "ghcr.io/muddl/thymeandplace-app:${TP_IMAGE_TAG:?set TP_IMAGE_TAG}" }

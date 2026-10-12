@@ -4,7 +4,7 @@
 # the step that failed (docs/operations.md, "Monitoring and alerts").
 set -eu
 # The image installs heartbeat.sh next to this script (deploy/backup/Dockerfile).
-# shellcheck source=deploy/backup/heartbeat.sh
+# shellcheck source-path=SCRIPTDIR source=heartbeat.sh
 . /usr/local/bin/heartbeat.sh
 HEARTBEAT_URL=${HEARTBEAT_BACKUP_URL:-}
 

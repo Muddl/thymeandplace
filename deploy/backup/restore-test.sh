@@ -11,7 +11,7 @@
 # with the count table (docs/operations.md, "Monitoring and alerts").
 set -eu
 # The image installs heartbeat.sh next to this script (deploy/backup/Dockerfile).
-# shellcheck source=deploy/backup/heartbeat.sh
+# shellcheck source-path=SCRIPTDIR source=heartbeat.sh
 . /usr/local/bin/heartbeat.sh
 HEARTBEAT_URL=${HEARTBEAT_RESTORE_TEST_URL:-}
 scratch_db=thymeandplace_restore_test

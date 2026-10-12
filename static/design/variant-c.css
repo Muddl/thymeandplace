@@ -68,5 +68,7 @@ footer.site { border-top: 3px solid var(--c-ink); }
   body:has(#results:empty) header.site::after { width: 5.5rem; top: auto; bottom: var(--s-4); }
   .group h3 { margin-bottom: var(--s-1); }
   .ingredient h3 { margin-top: var(--s-5); border-top-width: 3px; }
+  .pairings { gap: var(--s-2) var(--s-4); }
+  .pairings li + li { margin-left: 0; padding-left: 0; border-left: 0; }
   .ingredient h3 + p, .ingredient h3 + ul { border-top: 0 !important; }
 }

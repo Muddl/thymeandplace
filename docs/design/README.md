@@ -1,6 +1,6 @@
 # Design exploration: three directions for Thyme & Place
 
-Status: exploration on `design/explore`. Not for merge. It exists so Wade can pick a direction.
+Status: exploration on `cursor/design-explore-6c38`. Not for merge. It exists so Wade can pick a direction.
 
 Brief: take the warmth, colour, character and produce imagery of the late-1800s seed catalogues, but with the cleanliness and order of the modern market stalls (generous white space, a strong grid, crisp signboard-like labels, restraint). It must not look AI-generated. Fonts are open-licence and self-hosted. The CSP is unchanged (`font-src 'self'`, no inline styles or scripts).
 

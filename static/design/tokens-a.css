@@ -1,0 +1,29 @@
+/* Variant A, "Catalogue": the seed-catalogue side leads. A fat-face display
+   face carries headings; everything else stays plain and white. */
+
+@font-face { font-family: "Abril Fatface"; src: url("fonts/abril-fatface-400.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Libre Franklin"; src: url("fonts/libre-franklin-var.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+
+:root {
+  /* fonts: display = brand, place and ingredient names, group titles; text = all other copy and UI */
+  --font-display: "Abril Fatface", "Bodoni 72", Didot, Georgia, serif;
+  --font-text: "Libre Franklin", "Franklin Gothic Medium", "Helvetica Neue", Arial, sans-serif;
+
+  /* colours: ground = page; ink = text, frames and rules; accent = vermilion for links, focus, peak season; spot = ultramarine for year-round */
+  --c-ground: #ffffff;
+  --c-ink: #1a2130;
+  --c-accent: #d3351d;
+  --c-spot: #1e4e9c;
+
+  /* spacing: one scale, loose */
+  --s-1: .25rem;
+  --s-2: .5rem;
+  --s-3: .875rem;
+  --s-4: 1.25rem;
+  --s-5: 2rem;
+  --s-6: 3.5rem;
+  --s-7: 6rem;
+
+  /* radius: printed edges stay square */
+  --radius: 0;
+}

@@ -1,0 +1,30 @@
+/* Variant B, "Stall": the market side leads. Black frames, white signboards,
+   condensed capitals for labels, ordered crates for lists. */
+
+@font-face { font-family: "Barlow Condensed"; src: url("fonts/barlow-condensed-700.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Barlow"; src: url("fonts/barlow-400.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Barlow"; src: url("fonts/barlow-600.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+
+:root {
+  /* fonts: display = signboards (brand, headings, month cells, labels), always capitals; text = all other copy */
+  --font-display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-text: "Barlow", "Helvetica Neue", Arial, sans-serif;
+
+  /* colours: ground = signboard white; ink = timber frame black; accent = price-tag vermilion; spot = crate green for year-round */
+  --c-ground: #ffffff;
+  --c-ink: #121417;
+  --c-accent: #dc3a1b;
+  --c-spot: #1f7a46;
+
+  /* spacing: one scale, tight and even, like a stall grid */
+  --s-1: .25rem;
+  --s-2: .5rem;
+  --s-3: .75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2.5rem;
+  --s-7: 4rem;
+
+  /* radius: timber corners, barely eased */
+  --radius: 2px;
+}

@@ -1,0 +1,147 @@
+/* Variant B, "Stall". Layout comes from base.css. */
+
+:root { --page: 72rem; --frame: 3px solid var(--c-ink); }
+body { font-size: 1.0625rem; }
+
+/* Fascia and footer are full-bleed black frames; content keeps the page width */
+header.site, footer.site {
+  width: 100%;
+  max-width: none;
+  background: var(--c-ink);
+  color: var(--c-ground);
+  padding-inline: max(var(--s-4), calc((100% - var(--page)) / 2));
+}
+header.site { padding-block: var(--s-5); border-bottom: 8px solid var(--c-accent); }
+.brand {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 9vw, 6rem);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--c-ground);
+  line-height: .9;
+}
+.tag { color: color-mix(in srgb, var(--c-ground) 78%, var(--c-ink)); max-width: 40ch; }
+body:has(#results:empty) header.site { padding-block: var(--s-7) var(--s-6); }
+body:has(#results:not(:empty)) .brand { font-size: 2.5rem; }
+footer.site { border-top: 0; margin-top: var(--s-7); padding-block: var(--s-5); color: color-mix(in srgb, var(--c-ground) 78%, var(--c-ink)); }
+footer.site a { color: var(--c-ground); text-decoration-color: var(--c-accent); }
+
+/* Finder: a framed signboard */
+.finder { border: var(--frame); border-radius: var(--radius); padding-bottom: var(--s-4); row-gap: var(--s-3); }
+.finder > * { margin-inline: var(--s-4); }
+.finder > label {
+  margin: 0 0 var(--s-1);
+  padding: var(--s-2) var(--s-4);
+  background: var(--c-ink);
+  color: var(--c-ground);
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.finder input { border-width: 2px; }
+.finder button { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-ground); font-family: var(--font-display); font-size: 1.25rem; letter-spacing: .08em; text-transform: uppercase; }
+.finder button:hover { background: var(--c-ink); border-color: var(--c-ink); }
+body:has(#results:empty) .finder { max-width: 40rem; }
+.places { margin-top: 0; }
+.places a { font-size: 1.125rem; }
+
+/* Results */
+#results { margin-top: var(--s-6); }
+.where h2 {
+  font-family: var(--font-display);
+  font-size: clamp(3rem, 8vw, 5.5rem);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  line-height: .9;
+}
+.when { font-size: .9375rem; }
+.group { display: block; padding: 0; margin-bottom: var(--s-6); --tag: var(--c-ground); }
+.group:has(.s-peak) { --tag: var(--c-accent); }
+.group:has(.s-in) { --tag: var(--c-tint); }
+.group:has(.s-year) { --tag: var(--c-spot); }
+.group h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-4);
+  background: var(--c-ink);
+  color: var(--c-ground);
+  border-radius: var(--radius) var(--radius) 0 0;
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+.group h3::before { content: ""; width: 1.25rem; height: 1.25rem; background: var(--tag); border: 2px solid var(--c-ground); }
+.items {
+  columns: 2 20rem;
+  column-gap: 0;
+  column-rule: 2px solid var(--c-ink);
+  border: var(--frame);
+  border-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.item { padding: var(--s-3) var(--s-4); border-bottom: 2px solid var(--c-line); }
+.item a { font-size: 1.1875rem; }
+.item .basis { margin-top: 1px; }
+.item .badge { padding: 1px var(--s-2); border: 1px solid var(--c-line); border-radius: var(--radius); }
+
+/* Ingredient */
+.ingredient h2 {
+  justify-self: start;
+  padding: var(--s-3) var(--s-5) var(--s-2);
+  background: var(--c-ink);
+  color: var(--c-ground);
+  border-radius: var(--radius);
+  font-family: var(--font-display);
+  font-size: clamp(3.5rem, 11vw, 7rem);
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.category { font-family: var(--font-display); font-size: 1.25rem; letter-spacing: .1em; text-transform: uppercase; color: var(--c-accent); }
+.bar { gap: 0; border: var(--frame); border-radius: var(--radius); background: var(--c-ink); gap: 2px; }
+.bar .m { min-height: 4.25rem; border: 0; border-radius: 0; font-family: var(--font-display); font-size: 1.5rem; letter-spacing: .04em; }
+.bar .s-store { outline: 4px solid var(--c-accent); outline-offset: -6px; }
+.bar .now::after { bottom: 0; height: 8px; }
+.key { font-size: .875rem; color: var(--c-ink); }
+.ingredient h3 {
+  align-self: start;
+  justify-self: start;
+  padding: var(--s-2) var(--s-3);
+  border-top: 0;
+  background: var(--c-ink);
+  color: var(--c-ground);
+  border-radius: var(--radius);
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.ingredient h3 + p, .ingredient h3 + ul { border-top: var(--frame); padding-top: var(--s-3); }
+.pairings { gap: var(--s-2); }
+.pairings a {
+  display: block;
+  padding: var(--s-2) var(--s-4);
+  border: 2px solid var(--c-ink);
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+.pairings a:hover { background: var(--c-ink); color: var(--c-ground); }
+
+.panel { border-width: 3px; }
+
+@media (max-width: 47.99rem) {
+  header.site { padding-block: var(--s-4); }
+  body:has(#results:empty) header.site { padding-block: var(--s-6) var(--s-5); }
+  .group h3 { font-size: 1.5rem; }
+  .items { column-rule: 0; }
+  .ingredient h2 { padding-inline: var(--s-4); }
+  .bar { gap: 1px; }
+  .bar .m { min-height: 3.25rem; font-size: 1.125rem; }
+  .bar .s-store { outline-width: 3px; outline-offset: -5px; }
+  .bar .now::after { height: 6px; }
+  .ingredient h3 + p, .ingredient h3 + ul { border-top: 0 !important; }
+  .ingredient h3 { margin-top: var(--s-5); }
+}

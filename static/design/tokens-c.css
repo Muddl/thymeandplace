@@ -1,0 +1,31 @@
+/* Variant C, "Blend": an even split. Slab display type and a single vermilion
+   plate from the catalogues, set on a stall's plain grid with signboard-style
+   labels and a black top frame. */
+
+@font-face { font-family: "Bevan"; src: url("fonts/bevan-400.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Archivo"; src: url("fonts/archivo-var.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; font-style: normal; font-display: swap; }
+
+:root {
+  /* fonts: display = brand, place and ingredient names only; text = body, and (set wide, bold, capitals) all signboard labels */
+  --font-display: "Bevan", "Rockwell", "Clarendon", Georgia, serif;
+  --font-text: "Archivo", "Helvetica Neue", Arial, sans-serif;
+
+  /* colours: ground = page; ink = text, top frame and rules; accent = vermilion for links, focus and peak season; spot = marigold for label tabs and year-round */
+  --c-ground: #fbfbf9;
+  --c-ink: #16181b;
+  --c-accent: #d8371c;
+  --c-spot: #eab12c;
+  --spot-ink: var(--c-ink);
+
+  /* spacing: one scale, medium */
+  --s-1: .25rem;
+  --s-2: .5rem;
+  --s-3: .75rem;
+  --s-4: 1.25rem;
+  --s-5: 2rem;
+  --s-6: 3.25rem;
+  --s-7: 5.5rem;
+
+  /* radius */
+  --radius: 3px;
+}

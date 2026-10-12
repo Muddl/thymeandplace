@@ -1,0 +1,72 @@
+/* Variant C, "Blend". Layout comes from base.css. */
+
+:root { --page: 68rem; }
+body { border-top: 10px solid var(--c-ink); font-size: 1rem; }
+
+/* Header: slab wordmark; on the home page one plate sits on a marigold label tile */
+header.site { position: relative; padding-block: var(--s-5) var(--s-4); }
+.brand { font-family: var(--font-display); font-size: clamp(2.25rem, 8vw, 4.5rem); letter-spacing: -.01em; }
+body:has(#results:empty) header.site::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: var(--s-5);
+  width: min(26vw, 13rem);
+  aspect-ratio: 1;
+  background: url("art/tomato-1897.webp") center / 74% no-repeat, var(--c-spot);
+  border-radius: var(--radius);
+}
+.tag { font-size: 1.0625rem; }
+body:has(#results:empty) header.site { padding-block: var(--s-7) var(--s-5); }
+body:has(#results:not(:empty)) .brand { font-size: 1.75rem; }
+
+/* Labels: wide, bold capitals, like a stall's signboards */
+.finder > label, .when, .category, .group h3, .ingredient h3, .key, .item .badge, .ingredient > .badge {
+  font-stretch: 125%;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.finder > label { font-size: .75rem; padding-bottom: var(--s-1); }
+.finder input { border-width: 2px; font-weight: 500; }
+.finder button { background: var(--c-ink); color: var(--c-ground); font-stretch: 112%; font-weight: 700; }
+.finder button:hover { background: var(--c-accent); border-color: var(--c-accent); }
+body:has(#results:empty) .finder { max-width: 38rem; }
+
+/* Results */
+.where h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(2.5rem, 7vw, 4.25rem); letter-spacing: -.01em; }
+.when { font-size: .6875rem; }
+.when a { font-stretch: 100%; font-weight: 500; letter-spacing: 0; text-transform: none; font-size: .9375rem; }
+.group { border-top: 3px solid var(--c-ink); }
+.group h3 { display: flex; align-items: center; gap: var(--s-2); font-size: .8125rem; line-height: 1.2; }
+.group h3::before { content: ""; flex: none; width: .875rem; height: .875rem; border-radius: var(--radius); background: var(--tag, var(--c-wash)); border: 2px solid var(--tag-edge, transparent); }
+.group:has(.s-peak) h3 { --tag: var(--c-accent); }
+.group:has(.s-in) h3 { --tag: var(--c-tint); }
+.group:has(.s-store) h3 { --tag: var(--c-ground); --tag-edge: var(--c-accent); }
+.group:has(.s-year) h3 { --tag: var(--c-spot); }
+.item { padding-block: var(--s-3); }
+.item a { font-weight: 700; }
+.item .badge { font-size: .5625rem; padding: 2px var(--s-2); border: 1px solid var(--c-line); border-radius: var(--radius); }
+
+/* Ingredient */
+.ingredient h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(3rem, 10vw, 5.75rem); letter-spacing: -.015em; }
+.category { justify-self: start; margin-top: var(--s-4); padding: var(--s-1) var(--s-3); background: var(--c-spot); color: var(--c-ink); border-radius: var(--radius); font-size: .75rem; }
+.bar { gap: 4px; }
+.bar .m { font-stretch: 112%; font-weight: 700; }
+.key { font-size: .6875rem; }
+.ingredient h3 { font-size: .8125rem; border-top: 3px solid var(--c-ink); }
+.ingredient h3 + p, .ingredient h3 + ul { border-top: 3px solid var(--c-ink); }
+.pairings { gap: var(--s-2) 0; }
+.pairings li + li { margin-left: var(--s-4); padding-left: var(--s-4); border-left: 2px solid var(--c-line); }
+
+footer.site { border-top: 3px solid var(--c-ink); }
+
+@media (max-width: 47.99rem) {
+  header.site { padding-block: var(--s-4); }
+  body:has(#results:empty) header.site { padding-block: var(--s-6) var(--s-4); }
+  body:has(#results:empty) header.site { padding-bottom: 7.5rem; }
+  body:has(#results:empty) header.site::after { width: 5.5rem; top: auto; bottom: var(--s-4); }
+  .group h3 { margin-bottom: var(--s-1); }
+  .ingredient h3 { margin-top: var(--s-5); border-top-width: 3px; }
+  .ingredient h3 + p, .ingredient h3 + ul { border-top: 0 !important; }
+}

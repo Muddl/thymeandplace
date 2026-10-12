@@ -19,6 +19,8 @@ These keep their own licenses, and nothing above changes them.
 | Component | Where | License |
 |---|---|---|
 | htmx 2.0.4 | `static/htmx.min.js` | BSD 2-Clause, © Big Sky Software (see `static/README.md`) |
+| Abril Fatface, Libre Franklin, Barlow, Barlow Condensed, Bevan, Archivo | `static/design/fonts/` | SIL Open Font License 1.1 (see `static/design/fonts/LICENSES.txt`) |
+| Tomato plate cut from A. W. Livingston's Sons, *Annual of True Blue Seeds* (1897) | `static/design/art/` | Public domain; USDA National Agricultural Library scan, credited in the site footer (see `docs/design/README.md`) |
 | Go modules | `go.mod`, `go.sum`; compiled into the binaries | Each module's own license, shipped with its source |
 | Python packages | `pipeline/transform/requirements*.txt` | Each package's own license |
 | Container images | `deploy/Dockerfile.*`, `deploy/compose.yaml` (Postgres/PostGIS, Caddy, Go, Python and others) | Each image's own licenses |

@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.." # deploy/
 export TP_ENV_DIR=./e2e MSYS_NO_PATHCONV=1
 C="docker compose -p thymeandplace-e2e -f compose.yaml -f compose.e2e.yaml"
 S3=tp-verify-s3
-BK=(-e BUCKET_ENDPOINT=$S3:8000 -e BUCKET_NAME=tp-backups -e BUCKET_ACCESS_KEY=accessKey1 -e BUCKET_SECRET_KEY=verySecretKey1 -e BUCKET_USE_SSL=false)
+BK=(-e "BUCKET_ENDPOINT=$S3:8000" -e BUCKET_NAME=tp-backups -e BUCKET_ACCESS_KEY=accessKey1 -e BUCKET_SECRET_KEY=verySecretKey1 -e BUCKET_USE_SSL=false)
 cleanup() { docker rm -f "$S3" >/dev/null 2>&1 || true; $C --profile tools down -v >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 fail() { echo "verify: FAIL: $*" >&2; exit 1; }
@@ -19,6 +19,7 @@ mcx() { $C --profile tools run --rm "${BK[@]}" --entrypoint sh backup -c "mc ali
 sentinel() { $C exec -T db psql -U tp -d thymeandplace -Atc "SELECT to_regclass('public.verify_sentinel') IS NOT NULL" | tr -d '\r'; }
 # bucket lists every object with a hash of its content. age encrypts with a
 # fresh file key each run, so any upload, even over today's key, changes it.
+# shellcheck disable=SC2016 # the snippet expands inside the backup container
 bucket() { mcx 'for o in $(mc ls --recursive m/tp-backups/backups/ | awk "{print \$NF}"); do echo "$o $(mc cat "m/tp-backups/backups/$o" | sha256sum)"; done' | tr -d '\r'; }
 
 $C up -d --build --wait db app
@@ -75,6 +76,7 @@ if out=$(restore --entrypoint sh restore -c "age-keygen -o /tmp/wrong.key 2>/dev
 ok "wrong identity refused"
 
 # 6. One changed byte: offset 300, past the age header, becomes (b+1) mod 256.
+# shellcheck disable=SC2016 # the snippet expands inside the backup container
 mcx "k=$key; "'mc cp --quiet "m/tp-backups/$k" /tmp/o && cp /tmp/o /tmp/t &&
   b=$(dd if=/tmp/o bs=1 skip=300 count=1 2>/dev/null | od -An -tu1 | tr -d " ") &&
   printf %b "\\0$(printf %03o $(( (b + 1) % 256 )))" | dd of=/tmp/t bs=1 seek=300 count=1 conv=notrunc 2>/dev/null &&
@@ -111,6 +113,7 @@ ok "failed dump uploads nothing"
 # 10. A zero-byte dump fails at verify and uploads nothing: a pg_dump shim
 # first on PATH truncates its --file target and exits 0.
 set +e
+# shellcheck disable=SC2016 # the snippet expands inside the backup container
 out=$($C --profile tools run --rm "${BK[@]}" --entrypoint sh backup -c 'mkdir -p /tmp/shim && cat >/tmp/shim/pg_dump <<"EOF"
 #!/bin/sh
 for a; do case $a in --file=*) : > "${a#--file=}"; echo "shim: wrote a zero-byte ${a#--file=}" >&2;; esac; done

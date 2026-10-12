@@ -10,6 +10,8 @@
 # With HEARTBEAT_RESTORE_TEST_URL set, pings /start, then success, or /fail
 # with the count table (docs/operations.md, "Monitoring and alerts").
 set -eu
+# The image installs heartbeat.sh next to this script (deploy/backup/Dockerfile).
+# shellcheck source=deploy/backup/heartbeat.sh
 . /usr/local/bin/heartbeat.sh
 HEARTBEAT_URL=${HEARTBEAT_RESTORE_TEST_URL:-}
 scratch_db=thymeandplace_restore_test
@@ -62,5 +64,11 @@ for t in ingredient ingredient_pairing seafood_region catalog_history dataset_ve
 "
   [ "$live" = "$copy" ] || status=1
 done
-[ $status -eq 0 ] && echo "restore-test ok ($latest)" || echo "restore-test FAILED: counts differ ($latest)" >&2
-exit $status
+# Fail inside the if, not with a trailing `exit $status`: shellcheck 0.11
+# misreads a final top-level exit as making the EXIT trap's on_exit
+# unreachable (SC2329).
+if [ "$status" -ne 0 ]; then
+  echo "restore-test FAILED: counts differ ($latest)" >&2
+  exit 1
+fi
+echo "restore-test ok ($latest)"

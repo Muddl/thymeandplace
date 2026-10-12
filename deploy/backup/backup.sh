@@ -3,10 +3,12 @@
 # With HEARTBEAT_BACKUP_URL set, pings /start, then success, or /fail naming
 # the step that failed (docs/operations.md, "Monitoring and alerts").
 set -eu
+# The image installs heartbeat.sh next to this script (deploy/backup/Dockerfile).
+# shellcheck source=deploy/backup/heartbeat.sh
 . /usr/local/bin/heartbeat.sh
 HEARTBEAT_URL=${HEARTBEAT_BACKUP_URL:-}
 
-step=env
+step="env"
 file=
 prune_err=
 day=$(date -u +%Y-%m-%d)
@@ -44,7 +46,7 @@ done
 [ -n "$recipients" ] || { echo "backup: BACKUP_AGE_RECIPIENTS is not set" >&2; exit 2; }
 hc /start
 
-step=alias
+step="alias"
 scheme=https
 [ "${BUCKET_USE_SSL:-true}" = "false" ] && scheme=http
 mc alias set store "$scheme://$BUCKET_ENDPOINT" "$BUCKET_ACCESS_KEY" "$BUCKET_SECRET_KEY" >/dev/null

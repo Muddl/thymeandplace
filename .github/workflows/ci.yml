@@ -83,6 +83,13 @@ jobs:
       - name: Backup scripts parse
         # The image's scripts are POSIX sh (dash); verify.sh is bash.
         run: for f in deploy/backup/*.sh; do case "$f" in */verify.sh) bash -n "$f" ;; *) sh -n "$f" ;; esac; done
+      - name: shellcheck
+        # A pinned image, not the runner's apt shellcheck (0.9.x), so CI and
+        # local runs report the same checks. -x follows the sourced heartbeat.sh.
+        run: >-
+          docker run --rm -v "$PWD:/mnt" -w /mnt
+          koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+          -x deploy/*.sh deploy/backup/*.sh deploy/db/initdb/*.sh e2e/run.sh scripts/*.sh
 
   e2e:
     if: github.ref == 'refs/heads/main'

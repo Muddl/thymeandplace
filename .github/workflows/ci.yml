@@ -26,8 +26,12 @@ jobs:
           ./scripts/sqlc.sh generate
           git diff --exit-code
       - run: go vet ./...
+      - name: staticcheck
+        run: go tool staticcheck ./...
+      - name: govulncheck (reachable vulnerabilities only)
+        run: go tool govulncheck ./...
       - name: Unit, scoring, auth, store integration and ingestion tests
-        run: go test ./... -count=1
+        run: go test -race -count=1 ./...
 
   python:
     runs-on: ubuntu-latest

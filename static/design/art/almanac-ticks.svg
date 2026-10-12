@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 24" preserveAspectRatio="none">
+  <g stroke="#000" stroke-width="2" vector-effect="non-scaling-stroke" fill="none">
+    <path vector-effect="non-scaling-stroke" d="M0 23H1200"/>
+    <path vector-effect="non-scaling-stroke" d="M100 23V15M200 23V15M300 23V15M400 23V15M500 23V15M600 23V15M700 23V15M800 23V15M900 23V15M1000 23V15M1100 23V15"/>
+    <path vector-effect="non-scaling-stroke" d="M261 23V1M567 23V1M870 23V1M1165 23V1"/>
+  </g>
+</svg>

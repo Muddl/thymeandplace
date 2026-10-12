@@ -1,0 +1,37 @@
+/* Variant C2, "Almanac": Blend, re-coloured. Wade's note on C was that it read
+   as a black-and-white newspaper; this keeps the type and grid and swaps the
+   black rules for tinted bands in earthy seasonal colours. */
+
+@font-face { font-family: "Bevan"; src: url("fonts/bevan-400.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Archivo"; src: url("fonts/archivo-var.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; font-style: normal; font-display: swap; }
+
+:root {
+  /* fonts: display = brand, place and ingredient names only; text = body, and (set wide, bold, capitals) all labels */
+  --font-display: "Bevan", "Rockwell", "Clarendon", Georgia, serif;
+  --font-text: "Archivo", "Helvetica Neue", Arial, sans-serif;
+
+  /* colours, six roles. Every text pair below meets WCAG AA (see docs/design/README.md). */
+  --c-ground: #f4f7f1;   /* page: a light sage-stone, not cream */
+  --c-ink: #1d2a25;      /* text and the one dark mark (the current month); a green-black, not black */
+  --c-field: #2d6a42;    /* field green: in season, wordmark, primary button, top frame */
+  --c-marigold: #e6a323; /* harvest marigold: peak season (always with ink text) */
+  --c-slate: #38607f;    /* sky slate: year-round, footer band */
+  --c-brick: #9a3b2d;    /* beet brick: from storage, links, focus */
+
+  /* names base.css reads */
+  --c-accent: var(--c-brick);
+  --c-spot: var(--c-marigold);
+  --spot-ink: var(--c-ink);
+
+  /* spacing: one scale, medium */
+  --s-1: .25rem;
+  --s-2: .5rem;
+  --s-3: .75rem;
+  --s-4: 1.25rem;
+  --s-5: 2rem;
+  --s-6: 3.25rem;
+  --s-7: 5.5rem;
+
+  /* radius */
+  --radius: 3px;
+}

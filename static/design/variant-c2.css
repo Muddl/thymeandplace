@@ -1,0 +1,160 @@
+/* Variant C2, "Almanac". Layout comes from base.css; tints and state colours are built here from the six tokens. */
+
+:root {
+  --page: 68rem;
+  --c-muted: color-mix(in srgb, var(--c-ink) 78%, var(--c-ground));
+  --c-line: color-mix(in srgb, var(--c-field) 26%, var(--c-ground));
+  --c-wash: color-mix(in srgb, var(--c-slate) 9%, var(--c-ground));
+  --c-sky: color-mix(in srgb, var(--c-field) 12%, var(--c-ground));
+  --gold-edge: color-mix(in srgb, var(--c-marigold) 55%, var(--c-ink));
+}
+body { font-size: 1rem; }
+a { text-decoration-color: var(--c-brick); }
+a:hover { color: var(--c-brick); }
+
+/* Header: a pale green band under a field-green frame; on the home page a woodcut bush grows out of its lower edge */
+header.site {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  padding-inline: max(var(--s-4), calc((100% - var(--page)) / 2));
+  padding-block: var(--s-5) var(--s-4);
+  background: var(--c-sky);
+  border-top: 10px solid var(--c-field);
+}
+.brand { font-family: var(--font-display); font-size: clamp(2.25rem, 8vw, 4.5rem); letter-spacing: -.01em; color: var(--c-field); }
+.tag { font-size: 1.0625rem; }
+body:has(#results:empty) header.site { padding-block: var(--s-7) var(--s-6); }
+body:has(#results:empty) header.site::after {
+  content: "";
+  position: absolute;
+  right: max(var(--s-4), calc((100% - var(--page)) / 2));
+  bottom: 0;
+  width: min(28vw, 18rem);
+  aspect-ratio: 560 / 479;
+  background: var(--c-field);
+  -webkit-mask: url("art/tomato-woodcut-1890.webp") center bottom / contain no-repeat;
+  mask: url("art/tomato-woodcut-1890.webp") center bottom / contain no-repeat;
+}
+body:has(#results:not(:empty)) .brand { font-size: 1.75rem; }
+body:has(#results:not(:empty)) header.site { padding-block: var(--s-4); }
+main { padding-top: var(--s-6); }
+#results { margin-top: var(--s-5); }
+
+/* Labels: wide, bold capitals */
+.finder > label, .when, .category, .group h3, .ingredient h3, .key, .ingredient > .badge {
+  font-stretch: 125%;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.finder > label { font-size: .75rem; padding-bottom: var(--s-1); color: var(--c-field); }
+.finder input { border: 2px solid var(--c-field); font-weight: 500; }
+.finder input:focus-visible { border-color: var(--c-brick); }
+.finder button { background: var(--c-field); border-color: var(--c-field); color: var(--c-ground); font-stretch: 112%; font-weight: 700; }
+.finder button:hover { background: var(--c-ink); border-color: var(--c-ink); color: var(--c-ground); }
+body:has(#results:empty) .finder { max-width: 38rem; }
+.places a { border-bottom-color: var(--c-line); }
+.places a::after { color: var(--c-brick); }
+
+/* Results */
+.where h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(2.5rem, 7vw, 4.25rem); letter-spacing: -.01em; }
+.when { font-size: .6875rem; }
+.when a { font-stretch: 100%; font-weight: 500; letter-spacing: 0; text-transform: none; font-size: .9375rem; }
+.when a::before { content: "\2248\00a0"; text-decoration: none; display: inline-block; }
+
+/* Each season state is a tinted band with a solid label tab; the colour carries into the rows and the chart */
+.group {
+  --st: var(--c-wash);
+  --st-ink: var(--c-ink);
+  margin-top: var(--s-4);
+  padding: var(--s-5);
+  --band: color-mix(in srgb, var(--st) 15%, var(--c-ground));
+  background: var(--band);
+  border-radius: var(--radius);
+}
+/* marigold alone tints to cream; mixed into the sage it reads as straw, so peak's band is built on the header tint */
+.group:has(.s-peak) { --st: var(--c-marigold); --band: color-mix(in srgb, var(--c-marigold) 18%, var(--c-sky)); }
+.group:has(.s-in) { --st: var(--c-field); --st-ink: var(--c-ground); }
+.group:has(.s-store) { --st: var(--c-brick); --st-ink: var(--c-ground); }
+.group:has(.s-year) { --st: var(--c-slate); --st-ink: var(--c-ground); }
+.group h3 {
+  justify-self: start;
+  padding: var(--s-1) var(--s-3);
+  background: var(--st);
+  color: var(--st-ink);
+  border-radius: var(--radius);
+  font-size: .75rem;
+  line-height: 1.3;
+}
+.item { padding-block: var(--s-3); border-bottom-color: color-mix(in srgb, var(--c-ink) 16%, var(--band)); }
+.item a { font-weight: 700; }
+.item .basis { color: var(--c-muted); }
+/* The page says once that every result is an estimate (the ≈ line under the place name); rows carry a quiet ≈ and keep the word for screen readers */
+.item .badge { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.item::after { content: "\2248"; grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: 1rem; line-height: 1; color: var(--c-muted); }
+.notice { border-left-color: var(--c-marigold); background: color-mix(in srgb, var(--c-marigold) 18%, var(--c-ground)); }
+
+/* Ingredient */
+.ingredient h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(3rem, 10vw, 5.75rem); letter-spacing: -.015em; }
+.category { justify-self: start; margin-top: var(--s-4); padding: var(--s-1) var(--s-3); background: var(--c-sky); color: var(--c-field); border-radius: var(--radius); font-size: .75rem; }
+.bar { gap: 4px; margin-top: var(--s-7); position: relative; }
+.bar::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: -1.25rem;
+  height: .75rem;
+  background: var(--c-slate);
+  -webkit-mask: url("art/almanac-ticks.svg") 0 0 / 100% 100% no-repeat;
+  mask: url("art/almanac-ticks.svg") 0 0 / 100% 100% no-repeat;
+}
+.bar .m { font-stretch: 112%; font-weight: 700; }
+.bar .s-peak { background: var(--c-marigold); border-color: var(--gold-edge); color: var(--c-ink); }
+.bar .s-in { background: var(--c-field); color: var(--c-ground); }
+.bar .s-store { background: var(--c-ground); border-color: var(--c-brick); color: var(--c-brick); }
+.bar .s-year { background: var(--c-slate); color: var(--c-ground); }
+.bar .now::after { height: 5px; bottom: -.7rem; }
+.key { font-size: .6875rem; row-gap: var(--s-2); }
+.key::after { content: "Ticks above the chart mark the equinoxes and solstices"; font-stretch: 100%; font-weight: 500; letter-spacing: 0; text-transform: none; font-size: .8125rem; }
+.key .s-peak::before { background: var(--c-marigold); border-color: var(--gold-edge); }
+.key .s-in::before { background: var(--c-field); }
+.key .s-store::before { background: var(--c-ground); border-color: var(--c-brick); }
+.key .s-year::before { background: var(--c-slate); }
+.key .s-out::before { background: var(--c-wash); border-color: var(--c-line); }
+.key .now::before { background: var(--c-ink); }
+.ingredient h3 { font-size: .8125rem; color: var(--c-field); border-top: 3px solid var(--c-field); }
+.ingredient h3 + p, .ingredient h3 + ul { border-top: 3px solid var(--c-line); }
+.pairings { gap: var(--s-2) 0; }
+.pairings li + li { margin-left: var(--s-4); padding-left: var(--s-4); border-left: 2px solid var(--c-line); }
+
+.panel { border-color: var(--c-field); }
+.panel.warn { border-color: var(--c-brick); }
+
+/* Footer: a slate band */
+footer.site {
+  width: 100%;
+  max-width: none;
+  margin-top: var(--s-7);
+  padding-inline: max(var(--s-4), calc((100% - var(--page)) / 2));
+  padding-block: var(--s-5);
+  background: color-mix(in srgb, var(--c-slate) 12%, var(--c-ground));
+  border-top: 10px solid var(--c-slate);
+  color: var(--c-ink);
+}
+
+@media (max-width: 47.99rem) {
+  header.site { padding-block: var(--s-4); }
+  body:has(#results:empty) header.site { padding-block: var(--s-6) 8.5rem; }
+  body:has(#results:empty) header.site::after { width: 11rem; right: var(--s-4); }
+  body:has(#results:empty) .tag { max-width: 24ch; }
+  main { padding-top: var(--s-5); }
+  .group { padding: var(--s-4); }
+  .group h3 { margin-bottom: var(--s-1); }
+  .bar { margin-top: var(--s-6); }
+  .bar::before { top: -1rem; height: .625rem; }
+  .ingredient h3 { margin-top: var(--s-5); }
+  .ingredient h3 + p, .ingredient h3 + ul { border-top: 0 !important; }
+  .pairings { gap: var(--s-2) var(--s-4); }
+  .pairings li + li { margin-left: 0; padding-left: 0; border-left: 0; }
+  .key::after { flex-basis: 100%; }
+}

@@ -60,6 +60,35 @@ jobs:
           touch "$env_dir/restore-test.agekey"
           TP_ENV_DIR="$env_dir" docker compose -f deploy/compose.yaml --profile tools config -q
           TP_ENV_DIR=./e2e docker compose -f deploy/compose.yaml -f deploy/compose.e2e.yaml --profile tools config -q
+      - name: Release overlay resolves only with TP_IMAGE_TAG
+        run: |
+          env_dir="$RUNNER_TEMP/env"
+          sha=0000000000000000000000000000000000000000
+          cfg=$(TP_ENV_DIR="$env_dir" TP_IMAGE_TAG=$sha \
+            docker compose -f deploy/compose.yaml -f deploy/compose.release.yaml --profile tools config --format json)
+          # Every image comes from GHCR by SHA; nothing silently builds.
+          if echo "$cfg" | jq -e '[.services[] | has("build")] | any' >/dev/null; then
+            echo "compose.release.yaml must remove every build:"; exit 1
+          fi
+          expect() { # service, image name
+            got=$(echo "$cfg" | jq -r --arg s "$1" '.services[$s].image')
+            [ "$got" = "ghcr.io/muddl/thymeandplace-$2:$sha" ] || { echo "$1 resolves to '$got'"; exit 1; }
+          }
+          expect app app; expect migrate app; expect ingest ingest
+          expect transform transform; expect backup backup; expect restore backup
+          if err=$(TP_ENV_DIR="$env_dir" docker compose -f deploy/compose.yaml -f deploy/compose.release.yaml --profile tools config -q 2>&1); then
+            echo "compose.release.yaml must fail without TP_IMAGE_TAG"; exit 1
+          fi
+          case "$err" in
+            *TP_IMAGE_TAG*) ;;
+            *) echo "compose.release.yaml failed for another reason: $err"; exit 1 ;;
+          esac
+      - name: deploy.sh refuses anything but a full SHA
+        run: |
+          for bad in "" main abc123 0000000000000000000000000000000000000000x; do
+            rc=0; ./deploy/deploy.sh "$bad" 2>/dev/null || rc=$?
+            [ "$rc" -eq 2 ] || { echo "deploy.sh exited $rc for '$bad', want 2"; exit 1; }
+          done
       - name: No service gets another service's secrets
         run: |
           env_dir="$RUNNER_TEMP/env"

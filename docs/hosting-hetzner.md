@@ -113,7 +113,13 @@ Then continue with `docs/operations.md`, "First deploy", from step 2.
 - Add an external uptime check on `https://thymeand.place/readyz` every few minutes, with email alerts. Most uptime services have a free tier that covers one site. It's one of the checks in `docs/operations.md`, "Monitoring and alerts", with the requirements it must meet.
 - Disk is 40 GB, which is enough with some housekeeping:
   - check `df -h` and `docker system df` now and then;
-  - run `docker builder prune -f` after app updates (images are built on the server);
+  - every `deploy.sh` run pulls a new set of release images (about 300 MB), and old ones stay on the disk Postgres uses. Now and then, from `/opt/thymeandplace/deploy` as root, remove all but the last three releases in `deploys.log` (the newest line is the one running; the two before it are for a quick rollback, and older releases can still be pulled from GHCR):
+    ```bash
+    keep=$(awk '{print $2}' /var/lib/thymeandplace/deploys.log | tac | awk '!seen[$0]++' | head -n 3)
+    docker image ls --format '{{.Repository}}:{{.Tag}}' | grep '^ghcr.io/muddl/thymeandplace-' | grep -v ':<none>$' | grep -vF "$keep" | xargs -r docker image rm
+    docker image prune -f
+    ```
+    With no `deploys.log` yet, `keep` is empty and nothing is removed. After building on the server (the first deploy or the emergency path in `docs/operations.md`, "Updating the app"), also run `docker builder prune -f`;
   - once a climate version is live, delete its raw NetCDF files from the `ingest_work` volume, since the bucket keeps a copy.
 
 ## Growing later

@@ -18,14 +18,14 @@
    ```
    Hex passwords, because base64's `/` and `+` would break the `DATABASE_URL`s. All four go in `db.env`; each also goes in the `DATABASE_URL` of the files that connect as that role: `POSTGRES_PASSWORD` → `restore.env`, `TP_OWNER_PASSWORD` → `migrate.env` and `ingest.env`, `TP_APP_PASSWORD` → `app.env`, `TP_BACKUP_PASSWORD` → `backup.env`. Put the dataset bucket's keys in `ingest.env` and the backup bucket's in `backup.env` and `restore.env`. Check with `sudo stat -c '%a %U %n' /etc/thymeandplace /etc/thymeandplace/*.env` → `700 root` for the directory and `600 root` for every file.
 
-   Then the two backup encryption keys (details in "Backup encryption"). On your own machine, not the VPS, run `age-keygen -o recovery.key` and store the file in your password manager and on paper. On the VPS, from a root shell in `/opt/thymeandplace/deploy`, build the backup image, then create the restore-test key. Build first, as its own command: a build that `run` starts by itself prints its progress to standard output, which would end up in the key file.
+   Then the two backup encryption keys (details in "Backup encryption"). On your own machine, not the VPS, run `age-keygen -o recovery.key` and store the file in your password manager and on paper. On the VPS, from a root shell in `/opt/thymeandplace/deploy`, build the backup image, then create the restore-test key. `age-keygen` writes the key file itself, mode `600`, through a bind mount, so the private key never passes through the container's output or its log.
    ```bash
    docker compose --profile tools build backup
-   (umask 077; docker compose --profile tools run --rm --no-deps -T --entrypoint age-keygen backup > /etc/thymeandplace/restore-test.agekey)
+   docker compose --profile tools run --rm --no-deps -v /etc/thymeandplace:/out --entrypoint age-keygen backup -o /out/restore-test.agekey
    grep -c '^AGE-SECRET-KEY-1' /etc/thymeandplace/restore-test.agekey             # must print 1
    grep -vc -e '^#' -e '^AGE-SECRET-KEY-1' /etc/thymeandplace/restore-test.agekey  # must print 0
    ```
-   If either check prints anything else, delete the file and run the two commands again. Put both public keys (`age1…`, space-separated) in `BACKUP_AGE_RECIPIENTS` in `backup.env`. `age-keygen` prints each one, and `grep 'public key' /etc/thymeandplace/restore-test.agekey` shows the restore-test one again. Without the recipients `backup` refuses to start, and without the key file `restore` does.
+   If either check prints anything else, delete the file and run the two commands again (`age-keygen` won't overwrite an existing file). Put both public keys (`age1…`, space-separated) in `BACKUP_AGE_RECIPIENTS` in `backup.env`, and keep them nowhere else except your password manager ("Backup encryption" › "Threat model"). `age-keygen` prints each one, and `grep 'public key' /etc/thymeandplace/restore-test.agekey` shows the restore-test one again. Without the recipients `backup` refuses to start, and without the key file `restore` does.
 4. `cd /opt/thymeandplace/deploy && sudo docker compose up -d --build`. On the empty volume, `db` runs `deploy/db/initdb/20-roles.sh` once to create the roles; then the one-shot `migrate` service applies the migrations as `tp_owner` and exits, and `app` starts as `tp_app`. Caddy obtains certificates automatically. This first start builds the images from the checkout; every later update runs the images CI built ("Updating the app").
 5. Owner access: `docker compose exec app /app/admin enroll`. Open the link on your phone, register a passkey, repeat for a second device. Then `docker compose exec app /app/admin set-backup` and scan the QR code.
 6. Reference data, per dataset (`places`, `ocean`, `climate`). Before approving any license, check its row in `docs/reference-data-licenses.md`. **Skip ocean for launch:** its MEOW terms are unresolved, so `approve-license` refuses it (see "Ocean dataset" below), and the site launches with seafood off ("Launching without seafood").
@@ -153,9 +153,31 @@ docker compose up -d app
 
 Compose runs the one-shot `migrate` again first (it finds nothing to apply), recreates `app` only if its settings changed, uses the release named in `.env`, and writes nothing to `deploys.log`. `docker compose ps app` shows what runs: an `IMAGE` of `ghcr.io/muddl/thymeandplace-app:<sha>` is a release, `thymeandplace-app:latest` a source build.
 
-**Emergency path.** If GHCR or GitHub Actions is unavailable, build from the checkout: `rm -f .env && git pull && docker compose up -d --build app`. Removing `.env` puts every plain command back on source builds (with it in place, `--build` has nothing to build and Compose keeps the release). Compose runs `migrate` first in the same way. Nothing is written to `deploys.log`. Go back to `deploy.sh` with the next release; it writes `.env` again.
+**Emergency path.** If GHCR or GitHub Actions is unavailable, build from the checkout:
 
-**Moving over from source builds.** The first `deploy.sh` run replaces the locally built app with the registry image for the same commit. Keep the old `thymeandplace-app:latest` image (no `docker image rm`, no `docker image prune -a`) until the registry deploy has run for a day. Until then, `rm -f .env && docker compose up -d app` (without `--build`) puts it back.
+```bash
+rm -f .env && git pull
+docker compose --profile tools build
+docker compose up -d app
+```
+
+Removing `.env` puts every plain command back on the local `thymeandplace-*:latest` images, and the `build` line rebuilds all of them from the checkout: `app` (which `migrate` shares) and the `ingest`, `transform` and `backup` images that the tools and the backup and restore-test timers run. Don't skip it or narrow it to `app`. Nothing else rebuilds the tool images, and on a VPS that has run `deploy.sh` the local ones are whatever was last built from source, possibly before backup encryption (an old backup image uploads plaintext dumps and can't restore `.dump.age`). With `.env` in place, `build` has nothing to build and Compose keeps the release. `up -d app` runs `migrate` first in the same way. Nothing is written to `deploys.log`. Go back to `deploy.sh` with the next release; it writes `.env` again.
+
+**Moving over from source builds.** The first `deploy.sh` run replaces the locally built app with the registry image for the same commit. Keep the old `thymeandplace-app:latest` image (no `docker image rm`, no `docker image prune -a`) until the registry deploy has run for a day. Until then, this puts it back, and rebuilds the tool images from the checkout so the timers don't fall back to old local ones (naming the three leaves `thymeandplace-app:latest` as it is):
+
+```bash
+rm -f .env
+docker compose --profile tools build ingest transform backup
+docker compose up -d app
+```
+
+**First update of a running VPS to `deploy.sh`.** The release that brings `deploy.sh` also brings backup encryption and the heartbeat checks, and the three one-time procedures depend on each other. Once `deploy.sh` has run, the nightly timer uses the release's encrypting backup image, which exits 2 until `BACKUP_AGE_RECIPIENTS` is set. Nothing alerts on that until `HEARTBEAT_BACKUP_URL` is set, which is also new in this release. So, in order and in one sitting, well away from the 03:15 backup:
+
+1. Log Docker in to GHCR, as in "First deploy" step 2 (once per VPS).
+2. Wait for the release's green `release` run, then `git pull && ./deploy.sh <sha>` ("Updating the app"). This is "Backup encryption" › "Rollout" step 1.
+3. "Rollout" steps 2 and 3: generate both keys, set `BACKUP_AGE_RECIPIENTS`, then run `backup` and the restore test by hand. Both must succeed before you stop.
+4. "Monitoring and alerts" › "Setting up", so a failed nightly backup alerts from now on.
+5. Later: "Rollout" step 4 (versioning) and, after 28 days, step 5.
 
 ### The shared `ingest_work` volume and file ownership
 
@@ -189,6 +211,7 @@ Everything the builds and CI pull is pinned:
 
 - GitHub Actions by commit SHA, with the version in a comment.
 - Every `FROM` and `image:` by digest (`name:tag@sha256:…`).
+- The release build's BuildKit and SBOM scanner images by digest (`.github/workflows/release.yml`).
 - The Go tools (`templ`, `staticcheck`, `govulncheck`) by `go.mod` `tool` lines.
 
 Dependabot (`.github/dependabot.yml`) opens weekly grouped pull requests, one per ecosystem:
@@ -226,6 +249,8 @@ and replace the `@sha256:…` part. The PostGIS reference must be identical in t
 | `sqlc/sqlc:<version>@sha256:…` | `scripts/sqlc.sh` | `imagetools inspect sqlc/sqlc:<version>`, then `./scripts/sqlc.sh generate` and commit any change |
 | `# syntax=docker/dockerfile:1.<minor>@sha256:…` | First line of `deploy/Dockerfile.app`, `deploy/Dockerfile.ingest` and `deploy/backup/Dockerfile` | `imagetools inspect docker/dockerfile:1.<minor>`. Keep the three lines identical |
 | `koalaman/shellcheck:<version>@sha256:…` | `.github/workflows/ci.yml`, `deploy` job | `imagetools inspect koalaman/shellcheck:<version>`. It's a `run:` step, so the `github-actions` updates skip it |
+| `moby/buildkit:v<version>@sha256:…` | `.github/workflows/release.yml`, `driver-opts` of `setup-buildx-action` | The BuildKit that builds and pushes the release images. `imagetools inspect moby/buildkit:buildx-stable-1` shows the current stable digest; pin the `v…` tag with that digest. It's an action input, so the `github-actions` updates skip it |
+| `docker/buildkit-syft-scanner:<version>@sha256:…` | `.github/workflows/release.yml`, `sbom: generator=…` | The SBOM scanner that runs inside the release build. `imagetools inspect docker/buildkit-syft-scanner:stable-1`, then pin the matching version tag with that digest |
 | `rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` | Run by hand on workflow changes: `docker run --rm -v "$PWD:/repo" -w /repo <that reference> -color` | `imagetools inspect rhysd/actionlint:<version>` |
 | MinIO client (`MC_VERSION`, `MC_SHA256_*`) | `deploy/backup/Dockerfile` | As its comment says |
 
@@ -307,7 +332,7 @@ With `HEARTBEAT_RESTORE_TEST_URL` set in `restore.env`, it pings the `restore-te
 
 Restores run in the `restore` service (the backup image, with `restore.env`), which connects as the bootstrap superuser: dropping and recreating the database and reinstalling PostGIS need it. The nightly `backup` job never gets that password. The restore-test key (`/etc/thymeandplace/restore-test.agekey`) is mounted into `restore` only, and `AGE_IDENTITY` points at it there, so `restore` decrypts `.dump.age` backups without further settings.
 
-`restore-test.sh` restores the newest daily dump (`.dump.age`, or a plaintext `.dump` from before encryption) into a scratch database (`thymeandplace_restore_test`) on the same Postgres server by calling `restore.sh` on it (the exact drop/create/single-transaction path a real restore takes, see "Restoring from backup"), compares row counts of `ingredient`, `ingredient_pairing`, `seafood_region`, `catalog_history`, `dataset_versions`, `admin_passkey`, `admin_backup`, `climate_cell`, `ocean_ecoregion`, and `place` against the live database, prints a table of `live=`/`restored=` counts, and drops the scratch database afterwards even if the comparison fails (it's under a `trap ... EXIT`). It exits non-zero — "fail loudly" — on any count mismatch or if no daily backup is found. Because a backup taken mid-day can legitimately trail the live `catalog_history` count if edits happened since, run it immediately after a fresh `backup` run rather than at an arbitrary time.
+`restore-test.sh` restores today's daily dump, or yesterday's if today's isn't there yet (`backups/daily/<YYYY-MM-DD>.dump.age`, dates in UTC as `backup.sh` names them, matched exactly; never a plaintext `.dump` or a later-dated name, since anyone who can write to the bucket can add one, see "Threat model"), into a scratch database (`thymeandplace_restore_test`) on the same Postgres server by calling `restore.sh` on it (the exact drop/create/single-transaction path a real restore takes, see "Restoring from backup"), compares row counts of `ingredient`, `ingredient_pairing`, `seafood_region`, `catalog_history`, `dataset_versions`, `admin_passkey`, `admin_backup`, `climate_cell`, `ocean_ecoregion`, and `place` against the live database, prints a table of `live=`/`restored=` counts, and drops the scratch database afterwards even if the comparison fails (it's under a `trap ... EXIT`). It exits non-zero — "fail loudly" — on any count mismatch or if neither today's nor yesterday's backup is in the bucket. Because a backup taken mid-day can legitimately trail the live `catalog_history` count if edits happened since, run it immediately after a fresh `backup` run rather than at an arbitrary time.
 
 ### Verifying locally before relying on it
 
@@ -344,7 +369,7 @@ As in production, the dumps are encrypted to two recipients, both test-only, lis
 
 Expected output: `backup ok: backups/daily/<date>.dump.age`, then a table of equal `live=`/`restored=` counts per table, then `restore-test ok (<date>.dump.age)`, then `restore ok: backups/daily/<date>.dump.age → thymeandplace`. When this was verified, a table with a PostGIS `geography` column (plus a view on it) created after the backup was gone after the restore, and every catalog count matched the counts at backup time. `accessKey1`/`verySecretKey1` are `zenko/cloudserver`'s built-in defaults, used only for this throwaway local container — never real credentials.
 
-`./deploy/backup/verify.sh` runs this recipe with every check (encrypted upload to both recipients, restore-test, a disaster restore over the live database with the stand-in recovery key in exactly the `-v …:/run/secrets/recovery.agekey:ro -e AGE_IDENTITY=…` form of "Disaster restore with the recovery key", refusals without the right key or with a changed byte, legacy restore, bad recipients, a failed dump and a zero-byte dump) and runs in CI on `main`. It prints one `verify: ok:` line per check and `verify: all backup checks passed` at the end. Like the recipe, it uses the `thymeandplace-e2e` project, so don't run it while another e2e stack is up on the same machine.
+`./deploy/backup/verify.sh` runs this recipe with every check (encrypted upload to both recipients, restore-test, a disaster restore over the live database with the stand-in recovery key in exactly the `-v …:/run/secrets/recovery.agekey:ro -e AGE_IDENTITY=…` form of "Disaster restore with the recovery key", refusals without the right key or with a changed byte, restore-test ignoring planted later-dated objects, a plaintext dump refused without `RESTORE_ALLOW_PLAINTEXT=1` and restored with it, bad recipients, a failed dump and a zero-byte dump) and runs in CI on `main`. It prints one `verify: ok:` line per check and `verify: all backup checks passed` at the end. Like the recipe, it uses the `thymeandplace-e2e` project, so don't run it while another e2e stack is up on the same machine.
 
 **Windows / Git Bash note:** Git Bash rewrites a leading `/` in arguments as a Windows path, which breaks `--entrypoint /app/devseed` and similar. `MSYS_NO_PATHCONV=1` (exported above) turns that off; it's a no-op on Linux.
 
@@ -353,8 +378,8 @@ Expected output: `backup ok: backups/daily/<date>.dump.age`, then a table of equ
 A restore **replaces the whole database** with the dump. `restore.sh <key> [target-url]` (the `restore` service's entrypoint; the target defaults to its own `DATABASE_URL` from `restore.env`, i.e. the live database, as the bootstrap superuser):
 
 1. refuses unless `RESTORE_CONFIRM` is set to the exact database name in the target URL (the last path segment before any `?params`), before anything is downloaded or touched — this stops a stale or copy-pasted URL from overwriting the wrong database;
-2. for an encrypted key (`*.age`), refuses before downloading unless `AGE_IDENTITY` names a readable identity file: "encrypted backup; set AGE_IDENTITY to your recovery or restore-test key";
-3. downloads the dump, decrypts it if it's encrypted, and checks it is non-empty and a readable `pg_dump` archive, so a missing, empty or corrupt backup exits non-zero with the database untouched. `age` authenticates its ciphertext, so a wrong key or a single changed byte also refuses here ("could not be decrypted with AGE_IDENTITY");
+2. for an encrypted key (`*.age`), refuses before downloading unless `AGE_IDENTITY` names a readable identity file: "encrypted backup; set AGE_IDENTITY to your recovery or restore-test key". A plaintext key is refused unless `RESTORE_ALLOW_PLAINTEXT=1` is set (see below);
+3. downloads the dump, decrypts it if it's encrypted, and checks it is non-empty and a readable `pg_dump` archive, so a missing, empty or corrupt backup exits non-zero with the database untouched. `age` authenticates its ciphertext, so a wrong key or a single changed byte also refuses here ("could not be decrypted with AGE_IDENTITY"). It doesn't prove who encrypted the file ("Backup encryption" › "Threat model");
 4. connects to the `postgres` maintenance database on the same server and runs `DROP DATABASE <db> WITH (FORCE)` then `CREATE DATABASE <db>` (the name is quoted as an identifier);
 5. runs `pg_restore --single-transaction --exit-on-error --no-owner` into the empty database. Nothing created after the backup survives (tables, views, PostGIS-dependent objects), and there is no object-by-object `--clean` that could fail halfway through the live data;
 6. hands the database and its objects back to `tp_owner` (`deploy/backup/own-objects.sql`), since `--no-owner` leaves them owned by the superuser. The grants to `tp_app` come back with the dump.
@@ -369,7 +394,7 @@ docker compose start app
 
 `thymeandplace` is `POSTGRES_DB` from `/etc/thymeandplace/db.env`; if it refuses with "refusing to restore over ...", the name after `-e RESTORE_CONFIRM=` doesn't match the database name in `restore.env`'s `DATABASE_URL`. The app must be stopped first: `WITH (FORCE)` terminates its connections, and it must not write to the database mid-restore. After `start app`, check `curl -s https://thymeand.place/readyz` returns `ready`.
 
-Plaintext `.dump` keys from before encryption (`backups/daily/<date>.dump`) restore with the same command and need no identity. The prune removes them within 28 days of the switch, but with versioning on (the minimum level) each one stays as a hidden version for 35 more days ("Backup encryption" › "Rollout" step 5).
+Plaintext `.dump` keys from before encryption (`backups/daily/<date>.dump`) need no identity, but `restore.sh` refuses them unless you add `-e RESTORE_ALLOW_PLAINTEXT=1` to the command. Add it only for a dump you know your own backup job wrote: the restore runs the dump's SQL as the database superuser, and nothing in a plaintext object shows who uploaded it ("Threat model"). The prune removes them within 28 days of the switch, but with versioning on (the minimum level) each one stays as a hidden version for 35 more days ("Backup encryption" › "Rollout" step 5).
 
 ### Disaster restore with the recovery key
 
@@ -400,10 +425,10 @@ Each dump is encrypted to two X25519 keys, and either private key decrypts it.
 | **Restore-test** | `/etc/thymeandplace/restore-test.agekey` on the VPS, mode `600`, root-owned. Compose mounts it read-only into the `restore` service only, at `/run/secrets/restore-test.agekey`, and sets `AGE_IDENTITY` to that path | The monthly restore test, and routine restores on the VPS |
 
 1. **Recovery key**, on your own machine (install `age` there, e.g. `apt install age` or `brew install age`): `age-keygen -o recovery.key`. It prints `Public key: age1…`. Save the whole file in your password manager and write it on paper (the `AGE-SECRET-KEY-1…` line is the private key), then delete the file. It never goes on the VPS.
-2. **Restore-test key**, on the VPS, from a root shell in `/opt/thymeandplace/deploy`. This runs `age-keygen` from the backup image, so the host needs no `age`, but the image has to be one with `age` in it. Always build it first, as its own command (`git pull` first on a VPS that is already running). On a VPS whose backup image predates encryption, skipping the build makes the keygen fail with "executable file not found" and leave an empty key file. On a fresh VPS, `run` would build the image itself and write the build's progress into the key file. After the first `deploy.sh`, the deployed release's backup image is used instead (it has `age`), and the `build` line prints `No services to build`:
+2. **Restore-test key**, on the VPS, from a root shell in `/opt/thymeandplace/deploy`. This runs `age-keygen` from the backup image, so the host needs no `age`, but the image has to be one with `age` in it. Always build it first, as its own command (`git pull` first on a VPS that is already running). On a VPS whose backup image predates encryption, skipping the build makes the keygen fail with "executable file not found". After the first `deploy.sh`, the deployed release's backup image is used instead (it has `age`), and the `build` line prints `No services to build`. `age-keygen -o` writes the file itself, mode `600`, into `/etc/thymeandplace` through a bind mount, and refuses to overwrite an existing file. Don't redirect its standard output into the file instead: Docker's `json-file` log driver would also write the private key to the container's log on disk.
    ```bash
    docker compose --profile tools build backup
-   (umask 077; docker compose --profile tools run --rm --no-deps -T --entrypoint age-keygen backup > /etc/thymeandplace/restore-test.agekey)
+   docker compose --profile tools run --rm --no-deps -v /etc/thymeandplace:/out --entrypoint age-keygen backup -o /out/restore-test.agekey
    ```
    It prints its public key; `grep 'public key' /etc/thymeandplace/restore-test.agekey` shows it again. Check the file:
    - `grep -c '^AGE-SECRET-KEY-1' /etc/thymeandplace/restore-test.agekey` prints `1`: one private key.
@@ -411,11 +436,15 @@ Each dump is encrypted to two X25519 keys, and either private key decrypts it.
    - `stat -c '%a %U' /etc/thymeandplace/restore-test.agekey` prints `600 root`.
 
    If a check fails, delete the file and run both commands again.
-3. **Recipients.** Put both public keys, space-separated, in `/etc/thymeandplace/backup.env`: `BACKUP_AGE_RECIPIENTS=age1<recovery> age1<restore-test>`. Only public keys go there. An empty value, or any entry that isn't `age1…` (a pasted `AGE-SECRET-KEY-…`, say), makes `backup` exit 2 and name the variable before it dumps anything. `backup.env` is read on every run, so a change applies from the next backup.
+3. **Recipients.** Put both public keys, space-separated, in `/etc/thymeandplace/backup.env`: `BACKUP_AGE_RECIPIENTS=age1<recovery> age1<restore-test>`. Only public keys go there. Keep the public keys confidential too: anyone who has one can make a `.dump.age` that a restore accepts ("Threat model"). They belong only in `backup.env`, the restore-test key file and your password manager, never in the repo, an issue or a chat. An empty value, or any entry that isn't `age1…` (a pasted `AGE-SECRET-KEY-…`, say), makes `backup` exit 2 and name the variable before it dumps anything. `backup.env` is read on every run, so a change applies from the next backup.
 
 ### Threat model
 
 - **Bucket-only compromise** (leaked bucket keys, or an incident at the storage provider): reveals nothing. Every object is ciphertext, and neither private key is in the bucket. The exception is plaintext `.dump` objects from before the switch. The prune removes them within 28 days, but at the minimum level of "Backup deletion protection" that only hides them: each stays readable as a hidden version for 35 more days, about 63 days after the switch in all, to anyone with a bucket key. "Rollout" step 5 shows how to delete them sooner.
+- **Bucket write access** (the same leaked keys: at the minimum level of "Backup deletion protection" both keys can upload and delete): the attacker can't read the backups but can add or replace objects. A restore runs the dump's SQL as the database superuser on the production server, so a planted dump that got restored would run the attacker's SQL there. Three things keep that from happening:
+  - `restore.sh` refuses a plaintext `.dump` key unless `RESTORE_ALLOW_PLAINTEXT=1` is set ("Restoring from backup"), and the monthly restore test never sets it.
+  - `restore-test.sh` restores only today's or yesterday's `<YYYY-MM-DD>.dump.age`, by exact name, so a planted `backups/daily/2099-12-31.dump` or a later-dated `.dump.age` is never picked.
+  - A `.dump.age` decrypts only if it was encrypted to one of your keys, which needs that key's public half. `age` checks that the file wasn't changed, not who made it, so the public keys are confidential: they live only in `backup.env`, the restore-test key file and your password manager. If one leaks, replace that key ("Key rotation", "A lost key").
 - **Host compromise:** the attacker can read the restore-test key and so decrypt the backup history. The live database is exposed in that case anyway, so the extra loss is older rows and deleted history. The recovery key stays off the host, and "Backup deletion protection" keeps the history restorable even if the attacker deletes it with the host's bucket key.
 
 ### Key rotation
@@ -423,14 +452,14 @@ Each dump is encrypted to two X25519 keys, and either private key decrypts it.
 Add the new recipient to `BACKUP_AGE_RECIPIENTS`, next to the old one, and run a backup by hand. Wait a month (29 days: the prune keeps weekly copies 28 days and the preferred level's lifecycle rule 29), until every kept backup is encrypted to the new key too, then remove the old recipient. Backups made before the removal stay decryptable with the old key until they age out, so keep the old private key until then. Copies that were pruned or expired before then are not gone yet: versioning keeps them hidden for 35 more days, and only the old key decrypts them. If you might need to undelete one, keep the old private key for 64 days after adding the new recipient.
 
 - **Recovery key:** generate the new one as in "Keys" step 1 and store it the same way. Destroy the old copies only after the 29 days, or the 64 if undelete matters.
-- **Restore-test key:** an identity file can hold several keys, so append the new one with `>>` in place of `>` in the "Keys" step 2 command (the `grep -c '^AGE-SECRET-KEY-1'` check then prints `2`). After the 29 days, or the 64, delete the old key's three lines (`# created`, `# public key` and its `AGE-SECRET-KEY-1…` line) from the file.
+- **Restore-test key:** an identity file can hold several keys. Generate the new one into a second file with the "Keys" step 2 command, `-o /out/restore-test.agekey.new` in place of `-o /out/restore-test.agekey`, then append it: `cat /etc/thymeandplace/restore-test.agekey.new >> /etc/thymeandplace/restore-test.agekey && shred -u /etc/thymeandplace/restore-test.agekey.new` (the `grep -c '^AGE-SECRET-KEY-1'` check then prints `2`). After the 29 days, or the 64, delete the old key's three lines (`# created`, `# public key` and its `AGE-SECRET-KEY-1…` line) from the file.
 - **A lost key:** list a new key in its place straight away. Backups made before then can only be decrypted with the other key until they age out.
 
 ### Rollout
 
 Once, when the encrypting backup image first goes to the VPS (spec §7):
 
-1. Build the image: `git pull && docker compose --profile tools build backup`. After the first `deploy.sh`, deploy the release that adds encryption instead (`./deploy.sh <sha>`). `backup` and `restore` share the image. The old image has no `age-keygen`, so this comes before the keys. Do steps 1 to 3 in one sitting, well away from the 03:15 nightly run: until step 2 sets the recipients, the new image's `backup` exits 2 naming `BACKUP_AGE_RECIPIENTS` before it dumps anything, so a run in between fails loudly and uploads nothing.
+1. Build the image: `git pull && docker compose --profile tools build backup`. After the first `deploy.sh`, deploy the release that adds encryption instead (`./deploy.sh <sha>`); on a VPS moving to `deploy.sh` with this release, follow "First update of a running VPS to `deploy.sh`" in "Updating the app", which puts these steps in order with the GHCR login and monitoring. `backup` and `restore` share the image. The old image has no `age-keygen`, so this comes before the keys. Do steps 1 to 3 in one sitting, well away from the 03:15 nightly run: until step 2 sets the recipients, the new image's `backup` exits 2 naming `BACKUP_AGE_RECIPIENTS` before it dumps anything, so a run in between fails loudly and uploads nothing.
 2. Generate both keys and set `BACKUP_AGE_RECIPIENTS` ("Keys" above).
 3. Before the next nightly run, run `docker compose --profile tools run --rm backup` (it prints `backup ok: backups/daily/<date>.dump.age`), then `docker compose --profile tools run --rm --entrypoint restore-test.sh restore` (it prints `restore-test ok (<date>.dump.age)`). Both must succeed.
 4. Turn on versioning at the provider, at least at the minimum level in "Backup deletion protection". Then consider the preferred level.
@@ -439,9 +468,9 @@ Once, when the encrypting backup image first goes to the VPS (spec §7):
    mc ls --versions --recursive "b/$BUCKET_NAME/backups/" | awk '{print $NF}' | grep '\.dump$' | sort -u |
      while read -r k; do mc rm --versions --force "b/$BUCKET_NAME/backups/$k"; done
    ```
-   This removes only keys ending in `.dump`; the `.dump.age` backups and their versions stay. Then the `--versions` listing above must be empty. `restore.sh` keeps accepting plaintext dumps (spec §8 question 2).
+   This removes only keys ending in `.dump`; the `.dump.age` backups and their versions stay. Then the `--versions` listing above must be empty. `restore.sh` keeps accepting plaintext dumps, but only with `RESTORE_ALLOW_PLAINTEXT=1` (spec §8 question 2; "Restoring from backup").
 
-**Rollback:** redeploy the previous backup image. It uploads plaintext `.dump` files again, and the `.dump.age` backups already uploaded stay restorable with the encrypting image (rebuild it to restore them) and a key.
+**Rollback:** fix forward. Every release image encrypts, and `deploy.sh` deploys all of a release's images together, so redeploying an older release can't bring plaintext backups back; fix the problem in a new release and deploy that. Until then a failing nightly run uploads nothing and the `backup` check alerts, and the `.dump.age` backups already uploaded stay restorable with any release's `restore` and either key. (Before the first `deploy.sh`, with no `deploy/.env`, the old image can be rebuilt from source: `git checkout <commit before encryption> && docker compose --profile tools build backup && git checkout main`. It uploads plaintext `.dump` files again and, since `restore` shares it, can't restore a `.dump.age`; run `docker compose --profile tools build backup` on `main` again before restoring one.)
 
 ## Backup deletion protection
 

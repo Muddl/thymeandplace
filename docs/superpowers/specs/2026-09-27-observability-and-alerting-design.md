@@ -5,7 +5,7 @@
 - **Source:** Architectural audit, 2026-09-27 (finding F07)
 - **Related issues:** [#7](https://github.com/Muddl/thymeandplace/issues/7) (F07)
 - **Amends:** core spec §10.4 (audit bullet), §11.4 (access log), §13.2 (production drift check), §14 (Backups, Health and Logs bullets; new Monitoring bullet), §15 (monitoring payloads), §16 (new values)
-- **Amended in implementation (issue #7):** where this spec and §4.7 disagreed, §4.7 won. Drift and prune ping bodies name a fixed category or prefix, never raw error text (a pgx or `mc` network error can carry an IP). Env files are per service (`deploy/env/{app,backup,restore}.env.example`), not one `deploy/env.example`. A request whose client went away is neither counted by `Window` nor logged at `ERROR`. Each change is marked in place below.
+- **Amended in implementation (issue #7):** where this spec and §4.7 disagreed, §4.7 won. Drift and prune ping bodies name a fixed category or prefix, never raw error text (a pgx or `mc` network error can carry an IP). Env files are per service (`deploy/env/{app,backup,restore}.env.example`), not one `deploy/env.example`. A request whose client went away is neither counted by `Window` nor logged at `ERROR`. Later issues changed the backup steps and the rollout: backup encryption (#12) added the `verify` and `encrypt` steps and the `.dump.age` key, and the release pipeline (#8) runs production from registry images through `deploy/.env`, so the rollout recreates containers without `--build`. Each change is marked in place below.
 
 ---
 
@@ -145,11 +145,11 @@ Each script maps its own variable (`HEARTBEAT_BACKUP_URL`, `HEARTBEAT_RESTORE_TE
 `backup.sh` changes:
 - **One `EXIT` trap.** It replaces the existing trap (`deploy/backup/backup.sh:11`), still deletes the dump, and keeps the exit status (`rc=$?` ... `exit $rc`). It is set before anything else.
 - **Explicit variable check.** The `: "${VAR:?}"` line becomes a check that calls `exit 2` naming the missing variable. An explicit `exit` always runs the trap. Whether dash runs it when a `:?` expansion aborts the shell was not verified.
-- **Step names.** A `step` variable names the stage: `env`, `alias`, `dump`, `upload`, `weekly`, `prune`. `hc /start` runs after the variable check.
+- **Step names.** A `step` variable names the stage: `env`, `alias`, `dump`, `upload`, `weekly`, `prune`. `hc /start` runs after the variable check. *(Amended by #12:* `verify` and `encrypt` come between `dump` and `upload`, so the steps are `env`, `alias`, `dump`, `verify`, `encrypt`, `upload`, `weekly`, `prune`.)
 - **The trap sends one of three pings:**
   - `/fail` with `backup failed during <step> (exit <rc>)` when `rc` ≠ 0.
   - `/fail` with `dump uploaded; pruning failed: <prefix>[; <prefix>]` (`backups/daily`, `backups/weekly`) when a prune failed. The exit status stays 0. *(Amended in implementation:* the `mc` message stays in stderr only, since a network error carries the object store's IP and §4.7 forbids IPs in ping bodies.)
-  - Otherwise the success ping with `backup ok: backups/daily/<date>.dump`.
+  - Otherwise the success ping with `backup ok: backups/daily/<date>.dump`. *(Amended by #12:* `backups/daily/<date>.dump.age`, since dumps are encrypted before upload.)
 
 `restore-test.sh` merges its ping into its existing scratch-DB trap (`deploy/backup/restore-test.sh:21`). It sends the count table as the failure body.
 
@@ -291,7 +291,7 @@ A future metrics endpoint must use its own port. Caddy must never proxy that por
    - Attach email and one push channel (§8 Q1), and send a test notification.
 2. Put the per-check UUID URLs in the per-service env files: `app`, `admin-auth` and `drift` in `app.env`, `backup` in `backup.env`, `restore-test` in `restore.env` (amended in implementation; there is no shared env file).
 3. Configure the external monitor (§4.6), and turn on the VPS provider's disk and CPU alerts.
-4. `docker compose up -d --build`. Compose recreates containers whose configuration changed (verified), so the new log options take effect. Check:
+4. `docker compose up -d --build`. Compose recreates containers whose configuration changed (verified), so the new log options take effect. *(Amended by #8:* plain `docker compose up -d`, which runs the deployed release through `deploy/.env`; there `--build` builds nothing. See `docs/operations.md`, "Monitoring and alerts" › "Setting up".) Check:
    - `docker inspect --format '{{.HostConfig.LogConfig}}' thymeandplace-app-1` shows `compress:true`.
    - `app` and `admin-auth` go green within a few minutes, and `drift` goes green after the startup run. Once #23 has landed, a deploy doesn't trigger a drift run: `drift` goes green at the next scheduled run, 24 h after `SELECT ran_at FROM calibration_run ORDER BY id DESC LIMIT 1`.
    - A week later, `ls -l /var/lib/docker/containers/*/` shows the real compressed sizes.

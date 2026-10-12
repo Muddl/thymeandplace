@@ -173,7 +173,7 @@ We don't build zero-downtime deploys now. `deploy.sh` records the window on ever
 
 - **Order:** CI hardening first (steps 1–4). It is independent and low-risk. Then the release workflow. Then switch the VPS to `deploy.sh` for the next deploy.
 - **Transition:** the first `deploy.sh` run replaces the locally built image with the registry one for the same commit. Keep the old `thymeandplace-app:latest` image until the new one has passed a day.
-- **Rollback of the pipeline itself:** the source-build path (`rm -f .env && git pull && docker compose up -d --build app`; removing `deploy/.env` drops the release overlay) keeps working, because `compose.yaml` still has `build:`. It becomes the documented emergency path if GHCR or Actions is unavailable.
+- **Rollback of the pipeline itself:** the source-build path (`rm -f .env && git pull && docker compose --profile tools build && docker compose up -d app`; removing `deploy/.env` drops the release overlay, and the build covers the tool images too, which the backup and restore-test timers run and nothing else rebuilds) keeps working, because `compose.yaml` still has `build:`. It becomes the documented emergency path if GHCR or Actions is unavailable.
 
 ## 8. Open questions for the owner
 

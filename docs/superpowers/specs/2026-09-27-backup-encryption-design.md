@@ -59,6 +59,7 @@ Non-goals:
 
 The threat model, in `docs/operations.md`:
 - **Bucket-only compromise** (a key leak or a provider incident) reveals nothing.
+- *(Amended in the branch review:* bucket **write** access lets an attacker plant or replace objects, and a restore runs the dump's SQL as the superuser. `age` authenticates against the key holder only, so anyone with a recipient's public key can make a `.dump.age` that decrypts. The public keys are therefore kept confidential, `restore.sh` refuses plaintext keys unless `RESTORE_ALLOW_PLAINTEXT=1`, and `restore-test.sh` picks only today's or yesterday's exact `<date>.dump.age` name. See §4.3 and `docs/operations.md`, "Threat model".)
 - **Host compromise** reveals the backup history through the restore-test key. The live database is already exposed in that case, so the extra loss is older rows and deleted history. The recovery key and the provider-side protection in §4.4 still preserve the ability to restore.
 
 ### 4.2 `backup.sh`
@@ -76,8 +77,8 @@ The trap removes both `$file` and `$file.age`.
 
 ### 4.3 `restore.sh` and `restore-test.sh`
 
-- `restore.sh <key> [target]`: if the key ends in `.age`, it needs `AGE_IDENTITY`, a path to an identity file. It then runs `age -d -i "$AGE_IDENTITY" -o "$tmp.dump" "$tmp"` before the existing checks. Without an identity, it refuses before downloading: "encrypted backup; set AGE_IDENTITY to your recovery or restore-test key". A decryption failure refuses before the database is touched (`age` authenticates its ciphertext). A key without `.age` is restored as today, which covers legacy dumps.
-- `restore-test.sh`: takes the newest file in `backups/daily/`, `.dump` or `.dump.age`, as today, and passes `AGE_IDENTITY` through to `restore.sh`.
+- `restore.sh <key> [target]`: if the key ends in `.age`, it needs `AGE_IDENTITY`, a path to an identity file. It then runs `age -d -i "$AGE_IDENTITY" -o "$tmp.dump" "$tmp"` before the existing checks. Without an identity, it refuses before downloading: "encrypted backup; set AGE_IDENTITY to your recovery or restore-test key". A decryption failure refuses before the database is touched (`age` authenticates its ciphertext). A key without `.age` is restored as today, which covers legacy dumps. *(Amended in the branch review:* only with `RESTORE_ALLOW_PLAINTEXT=1`; without it a plaintext key is refused before downloading, since nothing shows who wrote it.)
+- `restore-test.sh`: takes the newest file in `backups/daily/`, `.dump` or `.dump.age`, as today, and passes `AGE_IDENTITY` through to `restore.sh`. *(Amended in the branch review:* it takes only `<today>.dump.age`, or else `<yesterday>.dump.age` (UTC, exact names). The lexicographically newest name could be a planted `2099-12-31.dump`.)
 - **Compose.**
   - The restore-test key is mounted read-only at `/run/secrets/restore-test.agekey` only into the service that runs restores. That is S2's `restore` service, or the `backup` service's `restore-test.sh` entrypoint before S2.
   - `AGE_IDENTITY` points at that path by default.
@@ -125,13 +126,13 @@ Which S3-compatible provider hosts the bucket isn't recorded in the repo (§8 qu
 4. Enable versioning (the minimum level) at the provider. Then consider the preferred level.
 5. After 28 days, `mc ls` shows no plaintext `.dump` objects left. Then drop legacy support from `restore.sh` in a follow-up, or keep it (§8 question 2).
 
-**Rollback:** redeploy the previous backup image. It uploads plaintext `.dump` files again. Encrypted backups already uploaded stay restorable with the new image and a key.
+**Rollback:** redeploy the previous backup image. It uploads plaintext `.dump` files again. Encrypted backups already uploaded stay restorable with the new image and a key. *(Amended after #8:* production deploys every image of a release together by commit SHA, and every release image encrypts, so there is no previous backup image to redeploy. Rollback is fix-forward; `docs/operations.md`, "Backup encryption" › "Rollout", has the details and the source-build exception before the first `deploy.sh`.)
 
 **Key rotation:** add the new recipient, deploy, and wait 28 days. Then remove the old recipient. Backups made before the removal stay decryptable with the old key until they age out.
 
 ## 8. Open questions for the owner
 
 1. **Storage provider.** Which S3-compatible provider holds the bucket? That decides the deletion-protection level (§4.4). Recommended: at least versioning before launch.
-2. **Legacy plaintext restore support.** Recommended: keep it. It costs a few lines and helps with an old dump found elsewhere.
+2. **Legacy plaintext restore support.** Recommended: keep it. It costs a few lines and helps with an old dump found elsewhere. *(Amended in the branch review:* kept, behind `RESTORE_ALLOW_PLAINTEXT=1`.)
 3. **A CI job for the backup recipe.** It adds a few minutes to `main` builds. Recommended: yes. Backup scripts that nobody runs until a disaster are the riskiest code in the repo.
 4. **The on-host restore-test key.** The alternative is a monthly manual restore test with the recovery key, which avoids any decryptable history on the host. Recommended: keep the on-host key and the automated test. The live database is on the same host anyway.

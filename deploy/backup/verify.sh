@@ -39,10 +39,12 @@ out=$($C --profile tools run --rm "${BK[@]}" -e BACKUP_FORCE_WEEKLY=1 backup 2>&
 [[ $(mcx "mc ls --recursive m/tp-backups/backups/weekly/") == *".dump.age"* ]] || fail "weekly copy missing"
 ok "encrypted daily and weekly upload"
 
-# 2. Restore test with the on-host key.
+# 2. Restore test with the on-host key. Planted later-dated objects (a
+# plaintext .dump and a .dump.age) must not be picked over today's dump.
+mcx "printf 'not a dump' | mc pipe m/tp-backups/backups/daily/2099-12-31.dump && mc cp --quiet m/tp-backups/$key m/tp-backups/backups/daily/2099-12-31.dump.age" >/dev/null || fail "could not plant later-dated objects"
 out=$($C --profile tools run --rm "${BK[@]}" --entrypoint restore-test.sh restore 2>&1) || fail "restore-test: $out"
 [[ $out == *"restore-test ok ($day.dump.age)"* ]] || fail "restore-test: $out"
-ok "restore-test"
+ok "restore-test picks today's dump, not a planted later one"
 
 $C stop app
 restore() { $C --profile tools run --rm "${BK[@]}" -e RESTORE_CONFIRM=thymeandplace "$@" 2>&1; }
@@ -87,12 +89,17 @@ if out=$(restore restore backups/tampered/t.dump.age); then fail "tampered backu
 [[ $(sentinel) == t ]] || fail "database changed after tampered restore"
 ok "tampered backup refused"
 
-# 7. A legacy plaintext dump still restores.
+# 7. A legacy plaintext dump is refused without RESTORE_ALLOW_PLAINTEXT=1,
+# and restores with it.
 $C --profile tools run --rm "${BK[@]}" --entrypoint sh backup -c \
   "pg_dump --format=custom --no-owner --dbname=\"\$DATABASE_URL\" --file=/tmp/l.dump && mc alias set m http://$S3:8000 accessKey1 verySecretKey1 >/dev/null && mc cp --quiet /tmp/l.dump m/tp-backups/backups/legacy/l.dump"
-out=$(restore restore backups/legacy/l.dump) || fail "legacy restore: $out"
+if out=$(restore restore backups/legacy/l.dump); then fail "plaintext restore without opt-in succeeded"; fi
+[[ $out == *"RESTORE_ALLOW_PLAINTEXT=1"* ]] || fail "plaintext refusal message: $out"
+[[ $(sentinel) == t ]] || fail "database changed after plaintext refusal"
+ok "plaintext refused without opt-in"
+out=$(restore -e RESTORE_ALLOW_PLAINTEXT=1 restore backups/legacy/l.dump) || fail "legacy restore: $out"
 [[ $out == *"restore ok"* ]] || fail "legacy restore: $out"
-ok "legacy plaintext restore"
+ok "legacy plaintext restore with RESTORE_ALLOW_PLAINTEXT=1"
 
 # 8. Missing, empty or private-key recipients: exit 2, nothing uploaded.
 before=$(bucket)

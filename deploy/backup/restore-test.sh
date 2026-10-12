@@ -1,7 +1,7 @@
 #!/bin/sh
-# Restores the newest daily dump into a scratch database next to the live one,
-# through restore.sh (the same drop/create/single-transaction path a real
-# restore takes), and compares row counts of the tables that matter. Drops the
+# Restores today's (or else yesterday's) encrypted daily dump into a scratch
+# database next to the live one, through restore.sh (the same
+# drop/create/single-transaction path a real restore takes), and compares row counts of the tables that matter. Drops the
 # scratch DB after, even on failure (trap).
 #
 # A backup taken during the day can legitimately trail the live catalog_history
@@ -43,10 +43,17 @@ scheme=https
 [ "${BUCKET_USE_SSL:-true}" = "false" ] && scheme=http
 mc alias set store "$scheme://$BUCKET_ENDPOINT" "$BUCKET_ACCESS_KEY" "$BUCKET_SECRET_KEY" >/dev/null
 
-# During the switch to encryption both kinds exist; names sort by date, and
-# on the same date .dump.age sorts after .dump.
-latest=$(mc ls "store/$BUCKET_NAME/backups/daily/" | awk '{print $NF}' | grep -E '\.dump(\.age)?$' | sort | tail -n 1)
-[ -n "$latest" ] || { echo "restore-test: no daily backups found" >&2; exit 1; }
+# Only the exact name backup.sh writes for today or yesterday (UTC, as it
+# names them), never the newest name in the listing: anyone who can write to
+# the bucket can add backups/daily/2099-12-31.dump, and restore.sh runs a
+# dump's SQL as the superuser. Plaintext .dump keys are never picked.
+today=$(date -u +%Y-%m-%d)
+yesterday=$(date -u -d '1 day ago' +%Y-%m-%d)
+names=$(mc ls "store/$BUCKET_NAME/backups/daily/" | awk '{print $NF}')
+for d in "$yesterday" "$today"; do
+  if printf '%s\n' "$names" | grep -qxF "$d.dump.age"; then latest="$d.dump.age"; fi
+done
+[ -n "$latest" ] || { echo "restore-test: no backups/daily/$today.dump.age or $yesterday.dump.age; run backup first" >&2; exit 1; }
 base=${DATABASE_URL%%\?*}
 scratch_url="${base%/*}/$scratch_db${DATABASE_URL#"$base"}"
 

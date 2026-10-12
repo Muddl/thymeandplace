@@ -10,6 +10,9 @@
 # database gutted). The target defaults to this container's $DATABASE_URL and
 # must be a postgres:// URL. Stop the app before restoring over its database.
 # Encrypted keys (*.age) need AGE_IDENTITY: the path to the recovery or restore-test age identity.
+# A plaintext key (a legacy .dump from before encryption) needs RESTORE_ALLOW_PLAINTEXT=1:
+# pg_restore runs a dump's SQL as the superuser, and nothing shows who wrote a
+# plaintext object, so anyone who can write to the bucket could plant one.
 set -eu
 [ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: RESTORE_CONFIRM=<dbname> restore.sh <key> [target-database-url]" >&2; exit 2; }
 key=$1
@@ -41,13 +44,17 @@ if [ "${RESTORE_CONFIRM:-}" != "$dbname" ]; then
   exit 2
 fi
 
-# An encrypted backup needs an identity: refuse before downloading anything.
+# An encrypted backup needs an identity, and a plaintext one an explicit
+# opt-in: refuse before downloading anything.
 encrypted=false
 case "$key" in
   *.age)
     encrypted=true
     [ -n "${AGE_IDENTITY:-}" ] || { echo "restore: encrypted backup; set AGE_IDENTITY to your recovery or restore-test key; database untouched" >&2; exit 2; }
     [ -f "$AGE_IDENTITY" ] && [ -r "$AGE_IDENTITY" ] || { echo "restore: AGE_IDENTITY ($AGE_IDENTITY) is not a readable file; database untouched" >&2; exit 2; }
+    ;;
+  *)
+    [ "${RESTORE_ALLOW_PLAINTEXT:-}" = 1 ] || { echo "restore: $key is not encrypted (*.age); its SQL would run as the superuser with nothing to show where it came from. Set RESTORE_ALLOW_PLAINTEXT=1 only for a dump you know your own backup job wrote; database untouched" >&2; exit 2; }
     ;;
 esac
 
@@ -61,7 +68,9 @@ trap 'rm -f "$tmp" "$tmp.dump"' EXIT
 # Download and check the dump before touching the database.
 mc cp --quiet "store/$BUCKET_NAME/$key" "$tmp"
 # age authenticates its ciphertext: a wrong key or a changed byte fails
-# here, before the database is touched.
+# here, before the database is touched. It doesn't show who encrypted it:
+# anyone with a recipient's public key can make a file that decrypts, so
+# the public keys are kept confidential (docs/operations.md, "Threat model").
 if [ "$encrypted" = true ]; then
   age -d -i "$AGE_IDENTITY" -o "$tmp.dump" "$tmp" || { echo "restore: $key could not be decrypted with AGE_IDENTITY (wrong key or damaged file); database untouched" >&2; exit 1; }
   mv "$tmp.dump" "$tmp"

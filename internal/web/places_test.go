@@ -57,7 +57,7 @@ func TestPlacesDown(t *testing.T) {
 }
 
 func TestPlacesRateLimited(t *testing.T) {
-	hs := newHarness(t)
+	hs := newHarness(t, frozenLimiter)
 	var code int
 	var body string
 	var hdr = map[string][]string{}

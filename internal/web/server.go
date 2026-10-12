@@ -69,7 +69,8 @@ type Deps struct {
 	// published guides.
 	Featured []Featured
 
-	timeout time.Duration // per-request deadline; 0 → defaultTimeout (tests shorten it)
+	timeout    time.Duration    // per-request deadline; 0 → defaultTimeout (tests shorten it)
+	limiterNow func() time.Time // the rate limiter's clock; nil → time.Now (tests freeze it)
 }
 
 const (
@@ -159,7 +160,7 @@ func New(d Deps) http.Handler {
 
 	var h http.Handler = mux
 	h = Timeout(d.timeout)(h)
-	h = NewRateLimiter(nil).Middleware(d.TrustProxy, PublicLimits, s.tooMany)(h)
+	h = NewRateLimiter(d.limiterNow).Middleware(d.TrustProxy, PublicLimits, s.tooMany)(h)
 	h = Recover(d.Log, func(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusInternalServerError, "Something went wrong", "", nil, views.LoadError("", s.retryURL(r)))
 	})(h)

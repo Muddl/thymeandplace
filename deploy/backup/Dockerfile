@@ -1,5 +1,5 @@
-# syntax=docker/dockerfile:1
-FROM postgres:17-bookworm
+# syntax=docker/dockerfile:1.27@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
 
 # Pin the MinIO client (mc) to one dated GitHub release and verify its
 # sha256. dl.min.io no longer serves the `mc` binary (as of 2026, GET

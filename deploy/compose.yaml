@@ -24,7 +24,7 @@ x-app-build: &app-build
 services:
   db:
     <<: *logging
-    image: postgis/postgis:17-3.5
+    image: postgis/postgis:17-3.5@sha256:01a6a70e41e6c4467c8f55f6063555ed72db2d6662cd0d571040d42eadaeb6f6
     restart: unless-stopped
     env_file: ${TP_ENV_DIR:-/etc/thymeandplace}/db.env
     volumes:
@@ -70,7 +70,7 @@ services:
 
   caddy:
     <<: *logging
-    image: caddy:2
+    image: caddy:2.11@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
     restart: unless-stopped
     ports:
       - "80:80"

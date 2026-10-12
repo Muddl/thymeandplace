@@ -24,7 +24,7 @@ bucket() { mcx 'for o in $(mc ls --recursive m/tp-backups/backups/ | awk "{print
 
 $C up -d --build --wait db app
 $C --profile tools run --rm --entrypoint /app/devseed ingest
-docker run -d --name "$S3" -e ENDPOINT="$S3" -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver:latest >/dev/null
+docker run -d --name "$S3" -e ENDPOINT="$S3" -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver:latest@sha256:b53e57829cf7df357323e60a19c9f98d2218f1b7ccb1d7cea5761a5a227a9ee3 >/dev/null
 docker network connect thymeandplace-e2e_default "$S3"
 $C --profile tools build backup
 for _ in $(seq 30); do mcx "mc mb --ignore-existing m/tp-backups" >/dev/null 2>&1 && break; sleep 2; done

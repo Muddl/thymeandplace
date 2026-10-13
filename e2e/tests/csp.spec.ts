@@ -5,9 +5,6 @@ import { expect, watchCSP } from "../helpers";
 
 const fixture = readFileSync(path.join(__dirname, "..", "fixtures", "inline-style.html"), "utf8");
 
-// Playwright's test, not the helpers fixture: the auto cspGuard would fail
-// these cases for the violations we load on purpose.
-
 test("an inline style fixture still fails the CSP watch", { tag: "@readonly" }, async ({ page, request }) => {
   const header = (await request.get("/")).headers()["content-security-policy"] ?? "";
   expect(header).toContain("style-src 'self'");

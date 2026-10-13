@@ -215,6 +215,8 @@ Everything the builds and CI pull is pinned:
 - The release build's BuildKit and SBOM scanner images by digest (`.github/workflows/release.yml`).
 - The Go tools (`templ`, `staticcheck`, `govulncheck`) by `go.mod` `tool` lines.
 
+Pull request process lives in `docs/WAYS-OF-WORKING.md`. The `pr-governance` workflow runs on `pull_request` events only. It checks out the base SHA, runs that `cmd/prcheck`, and reads the pull request through the API. A sign-off comment is not a trigger. Apply a required label, or push, so the check re-runs on the head SHA. The checker requires a `Closes #N`, `Fixes #N`, or `Refs #N` link to an issue with a `## Acceptance criteria` heading, plus path sign-offs from `.github/pr-signoffs.json`. Dependabot pull requests skip the issue link. Only PM Farmer applies the `no-issue` label. Until the shared GitHub App lands, only comments by `Muddl` count.
+
 Dependabot (`.github/dependabot.yml`) opens weekly grouped pull requests, one per ecosystem:
 
 - `gomod`
@@ -589,6 +591,25 @@ A database created before the roles existed (everything owned by the bootstrap s
 
 **Rollback:** the previous release migrates at startup as whatever its `DATABASE_URL` says, and its compose file reads the single `app.env` for every service. Point `app.env`'s `DATABASE_URL` at `tp_owner` temporarily (never at the superuser), add `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` back to it for the `db` health check, and redeploy the old release. Leave the roles and grants in place: they're additive, and the old code works as `tp_owner`.
 
+## Schema migrations
+
+Goose SQL files live in `migrations/`. Never edit a file that has already shipped. Add a new numbered file.
+
+`migrations/checksums` pins the sha256 of every `*.sql` file. `go test ./migrations` fails if a pinned file changes, if a new file has no pin, or if a pin names a missing file. After you add a migration, append its line:
+
+```bash
+sha256sum migrations/000NN_name.sql >> migrations/checksums
+```
+
+An Up-section `DROP`, `RENAME`, column `TYPE` change, or `SET NOT NULL` needs a `-- contract:` marker on that line or the previous non-empty line. The marker says why the change is safe. Down-section drops do not need one. Adding a nullable column and `DROP NOT NULL` do not need a marker. Example:
+
+```sql
+-- contract: preview_cache is unused after 00012
+DROP TABLE preview_cache;
+```
+
+Tests apply `deploy/db/roles.sql` (the same file `20-roles.sh` runs on a fresh volume) instead of a separate copy of the `CREATE ROLE` statements.
+
 ## Reverse proxy trust and logging
 
 - The app trusts `X-Forwarded-*` headers (`TRUST_PROXY_HEADERS=true`, set in `deploy/compose.yaml`) from **exactly one proxy hop, Caddy**, and uses the **rightmost** `X-Forwarded-For` entry as the client IP (`web.ClientIP`). Caddy has no `trusted_proxies`, so it discards any `X-Forwarded-For` a client sends and writes the address it saw. If the rightmost entry isn't a valid IP, the app uses Caddy's own address, which is one shared bucket, so a garbled header can't earn a fresh rate-limit budget. **Before putting a CDN or any other proxy in front of Caddy, change `web.ClientIP` first.** With `trusted_proxies` set, the rightmost entry becomes the CDN edge, and every visitor behind it would share one public rate-limit bucket and one admin sign-in budget. The recommended change is to set both global server options `trusted_proxies static <CDN ranges>` and `trusted_proxies_strict`, have Caddy send `header_up X-Client-IP {client_ip}`, and have the app read only that header. `trusted_proxies_strict` is required: without it Caddy parses `X-Forwarded-For` left to right, so `{client_ip}` becomes the leftmost entry, which the client controls (spec `2026-09-27-admin-abuse-resistance-design.md` §8 question 3). **Never publish the app's own port** (`8080`) alongside Caddy's 80/443. If a client could reach the app directly, it could forge those headers and spoof its source IP past the admin sign-in budget. `deploy/compose.yaml` intentionally has no `ports:` entry under `app`; only `caddy` publishes ports.
@@ -646,7 +667,7 @@ Wrap these in `docker compose exec db psql -U tp -d thymeandplace -c "..."`. Bac
 
 **Connection budget.** Each binary sizes its own pool (`internal/db/db.go`): the server 16 connections (2 kept open), overridable with `DB_MAX_CONNS`; `admin`, `ingest` and `devseed` 4 each. The server's data-version listener holds one more, outside the pool. With a backup (`pg_dump`, 1) and a couple of `psql` sessions that's about 30, well under Postgres's default `max_connections` of 100, with room for a second app replica. A `pool_max_conns` or `pool_min_conns` parameter in `DATABASE_URL` wins over these defaults.
 
-**Public DB gate.** Public database work (a `/season` or `/ingredient` cache miss, a `/places` search, and the `/season` heading label) shares three quarters of the server pool: 12 of 16 slots. The rest stays free for `/admin`, the drift check, catalog reloads and Apply's second connection, so a public spike can't lock the owner out. A request that can't get a slot within 250 ms gets the retry panel with `503` and `Retry-After: 5` straight away instead of queueing until the 2 s deadline. The heading label ("near X") is looked up on every supported `/season` request, cache hits included, so warm `/season` traffic takes a slot too; when none is free the heading falls back to coordinates and the page still loads with `200`. Other cache hits, `/healthz`, `/readyz`, static files and `/admin` never wait on the gate. `/ingredient` and `/season` misses share a cache of each cell's climate normals and ecoregions per data version (20,000 cells), so repeat clicks cost no queries.
+**Public DB gate.** Public database work (a `/season` or `/ingredient` cache miss, a `/places` search, and the `/season` heading label) shares three quarters of the server pool: 12 of 16 slots. The rest stays free for `/admin`, the drift check, catalog reloads and Apply, so a public spike can't lock the owner out. A request that can't get a slot within 250 ms gets the retry panel with `503` and `Retry-After: 5` straight away instead of queueing until the 2 s deadline. The heading label ("near X") is looked up on every supported `/season` request, cache hits included, so warm `/season` traffic takes a slot too; when none is free the heading falls back to coordinates and the page still loads with `200`. Other cache hits, `/healthz`, `/readyz`, static files and `/admin` never wait on the gate. `/ingredient` and `/season` misses share a cache of each cell's climate normals and ecoregions per data version (20,000 cells), so repeat clicks cost no queries.
 
 **Changing the pool size.** Set `DB_MAX_CONNS` in the app env file and recreate `app` with the release overlay ("Recreating `app` after a settings change" in "Updating the app"); the gate follows at three quarters. On a VPS with less than 4 GB RAM use 10 (7 public slots). Re-run the load test afterwards.
 

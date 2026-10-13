@@ -441,6 +441,7 @@ test("an intentional places abort does not show a network error", { tag: "@reado
 });
 
 test("error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
+  test.skip(browserName === "webkit", "WebKit logs a UA stylesheet CSP warning when emulating dark mode");
   const csp = watchCSP(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: "dark" });
@@ -462,6 +463,7 @@ test("error state is usable at 390px in dark mode", { tag: "@readonly" }, async 
 });
 
 test("season error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
+  test.skip(browserName === "webkit", "WebKit logs a UA stylesheet CSP warning when emulating dark mode");
   const csp = watchCSP(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: "dark" });

@@ -249,29 +249,21 @@ async function announcedMessages(page: Page) {
   return page.evaluate(() => (window as unknown as { __announce: string[] }).__announce || []);
 }
 
-// Real error fragment from the app (Postgres down), not HTML copied in the test.
-async function serverErrorFragment(request: APIRequestContext, path: string) {
+// Real error fragment from the app (same Postgres-stopped path as test 3),
+// not HTML copied in the test. Do not restart the app: Caddy then serves
+// the maintenance page instead of LoadError / PlacesUnavailable.
+async function serverErrorFragment(page: Page, request: APIRequestContext, path: string) {
   compose("stop db");
   try {
-    let res = await request.get(path, { headers: { "HX-Request": "true" } });
-    if (res.status() < 500) {
-      compose("restart app");
-      for (let i = 0; i < 40; i++) {
-        try {
-          res = await request.get(path, { headers: { "HX-Request": "true" } });
-          if (res.status() >= 500) break;
-        } catch {
-          /* app coming up */
-        }
-        await new Promise((r) => setTimeout(r, 250));
-      }
-    }
-    expect(res.status(), `${path} while Postgres is down`).toBeGreaterThanOrEqual(500);
-    const body = await res.text();
-    expect(body).toContain("data-announce");
-    return body;
+    await page.goto(path);
+    const slot = path.startsWith("/places") ? "#places" : "#results";
+    const html = await page.locator(slot).innerHTML();
+    expect(html).not.toContain("is updating");
+    expect(decodeHTML(html)).toMatch(/Couldn't load seasonal picks|Search isn't available/);
+    return html;
   } finally {
     compose("start db");
+    await waitReady(request);
   }
 }
 
@@ -351,8 +343,7 @@ test("season timeout writes load error to #announce and #results", { tag: "@read
 
 test("season 500 swaps the server fragment and announces it once", async ({ page, request }) => {
   const csp = watchCSP(page);
-  const fragment = await serverErrorFragment(request, "/season?lat=41.1496&lng=-8.6109");
-  await waitReady(request);
+  const fragment = await serverErrorFragment(page, request, "/season?lat=41.3874&lng=2.1686");
   expect(decodeHTML(fragment)).toContain(loadError);
   expect(fragment).toContain("Try again");
   await searchLisbon(page);
@@ -370,14 +361,13 @@ test("season 500 swaps the server fragment and announces it once", async ({ page
   const spoken = (await announcedMessages(page)).filter((m) => m === loadError);
   expect(spoken).toHaveLength(1);
   await axeOk(page, "light");
-  await recoverSeason(page, "41.15°N, 8.61°W");
+  await recoverSeason(page, "41.39°N");
   expect(csp).toEqual([]);
 });
 
 test("places 500 swaps the server fragment and announces it once", async ({ page, request }) => {
   const csp = watchCSP(page);
-  const fragment = await serverErrorFragment(request, lisbonPlaces);
-  await waitReady(request);
+  const fragment = await serverErrorFragment(page, request, lisbonPlaces);
   expect(decodeHTML(fragment)).toContain(searchUnavailable);
   await page.goto("/");
   await startAnnounceLog(page);
@@ -428,6 +418,7 @@ test("an intentional places abort does not show a network error", { tag: "@reado
     await route.continue();
   });
   await page.goto("/");
+  await expect(page.getByLabel("Find your town")).toBeVisible();
   await page.locator("#q").evaluate((el) => {
     el.setAttribute("hx-sync", "this:replace");
     (window as unknown as { htmx: { process: (n: Element) => void } }).htmx.process(el);

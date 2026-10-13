@@ -34,8 +34,9 @@ export { expect };
 
 function defaultLinkContrastOnly(v: { id: string; nodes: { html: string }[] }) {
   // #48: unstyled <a> stays browser-default blue on the dark background.
+  // HTMX writes class="" on processed links; that is still unstyled.
   if (v.id !== "color-contrast") return false;
-  return v.nodes.every((n) => /<a\b/i.test(n.html) && !/\bclass=/.test(n.html));
+  return v.nodes.every((n) => /<a\b/i.test(n.html) && !/\bclass="[^"]+"/.test(n.html));
 }
 
 export async function axeOk(page: Page, scheme: "light" | "dark") {

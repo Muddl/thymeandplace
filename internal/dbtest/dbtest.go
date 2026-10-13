@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
+	"regexp"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -84,26 +87,22 @@ func start() {
 		startErr = err
 		return
 	}
-	// The same layout as production (deploy/db/initdb/20-roles.sh): the
-	// roles, a template owned by tp_owner with the extensions installed by
-	// the superuser, then migrations run as tp_owner.
-	for _, sql := range []string{
-		"CREATE ROLE tp_owner LOGIN PASSWORD 'tp_owner'",
-		"CREATE ROLE tp_app LOGIN PASSWORD 'tp_app'",
-		"CREATE ROLE tp_backup LOGIN PASSWORD 'tp_backup'",
-		"GRANT pg_read_all_data TO tp_backup",
-		"CREATE DATABASE tp_template OWNER tp_owner",
-	} {
-		if err := exec(ctx, adminURL, sql); err != nil {
-			startErr = fmt.Errorf("%s: %w", sql, err)
-			return
-		}
+	// Same file as production (deploy/db/roles.sql): create the template
+	// database, apply that SQL as the superuser, then migrate as tp_owner.
+	if err := exec(ctx, adminURL, "CREATE DATABASE tp_template"); err != nil {
+		startErr = fmt.Errorf("CREATE DATABASE tp_template: %w", err)
+		return
 	}
-	if err := exec(ctx, withDB(adminURL, "tp_template"), "CREATE EXTENSION postgis; CREATE EXTENSION pg_trgm"); err != nil {
+	if err := applyProductionRoles(ctx, withDB(adminURL, "tp_template"), map[string]string{
+		"owner_password":  Owner,
+		"app_password":    App,
+		"backup_password": Backup,
+		"db":              "tp_template",
+	}); err != nil {
 		startErr = err
 		return
 	}
-	if err := db.Migrate(ctx, withRole(withDB(adminURL, "tp_template"), "tp_owner")); err != nil {
+	if err := db.Migrate(ctx, withRole(withDB(adminURL, "tp_template"), Owner)); err != nil {
 		startErr = err
 	}
 }
@@ -171,6 +170,68 @@ func withRole(dsn, role string) string {
 	}
 	u.User = url.UserPassword(role, role)
 	return u.String()
+}
+
+// ProductionRolesSQL is the role setup file production runs on a fresh volume.
+const ProductionRolesSQL = "../../deploy/db/roles.sql"
+
+func applyProductionRoles(ctx context.Context, dsn string, vars map[string]string) error {
+	raw, err := os.ReadFile(ProductionRolesSQL)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", ProductionRolesSQL, err)
+	}
+	sql, err := expandPsqlVars(string(raw), vars)
+	if err != nil {
+		return err
+	}
+	if err := exec(ctx, dsn, sql); err != nil {
+		return fmt.Errorf("%s: %w", filepath.Base(ProductionRolesSQL), err)
+	}
+	return nil
+}
+
+var (
+	psqlQuotedLiteral = regexp.MustCompile(`:'([A-Za-z_][A-Za-z0-9_]*)'`)
+	psqlQuotedIdent   = regexp.MustCompile(`:"([A-Za-z_][A-Za-z0-9_]*)"`)
+)
+
+func expandPsqlVars(sql string, vars map[string]string) (string, error) {
+	var missing string
+	lookup := func(name string) (string, bool) {
+		val, ok := vars[name]
+		if !ok && missing == "" {
+			missing = name
+		}
+		return val, ok
+	}
+	sql = psqlQuotedLiteral.ReplaceAllStringFunc(sql, func(m string) string {
+		name := psqlQuotedLiteral.FindStringSubmatch(m)[1]
+		val, ok := lookup(name)
+		if !ok {
+			return m
+		}
+		return quoteLiteral(val)
+	})
+	sql = psqlQuotedIdent.ReplaceAllStringFunc(sql, func(m string) string {
+		name := psqlQuotedIdent.FindStringSubmatch(m)[1]
+		val, ok := lookup(name)
+		if !ok {
+			return m
+		}
+		return quoteIdent(val)
+	})
+	if missing != "" {
+		return "", fmt.Errorf("%s: unset psql variable %q", filepath.Base(ProductionRolesSQL), missing)
+	}
+	return sql, nil
+}
+
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+func quoteIdent(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
 func exec(ctx context.Context, dsn, sql string) error {

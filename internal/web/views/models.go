@@ -7,6 +7,7 @@ import (
 	"github.com/a-h/templ"
 
 	"thymeandplace/internal/season"
+	"thymeandplace/static"
 )
 
 // User-facing copy (spec §11.6). Tests assert these exact strings.
@@ -68,17 +69,8 @@ func IngredientDescription(name string) string {
 	return name + ": when it's in season near you, how to choose and store it, and what it goes with."
 }
 
-// AssetVersion is a short content hash of the static files, appended to asset
-// URLs so a deploy busts browser caches. web.New sets it once at startup.
-var AssetVersion string
-
-// Asset returns the versioned URL of a static file.
-func Asset(name string) string {
-	if AssetVersion == "" {
-		return "/static/" + name
-	}
-	return "/static/" + name + "?v=" + AssetVersion
-}
+// Asset is the versioned URL of an embedded static file (static.Asset).
+func Asset(name string) string { return static.Asset(name) }
 
 type PageVM struct {
 	Title       string

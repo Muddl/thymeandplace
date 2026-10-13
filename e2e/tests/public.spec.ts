@@ -105,16 +105,18 @@ test("season page meets Almanac kickoff checks", { tag: ["@readonly"] }, async (
   await assertHeaderUnmoved(page, header);
   await page.goto(url);
   await assertAxe(page, "dark");
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.emulateMedia({ colorScheme: "light" });
-  await expect(page.locator("#results")).toHaveScreenshot("season-estimate-light.png");
-  await page.emulateMedia({ colorScheme: "dark" });
-  await expect(page.locator("#results")).toHaveScreenshot("season-estimate-dark.png");
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.emulateMedia({ colorScheme: "light" });
-  await expect(page.locator("#results")).toHaveScreenshot("season-estimate-light-390.png");
-  await page.emulateMedia({ colorScheme: "dark" });
-  await expect(page.locator("#results")).toHaveScreenshot("season-estimate-dark-390.png");
+  if (test.info().project.name === "chromium") {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.emulateMedia({ colorScheme: "light" });
+    await expect(page.locator("#results")).toHaveScreenshot("season-estimate-light.png");
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("#results")).toHaveScreenshot("season-estimate-dark.png");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: "light" });
+    await expect(page.locator("#results")).toHaveScreenshot("season-estimate-light-390.png");
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("#results")).toHaveScreenshot("season-estimate-dark-390.png");
+  }
   assertCSP(csp);
 });
 

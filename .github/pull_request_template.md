@@ -14,7 +14,7 @@ Closes #
 Copy the checkboxes from the issue. Link each item to its evidence.
 
 - [ ] Criterion. Evidence: `TestName` on CI run (URL) for this head SHA.
-- [ ] Criterion. Evidence: recorded manual run (URL or artifact). Use this only for work CI cannot cover, such as database stop and start timing, or a screen-reader pass.
+- [ ] Criterion. Evidence: recorded manual run whose log prints `git rev-parse HEAD` matching this head SHA. Use this only for work CI cannot cover, such as database stop and start timing, or a screen-reader pass.
 
 A mutation check counts only when this pull request shows the failing output.
 
@@ -31,6 +31,6 @@ Required labels are listed in `.github/pr-signoffs.json`. A label counts only wi
 - [ ] `liveops-approved` or `arch-approved` (other `deploy/`, Compose)
 - [ ] `devops-approved` (workflows, Dockerfiles)
 - [ ] `ux-approved` (`views/`, `static/`)
-- [ ] `qa-approved` (required when this pull request has `launch-scope`)
+- [ ] `qa-approved` (`e2e/**`, `playwright.config.*`, and when this pull request has `launch-scope`)
 
 QA Farmer may rerun key tests and mutation checks for a `launch-scope` pull request on its own cloud agent before signing off.

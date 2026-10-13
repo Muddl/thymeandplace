@@ -72,6 +72,14 @@
       ]
     },
     {
+      "id": "qa",
+      "require": ["qa-approved"],
+      "paths": [
+        "e2e/**",
+        "**/playwright.config.*"
+      ]
+    },
+    {
       "id": "qa-launch",
       "require": ["qa-approved"],
       "whenLabel": "launch-scope"

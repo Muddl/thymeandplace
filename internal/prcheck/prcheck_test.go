@@ -214,6 +214,11 @@ func TestMatchPath(t *testing.T) {
 		{"internal/admin/security*.go", "internal/admin/security_test.go", true},
 		{"internal/admin/security*.go", "internal/admin/admin.go", false},
 		{"static/**", "static/app.css", true},
+		{"e2e/**", "e2e/check-tags.mjs", true},
+		{"e2e/**", "e2e/playwright.config.ts", true},
+		{"**/playwright.config.*", "e2e/playwright.config.ts", true},
+		{"**/playwright.config.*", "playwright.config.ts", true},
+		{"**/playwright.config.*", "e2e/run.sh", false},
 	}
 	for _, tc := range cases {
 		if got := MatchPath(tc.pattern, tc.file); got != tc.want {
@@ -247,6 +252,9 @@ func TestPathPatterns(t *testing.T) {
 		{"internal/prcheck/prcheck.go", []string{"arch-approved|manager-approved"}},
 		{".github/workflows/pr-governance.yml", []string{"devops-approved"}},
 		{"deploy/Dockerfile.app", []string{"devops-approved"}},
+		{"e2e/check-tags.mjs", []string{"qa-approved"}},
+		{"e2e/playwright.config.ts", []string{"qa-approved"}},
+		{"playwright.config.ts", []string{"qa-approved"}},
 	}
 	for _, tc := range cases {
 		got := requiredGroups(cfg, tc.file)

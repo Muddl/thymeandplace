@@ -44,7 +44,7 @@ A pull request is done when all of the following are true.
 Evidence for an acceptance criterion is one of these.
 
 - A test name plus a green CI run on the head commit.
-- A recorded manual run, for work CI cannot cover. Examples are database stop and start timing, and a screen-reader pass.
+- A recorded manual run whose log prints `git rev-parse HEAD` matching the head SHA, for work CI cannot cover. Examples are database stop and start timing, and a screen-reader pass.
 
 A mutation check counts only when the pull request shows the failing output.
 
@@ -64,7 +64,7 @@ The `pr-governance` workflow runs only on `pull_request` events (`opened`, `edit
 
 If the base commit has no `cmd/prcheck` yet, the introducing pull request checks out the head for that first merge only.
 
-A sign-off comment does not re-run CI. Apply or re-apply the required label after the comment, or push, so the `governance` check runs on the head SHA and reads the comments.
+A sign-off comment does not re-run the check by itself. Re-run the governance job, edit the pull request, or toggle a label afterwards.
 
 The pull request body must contain `Closes #N`, `Fixes #N`, or `Refs #N`. The linked issue must contain a `## Acceptance criteria` heading. Dependabot pull requests skip the issue link. The `no-issue` label also skips the issue link. Only PM Farmer applies `no-issue`, and only for dependency bumps, docs-only changes, and typo fixes.
 
@@ -77,7 +77,7 @@ A path match requires its label and a matching approval comment on the current h
 | `liveops-approved` or `arch-approved` | LiveOps or Architect | Other `deploy/**` files and Compose files. Dockerfiles and Caddyfiles are excluded |
 | `devops-approved` | DevOps | `.github/workflows/**` and Dockerfiles |
 | `ux-approved` | UX Review | `**/views/**` and `static/**` |
-| `qa-approved` | QA | Any pull request labeled `launch-scope` |
+| `qa-approved` | QA | `e2e/**`, `**/playwright.config.*`, and any pull request labeled `launch-scope` |
 
 Example comment:
 

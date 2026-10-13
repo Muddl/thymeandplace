@@ -32,6 +32,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Print HEAD
+        run: |
+          echo "pull_request.head.sha=${{ github.event.pull_request.head.sha }}"
+          git rev-parse HEAD
       - name: Check issue link and sign-offs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

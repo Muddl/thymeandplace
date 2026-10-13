@@ -28,7 +28,7 @@ Every spec is tagged `@readonly` or `@mutating`. `@mutating` is not a grep match
 | `@readonly` | GET-only. No catalog writes, no admin enrollment, no `compose stop`. Safe against a live site. | Smoke: `GREP=@readonly` |
 | `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | `GREP=@mutating` is `--grep-invert @readonly` |
 
-CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags. Home light/dark PNG snapshots are the Ubuntu CI actuals (`*-chromium-linux.png`, `*-firefox-linux.png`, `*-webkit-linux.png`). `watchCSP` records every `securitypolicyviolation` with no field filter. Home baselines call `ignoreDuring` around `toHaveScreenshot` because WebKit injects `<style>body {}</style>` on every screenshot. `e2e/tests/csp.spec.ts` serves a fixture with an inline `<style>` and a `style` attribute and asserts both still fail the watch.
+CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags. Home light/dark PNG snapshots are the Ubuntu CI actuals (`*-chromium-linux.png`, `*-firefox-linux.png`, `*-webkit-linux.png`). `watchCSP` records every `securitypolicyviolation` with no field filter. Home baselines call `ignoreDuring` only around each `toHaveScreenshot`, not `emulateMedia`, and assert the event list is empty after the pause. WebKit injects `<style>body {}</style>` on every screenshot. `e2e/tests/csp.spec.ts` serves a fixture with an inline `<style>` and a `style` attribute and asserts both still fail the watch.
 
 A prod smoke is:
 

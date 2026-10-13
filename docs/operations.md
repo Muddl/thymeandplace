@@ -577,7 +577,7 @@ Goose SQL files live in `migrations/`. Never edit a file that has already shippe
 sha256sum migrations/000NN_name.sql >> migrations/checksums
 ```
 
-An Up-section `DROP` or `RENAME` needs a `-- contract:` marker on that line or the previous non-empty line, saying why the change is safe. Down-section drops do not. Example:
+An Up-section `DROP`, `RENAME`, column `TYPE` change, or `SET NOT NULL` needs a `-- contract:` marker on that line or the previous non-empty line. The marker says why the change is safe. Down-section drops do not need one. Adding a nullable column and `DROP NOT NULL` do not need a marker. Example:
 
 ```sql
 -- contract: preview_cache is unused after 00012

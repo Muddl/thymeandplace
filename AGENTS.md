@@ -17,7 +17,7 @@ Tests enforce some of these. Reviewers check the rest.
 - **No seafood while `FEATURE_SEAFOOD` is off.** No public page may mention seafood or marine data (`internal/web/seafood_test.go`). New public copy goes through the same check.
 - **CSP.** No inline `<script>`, `style=` attributes, `on*=` handlers or `hx-on` in templates (`internal/web/views/lint_test.go`). Behavior goes in `static/app.js`, styles in `static/app.css`.
 - **Least-privilege DB roles.** The app runs as `tp_app`. A migration that adds a table or function grants `tp_app` exactly what the app needs, and nothing more.
-- **Never edit a shipped migration.** Add a new one. `migrations/checksums` and `go test ./migrations` enforce that. An Up-section `DROP` or `RENAME` needs `-- contract:` (`docs/operations.md`, "Schema migrations").
+- **Never edit a shipped migration.** Add a new one. `migrations/checksums` and `go test ./migrations` enforce that. An Up-section `DROP`, `RENAME`, column `TYPE` change, or `SET NOT NULL` needs `-- contract:` (`docs/operations.md`, "Schema migrations").
 - **Docs in the same PR.** When behavior changes, update `docs/operations.md` and the relevant spec under `docs/superpowers/specs/`.
 - **Reference data.** A new dataset needs a row in `docs/reference-data-licenses.md` and an `Attribution()` the About page shows. Never approve a license marked `UNRESOLVED:`.
 - **Third-party code.** Record it in the PR and in `LICENSE.md`.

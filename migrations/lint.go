@@ -93,10 +93,16 @@ func fileSHA256(path string) (string, error) {
 }
 
 var (
-	gooseUpRE      = regexp.MustCompile(`(?m)^-- \+goose Up\s*$`)
-	gooseDownRE    = regexp.MustCompile(`(?m)^-- \+goose Down\s*$`)
-	contractRE     = regexp.MustCompile(`(?i)--\s*contract:`)
-	destructiveRE  = regexp.MustCompile(`(?i)\b(?:DROP\s+(?:TABLE|VIEW|INDEX|FUNCTION|TYPE|COLUMN|TRIGGER|EXTENSION|SCHEMA|SEQUENCE|ROLE|DATABASE|CONSTRAINT|MATERIALIZED\s+VIEW)|ALTER\s+TABLE\b[^;\n]*\bDROP\s+COLUMN|RENAME\s+(?:TO|COLUMN))\b`)
+	gooseUpRE     = regexp.MustCompile(`(?m)^-- \+goose Up\s*$`)
+	gooseDownRE   = regexp.MustCompile(`(?m)^-- \+goose Down\s*$`)
+	contractRE    = regexp.MustCompile(`(?i)--\s*contract:`)
+	destructiveRE = regexp.MustCompile(`(?i)\b(?:` +
+		`DROP\s+(?:TABLE|VIEW|INDEX|FUNCTION|TYPE|COLUMN|TRIGGER|EXTENSION|SCHEMA|SEQUENCE|ROLE|DATABASE|CONSTRAINT|MATERIALIZED\s+VIEW)` +
+		`|ALTER\s+TABLE\b[^;\n]*\bDROP\s+COLUMN` +
+		`|ALTER\s+(?:COLUMN\s+)?\S+\s+(?:SET\s+DATA\s+)?TYPE` +
+		`|ALTER\s+(?:COLUMN\s+)?\S+\s+SET\s+NOT\s+NULL` +
+		`|RENAME` +
+		`)\b`)
 	sqlCommentOnly = regexp.MustCompile(`^\s*--`)
 )
 

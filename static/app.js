@@ -101,14 +101,19 @@
     if (!h.hasAttribute("tabindex")) h.setAttribute("tabindex", "-1");
     h.focus();
   }
+  // lastPlace is the town link the cook last chose. retryFocus is set only
+  // when they activate Try again; afterSwap then restores focus. A normal
+  // results swap (place or ingredient) must not move it.
+  var lastPlace = null;
+  var retryFocus = false;
+  function isTryAgain(a) {
+    return !!(a && (a.textContent || "").trim() === "Try again");
+  }
   function restoreFocus(t) {
     if (!t) return;
-    var active = document.activeElement;
-    if (active && active !== document.body && !t.contains(active)) return;
     if (t.id === "results") {
-      var place = document.querySelector("#places a");
-      if (place) {
-        place.focus();
+      if (lastPlace && lastPlace.isConnected) {
+        lastPlace.focus();
         return;
       }
       focusHeading(t);
@@ -125,6 +130,8 @@
   function announceSwap(e) {
     var t = swapTarget(e.detail && e.detail.target);
     announceFrom(t);
+    if (!retryFocus) return;
+    retryFocus = false;
     restoreFocus(t);
   }
   function onTransportError(e) {
@@ -135,8 +142,6 @@
     if (t && t.id === "places") {
       var q = searchBox();
       if (q) q.focus();
-    } else {
-      restoreFocus(t);
     }
   }
   function onResponseError(e) {
@@ -159,6 +164,8 @@
   window.addEventListener("hashchange", focusSearch);
   document.addEventListener("click", function (e) {
     var a = e.target.closest("a");
+    if (a && a.closest("#places") && !isTryAgain(a)) lastPlace = a;
+    if (isTryAgain(a) && a.closest("#places, #results")) retryFocus = true;
     var href = a && a.getAttribute("href");
     if (href === "/#q" || href === "#q") {
       var jump = searchBox();

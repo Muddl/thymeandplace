@@ -389,6 +389,23 @@ test("places 500 swaps the server fragment and announces it once", { tag: "@muta
   expect(csp).toEqual([]);
 });
 
+test("selecting a place or ingredient leaves focus where the cook put it", { tag: "@readonly" }, async ({ page }) => {
+  const csp = watchCSP(page);
+  await searchLisbon(page);
+  const lisbon = page.getByRole("link", { name: "Lisbon, PT" });
+  await lisbon.click();
+  await expect(page.locator("#results")).toContainText("Lisbon, PT");
+  await expect(lisbon).toBeFocused();
+  const item = page.locator("#results .items a").first();
+  const name = ((await item.textContent()) ?? "").trim();
+  expect(name.length).toBeGreaterThan(0);
+  await item.click();
+  await expect(page.locator("#results")).toContainText(name);
+  await expect(lisbon).not.toBeFocused();
+  await expect(page.locator("#places a").first()).not.toBeFocused();
+  expect(csp).toEqual([]);
+});
+
 // A later keyup with hx-sync=replace aborts the in-flight /places XHR
 // (htmx:sendAbort). That is not a network failure.
 test("an intentional places abort does not show a network error", { tag: "@readonly" }, async ({ page }) => {
@@ -478,9 +495,8 @@ test("season error state is usable at 390px in dark mode @readonly", { tag: "@re
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
   await expectAnnounced(page, "#results", loadError);
   await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
-  // Dark axe here hits #48 (unstyled place / Try again / footer links). The
-  // 390px dark error-state scan is the places abort case above.
-  await axeOk(page, "light");
+  // Dark axe filters only #48 unstyled-link contrast (see defaultLinkContrastOnly).
+  await axeOk(page, "dark");
   const dir = process.env.E2E_SHOTS || "test-results";
   await page.screenshot({ path: `${dir}/season-abort-390-dark-${browserName}.png`, animations: "disabled" });
   expect(csp).toEqual([]);

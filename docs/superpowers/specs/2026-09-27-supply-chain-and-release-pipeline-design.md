@@ -77,7 +77,7 @@ Non-goals:
   - `pip` at `/pipeline/transform`
   - `npm` at `/e2e`
 
-  Whether Dependabot updates digests inside `deploy/compose.yaml` wasn't verified. If not, `docs/operations.md` documents a quarterly manual bump with `docker buildx imagetools inspect <image>:<tag>`.
+  Whether Dependabot updates digests inside `deploy/compose.yaml` wasn't verified. If not, `docs/operations.md` documents a quarterly manual bump with `docker buildx imagetools inspect <image>:<tag>`. Dependabot ignores Postgres and PostGIS major version bumps. `compose.dev.yaml` is not a standard compose filename, so it is bumped by hand with `compose.yaml`.
 
 A first run of staticcheck and the race detector may find existing issues. They're fixed in the same pull request, or listed in its description with an issue each. They aren't suppressed silently.
 
@@ -98,7 +98,7 @@ Each `FROM` and `image:` becomes `repo:tag@sha256:…`, with the digest taken at
 - **Trigger:** `workflow_run` of `ci`, `types: [completed]`, `branches: [main]`. The job runs only when `github.event.workflow_run.conclusion == 'success'`, and checks out `github.event.workflow_run.head_sha`.
 - **Permissions:** `contents: read`, `packages: write`.
 - **Build:** for each image (`app` from `deploy/Dockerfile.app`, `ingest` from `deploy/Dockerfile.ingest`, `transform` from `pipeline/transform`, `backup` from `deploy/backup`), run `docker/build-push-action`, SHA-pinned, with:
-  - tags `ghcr.io/muddl/thymeandplace-<name>:<head_sha>` and `:main`
+  - tags `ghcr.io/muddl/thymeandplace-<name>:<head_sha>` and `:main` (SHA first; `:main` is a GHCR pointer, never a `deploy.sh` argument)
   - `provenance: mode=max` and `sbom: true`
   - a platform matching the VPS (§8 question 2)
 
@@ -128,7 +128,7 @@ If the least-privilege design (`2026-09-27-least-privilege-deployment-design.md`
 3. Run `$C pull app ingest transform backup` (plus `migrate` and `restore` once S2 lands), and `db caddy` too, so their `compose.yaml` pins download before the window starts.
 4. Run `$C up -d --wait app caddy`. This runs `migrate` first once S2 lands, and waits for the health check. Compose recreates a changed dependency of `app` (`db`) but never a dependent, so `caddy` is named: a merged `docker-compose` update of its pin is applied by the next deploy, and an unchanged `caddy` is left running.
 5. Write `deploy/.env` (git-ignored, replaced atomically) with `COMPOSE_FILE=compose.yaml:compose.release.yaml` and `TP_IMAGE_TAG=<sha>`. Compose reads it from the directory it runs in, so every plain `docker compose` command on the VPS, the backup and restore-test timers and the `tools` runs included, uses the deployed release, and a plain `up -d` can't roll `app` back to a source-built image. Commands with their own `-f` ignore it.
-6. Append `<date> <sha> <app digest>` to `/var/lib/thymeandplace/deploys.log`. The digest comes from `docker image inspect --format '{{index .RepoDigests 0}}'`.
+6. Append `<date> <sha> <app digest>` to `/var/lib/thymeandplace/deploys.log`. The digest comes from `docker image inspect`. If `RepoDigests` is empty, the local image ID is recorded instead.
 7. Print the elapsed time from step 4, which is the downtime measurement in §4.6.
 
 **Rollback:** `deploy/deploy.sh <previous sha>` from `deploys.log`. The existing rule that migrations stay backward-compatible with the previous release (`docs/operations.md:66`) is what makes this safe.

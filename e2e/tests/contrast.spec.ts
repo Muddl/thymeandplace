@@ -1,11 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "../helpers";
 
-// date=2026-05-15 matches TP_PUBLIC_TODAY (see deploy/e2e.env).
+const pinnedToday = "2026-05-15";
 const pages = [
   "/",
-  "/season?lat=38.7167&lng=-9.1333&date=2026-05-15",
-  "/ingredient/tomato?cell=295883&date=2026-05-15",
+  `/season?lat=38.7167&lng=-9.1333&date=${pinnedToday}`,
+  `/ingredient/tomato?cell=295883&date=${pinnedToday}`,
   "/about/data",
 ];
 

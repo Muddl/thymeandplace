@@ -1,7 +1,11 @@
 {
   "name": "thymeandplace-e2e",
   "private": true,
-  "scripts": { "test": "playwright test" },
+  "scripts": {
+    "test": "playwright test",
+    "test:readonly": "playwright test --grep @readonly",
+    "test:mutating": "playwright test --grep @mutating"
+  },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
     "@types/node": "^22.0.0",

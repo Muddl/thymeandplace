@@ -3,6 +3,7 @@ package views
 import (
 	"bytes"
 	"context"
+	"html"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -135,15 +136,15 @@ func TestLoadErrorSanitizesRetryURL(t *testing.T) {
 	if err := LoadError("", "javascript:alert(1)").Render(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
-	html := buf.String()
-	if !strings.Contains(html, `href="about:invalid#TemplFailedSanitizationURL"`) {
-		t.Fatalf("retry href not sanitized:\n%s", html)
+	got := buf.String()
+	if !strings.Contains(got, `href="about:invalid#TemplFailedSanitizationURL"`) {
+		t.Fatalf("retry href not sanitized:\n%s", got)
 	}
-	if !strings.Contains(html, `data-announce="`) || !strings.Contains(html, "seasonal picks") {
-		t.Fatalf("LoadError must use data-announce:\n%s", html)
+	if strings.Contains(got, `role="alert"`) {
+		t.Fatal("LoadError must not use role=alert")
 	}
-	if strings.Contains(html, `role="alert"`) {
-		t.Fatal("LoadError must not also be role=alert")
+	if !strings.Contains(html.UnescapeString(got), `data-announce="`+CopyLoadError+`"`) {
+		t.Fatal("LoadError must carry data-announce")
 	}
 }
 

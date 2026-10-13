@@ -1,5 +1,5 @@
 import type { APIRequestContext, Page, Request } from "@playwright/test";
-import { axeOk, compose, expect, test, waitReady, watchCSP } from "../helpers";
+import { axeOk, compose, expect, test, waitReady, watchCSP, webkitDarkUACSP } from "../helpers";
 
 test("1. search → select → results render", { tag: "@readonly" }, async ({ page }) => {
   const csp = watchCSP(page);
@@ -457,45 +457,49 @@ test("an intentional places abort does not show a network error", { tag: "@reado
   expect(csp).toEqual([]);
 });
 
-test("error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
-  const csp = watchCSP(page);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.emulateMedia({ colorScheme: "dark" });
-  await page.route("**/places*", async (route) => {
-    if (!isHX("/places", route.request())) {
-      await route.continue();
-      return;
-    }
-    await route.abort("connectionrefused");
-  });
-  await page.goto("/");
-  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
-  await expectAnnounced(page, "#places", searchUnavailable);
-  await expect(page.locator("#places").getByRole("link", { name: "Try again" })).toBeVisible();
-  await axeOk(page, "dark");
-  const dir = process.env.E2E_SHOTS || "test-results";
-  await page.screenshot({ path: `${dir}/places-abort-390-dark-${browserName}.png`, animations: "disabled" });
-  expect(csp).toEqual([]);
-});
+test.describe("390px dark error states", () => {
+  test.use({ cspIgnoreWebKitDarkUA: true });
 
-test("season error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
-  const csp = watchCSP(page);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.emulateMedia({ colorScheme: "dark" });
-  await searchLisbon(page);
-  await page.route("**/season*", async (route) => {
-    if (!isHX("/season", route.request())) {
-      await route.continue();
-      return;
-    }
-    await route.abort("connectionrefused");
+  test("error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
+    const csp = watchCSP(page, (msg) => browserName === "webkit" && msg === webkitDarkUACSP);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.route("**/places*", async (route) => {
+      if (!isHX("/places", route.request())) {
+        await route.continue();
+        return;
+      }
+      await route.abort("connectionrefused");
+    });
+    await page.goto("/");
+    await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+    await expectAnnounced(page, "#places", searchUnavailable);
+    await expect(page.locator("#places").getByRole("link", { name: "Try again" })).toBeVisible();
+    await axeOk(page, "dark");
+    const dir = process.env.E2E_SHOTS || "test-results";
+    await page.screenshot({ path: `${dir}/places-abort-390-dark-${browserName}.png`, animations: "disabled" });
+    expect(csp).toEqual([]);
   });
-  await page.getByRole("link", { name: "Lisbon, PT" }).click();
-  await expectAnnounced(page, "#results", loadError);
-  await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
-  // Dark axe filters only #48 unstyled-link contrast (see defaultLinkContrastOnly).
-  await axeOk(page, "dark");
-  const dir = process.env.E2E_SHOTS || "test-results";
-  await page.screenshot({ path: `${dir}/season-abort-390-dark-${browserName}.png`, animations: "disabled" });
-  expect(csp).toEqual([]);
+
+  test("season error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
+    const csp = watchCSP(page, (msg) => browserName === "webkit" && msg === webkitDarkUACSP);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await searchLisbon(page);
+    await page.route("**/season*", async (route) => {
+      if (!isHX("/season", route.request())) {
+        await route.continue();
+        return;
+      }
+      await route.abort("connectionrefused");
+    });
+    await page.getByRole("link", { name: "Lisbon, PT" }).click();
+    await expectAnnounced(page, "#results", loadError);
+    await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
+    // Dark axe filters only #48 unstyled-link contrast (see defaultLinkContrastOnly).
+    await axeOk(page, "dark");
+    const dir = process.env.E2E_SHOTS || "test-results";
+    await page.screenshot({ path: `${dir}/season-abort-390-dark-${browserName}.png`, animations: "disabled" });
+    expect(csp).toEqual([]);
+  });
 });

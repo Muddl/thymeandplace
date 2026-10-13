@@ -5,21 +5,21 @@ import { APIRequestContext, Page, expect, test as base } from "@playwright/test"
 
 const deploy = path.resolve(__dirname, "..", "deploy");
 
-// WebKit logs this when Playwright emulates prefers-color-scheme: dark.
-// It is a user-agent stylesheet, not a page violation. Filter only this
-// exact text; any other CSP message still fails the test.
-const webkitUAStylesheetCSP =
+// Exact console text WebKit logs on the 390px dark cases (#107). A real
+// page <style> prints the same words, so this string is ignored only in
+// those two tests, and only on WebKit.
+export const webkitDarkUACSP =
   "Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline' does not appear in the style-src directive of the Content Security Policy.";
 
 // watchCSP collects the page's browser console messages about Content
 // Security Policy. The site sends a strict CSP (internal/web/middleware.go),
 // so any such message means a page uses something the policy blocks.
-export function watchCSP(page: Page): string[] {
+export function watchCSP(page: Page, ignore: (msg: string) => boolean = () => false): string[] {
   const seen: string[] = [];
   page.on("console", (m) => {
     const t = m.text();
     if (!t.includes("Content Security Policy")) return;
-    if (t === webkitUAStylesheetCSP) return;
+    if (ignore(t)) return;
     seen.push(t);
   });
   return seen;
@@ -27,11 +27,14 @@ export function watchCSP(page: Page): string[] {
 
 // test is Playwright's test with a guard that fails any test whose page
 // logged a CSP message. Pages from a context a test makes itself need their
-// own watchCSP.
-export const test = base.extend<{ cspGuard: void }>({
+// own watchCSP. cspIgnoreWebKitDarkUA is off except in the two 390px dark
+// tests (#107).
+export const test = base.extend<{ cspGuard: void; cspIgnoreWebKitDarkUA: boolean }>({
+  cspIgnoreWebKitDarkUA: [false, { option: true }],
   cspGuard: [
-    async ({ page }, use) => {
-      const seen = watchCSP(page);
+    async ({ page, browserName, cspIgnoreWebKitDarkUA }, use) => {
+      const ignore = (msg: string) => cspIgnoreWebKitDarkUA && browserName === "webkit" && msg === webkitDarkUACSP;
+      const seen = watchCSP(page, ignore);
       await use();
       expect(seen, "Content Security Policy messages in the browser console").toEqual([]);
     },

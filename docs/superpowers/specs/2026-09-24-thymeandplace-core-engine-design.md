@@ -532,6 +532,14 @@ Admin errors follow the same style: validation errors appear inline next to thei
 
 The admin UI, the ingest pipeline, the calibration drift check and the engine are unaffected. Tests (§13.8) cover both states and check that no public page mentions seafood while it's off.
 
+### 11.8 Appearance
+
+Public pages follow `prefers-color-scheme`. There is no theme toggle. Colours, spacing, and fonts are custom properties on one `:root` in `static/app.css`, plus a dark `:root` that overrides the colour tokens, so a later restyle changes values and leaves the selectors alone.
+
+Body text is at least 16px with a line-height of 1.5. Headings use `--h1`, `--h2`, and `--h3`. Links use `--link` and `--link-visited`, with a hover colour, a `:focus-visible` outline, and an underline in body text. `.brand` and `.brand:visited` stay ink. Buttons share one style, with a `:focus-visible` ring and a `:disabled` state. `button`, `input`, `select`, and `textarea` set `font: inherit`. The finder field and button keep a `color-mix(in srgb, var(--ink) 60%, var(--bg))` border. Year-round month cells use `--year:#4a6f90`.
+
+`e2e/tests/appearance.spec.ts` checks those computed styles on the live page in light and dark, at 390px and 1280px. The public CSP is unchanged. Templates add no inline `style=` and no `<style>`.
+
 ## 12. Season engine
 
 ### 12.1 Interface

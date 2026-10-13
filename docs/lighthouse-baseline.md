@@ -37,7 +37,8 @@ The first run found, and this change fixed:
 
 ## Known and accepted
 
-- **Render-blocking stylesheet.** `app.css` is about 1 KB compressed. Inlining it would need `'unsafe-inline'` or a hash in `style-src`, and it isn't worth weakening the CSP for.
+- **Render-blocking stylesheet.** `app.css` is about 1.4 KB compressed. Inlining it would need `'unsafe-inline'` or a hash in `style-src`, and it isn't worth weakening the CSP for.
 - **Trusted Types** (reported as informational). htmx swaps HTML through `innerHTML`, so `require-trusted-types-for 'script'` would need a pass-through policy, which defeats its purpose. The CSP already blocks inline and eval'd script.
 - **HSTS.** The local Caddyfile doesn't send it. Production does (`max-age=31536000; includeSubDomains`). Adding `preload` and submitting to hstspreload.org is a one-way commitment for the whole domain, so it's left to the owner.
 - **CSP, COOP and clickjacking audits** show as "not applicable". Lighthouse 13 reports that when it finds nothing wrong: the headers are present (`SecurityHeaders` in `internal/web/middleware.go`).
+- **Dark-scheme contrast.** Dark-scheme contrast for links and finder borders is covered by `e2e/tests/appearance.spec.ts`, and by #104's contrast spec when that lands.

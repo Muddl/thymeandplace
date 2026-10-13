@@ -6,22 +6,14 @@ fail() {
 	exit 1
 }
 
-overlay=
-C="docker compose -f compose.yaml -f compose.release.yaml${overlay:+ -f $overlay} --profile tools"
-compose_file="compose.yaml:compose.release.yaml${overlay:+:$overlay}"
-[ "$C" = "docker compose -f compose.yaml -f compose.release.yaml --profile tools" ] ||
-	fail "unset overlay changed the compose command: $C"
-[ "$compose_file" = "compose.yaml:compose.release.yaml" ] ||
-	fail "unset overlay changed COMPOSE_FILE: $compose_file"
-overlay=compose.staging.yaml
-C="docker compose -f compose.yaml -f compose.release.yaml${overlay:+ -f $overlay} --profile tools"
-compose_file="compose.yaml:compose.release.yaml${overlay:+:$overlay}"
-[ "$C" = "docker compose -f compose.yaml -f compose.release.yaml -f compose.staging.yaml --profile tools" ] ||
-	fail "staging overlay compose command is $C"
-[ "$compose_file" = "compose.yaml:compose.release.yaml:compose.staging.yaml" ] ||
-	fail "staging COMPOSE_FILE is $compose_file"
-grep -Fq 'TP_COMPOSE_OVERLAY' deploy/deploy.sh ||
-	fail "deploy.sh must honor TP_COMPOSE_OVERLAY"
+grep -Fq 'C="docker compose -f compose.yaml -f compose.release.yaml --profile tools"' deploy/deploy.sh ||
+	fail "deploy.sh is missing the production compose command"
+grep -Fq 'compose_file="compose.yaml:compose.release.yaml"' deploy/deploy.sh ||
+	fail "deploy.sh is missing the production COMPOSE_FILE"
+grep -Fq -- '-f compose.yaml -f compose.release.yaml -f ' deploy/deploy.sh ||
+	fail "deploy.sh is missing the staging compose command"
+grep -Fq 'compose.yaml:compose.release.yaml:' deploy/deploy.sh ||
+	fail "deploy.sh is missing the staging COMPOSE_FILE"
 
 gate=./deploy/staging-gate.sh
 [ -x "$gate" ] || fail "$gate is not executable"

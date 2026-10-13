@@ -6,7 +6,6 @@ staging.thymeand.place {
 		-Server
 	}
 	# No access log, same reason as the production Caddyfile.
-	# Import the Wade-only user/hash file (deploy/STAGING.md).
 	import /etc/caddy/basicauth
 	reverse_proxy app:8080 {
 		health_uri /healthz

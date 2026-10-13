@@ -1,6 +1,5 @@
 # /etc/thymeandplace/Caddyfile.basicauth on the staging VM only.
-# Replace the hash: docker compose run --rm --no-deps --entrypoint caddy caddy hash-password
-# Then import this file from Caddyfile.staging. Production does not mount it.
+# Replace the hash with `caddy hash-password`. Production does not mount it.
 basic_auth {
 	ux $2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG
 }

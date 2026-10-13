@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # usage (as root, from a checkout of the SHA): ./deploy/staging-remote.sh <40-hex commit SHA>
-# Waits for the release images, then runs deploy.sh with the staging overlay.
 set -euo pipefail
 sha=${1:-}
 [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "deploy: give the full 40-character commit SHA (got '${sha}')" >&2; exit 2; }

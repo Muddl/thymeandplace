@@ -1,12 +1,5 @@
-# Staging overlay for the shared UX-review stack on a separate VM.
-#   TP_IMAGE_TAG=<sha> TP_COMPOSE_OVERLAY=compose.staging.yaml \
-#     docker compose -f compose.yaml -f compose.release.yaml -f compose.staging.yaml ...
-# deploy/staging-remote.sh does this, then deploy.sh writes COMPOSE_FILE with
-# this file included. Production never sets TP_COMPOSE_OVERLAY.
-#
-# Data is fixture/dev-seed only (run once; deploy/STAGING.md). Do not ingest
-# TerraClimate or other production datasets here.
-
+# Staging overlay. Production never passes this file.
+#   TP_IMAGE_TAG=<sha> docker compose -f compose.yaml -f compose.release.yaml -f compose.staging.yaml
 services:
   db:
     command: ["postgres", "-c", "shared_buffers=512MB"]

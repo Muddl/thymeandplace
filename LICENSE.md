@@ -21,6 +21,7 @@ These keep their own licenses, and nothing above changes them.
 | htmx 2.0.4 | `static/htmx.min.js` | BSD 2-Clause, © Big Sky Software (see `static/README.md`) |
 | Go modules | `go.mod`, `go.sum`; compiled into the binaries | Each module's own license, shipped with its source |
 | Python packages | `pipeline/transform/requirements*.txt` | Each package's own license |
+| npm packages | `e2e/package.json` (dev, not shipped) | Each package's own license |
 | Container images | `deploy/Dockerfile.*`, `deploy/compose.yaml` (Postgres/PostGIS, Caddy, Go, Python and others) | Each image's own licenses |
 | TerraClimate climate normals | Downloaded by `cmd/ingest climate` | CC0 1.0, as recorded |
 | GeoNames place names | Downloaded by `cmd/ingest places` | CC BY 4.0: credited on every page and on the About page |

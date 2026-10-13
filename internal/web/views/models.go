@@ -2,6 +2,8 @@
 package views
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
@@ -30,8 +32,46 @@ const (
 	CopyLandEstimate       = "Estimated from local climate normals."
 	CopyEstimate           = "Estimate"
 	CopyEstimateMark       = "≈"
+	CopyAboutAnnounce      = "About the data"
 	CopySiteHeading        = "What's in season"
 )
+
+func AnnounceSeason(n int, label string) string {
+	where := label
+	if !strings.HasPrefix(label, "near ") {
+		where = "near " + label
+	}
+	switch {
+	case n <= 0:
+		return "No ingredients in season " + where
+	case n == 1:
+		return "1 ingredient in season " + where
+	default:
+		return strconv.Itoa(n) + " ingredients in season " + where
+	}
+}
+
+func AnnouncePlaces(n int) string {
+	switch {
+	case n <= 0:
+		return "No places"
+	case n == 1:
+		return "1 place"
+	default:
+		return strconv.Itoa(n) + " places"
+	}
+}
+
+func AnnounceNoMatch(q string) string {
+	return "No places match '" + q + "'."
+}
+
+func AnnounceUnsupported(seafood bool) string {
+	if seafood {
+		return CopyUnsupported
+	}
+	return CopyUnsupportedLand
+}
 
 // HTMX config: swap 4xx/5xx so error partials render (§11.5), and keep no
 // history snapshots in localStorage (they would hold place labels); history
@@ -92,6 +132,14 @@ type SeasonVM struct {
 type Group struct {
 	Title string
 	Items []Item
+}
+
+func (vm SeasonVM) ItemCount() int {
+	n := 0
+	for _, g := range vm.Groups {
+		n += len(g.Items)
+	}
+	return n
 }
 
 type Item struct {

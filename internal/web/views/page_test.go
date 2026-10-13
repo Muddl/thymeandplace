@@ -18,8 +18,14 @@ func TestPageKickoffLandmarks(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := buf.String()
-	if strings.Contains(got, `id="announce"`) {
-		t.Fatalf("#announce belongs to a later PR, not this page:\n%s", got)
+	if strings.Count(got, `id="announce"`) != 1 {
+		t.Fatalf("page must have exactly one #announce:\n%s", got)
+	}
+	if !strings.Contains(got, `id="announce" role="status"`) {
+		t.Fatal("page #announce must have role=status")
+	}
+	if strings.Count(got, "aria-live") != 1 {
+		t.Fatalf("page must have exactly one aria-live, got %d\n%s", strings.Count(got, "aria-live"), got)
 	}
 	wantH1 := "<h1>" + html.EscapeString(CopySiteHeading) + "</h1>"
 	if !strings.Contains(got, wantH1) {

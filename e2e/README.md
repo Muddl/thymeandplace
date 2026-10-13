@@ -21,14 +21,14 @@ npm run test:mutating                 # --grep-invert @readonly
 
 ## Tags
 
-QA tags each spec `@readonly`. `@mutating` is not a grep match. `GREP=@mutating` runs `--grep-invert @readonly`, so untagged tests are in the mutating subset.
+Every spec is tagged `@readonly` or `@mutating`. `@mutating` is not a grep match. `GREP=@mutating` runs `--grep-invert @readonly`.
 
 | Tag | Meaning | Typical use |
 |---|---|---|
 | `@readonly` | GET-only. No catalog writes, no admin enrollment, no `compose stop`. Safe against a live site. | Smoke: `GREP=@readonly` |
-| untagged or `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | `GREP=@mutating` is `--grep-invert @readonly` |
+| `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | `GREP=@mutating` is `--grep-invert @readonly` |
 
-CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags, once at least one `@readonly` or `@mutating` exists in `e2e/tests`. Until QA tags the specs, that check skips (it must not go red only because tags are not in yet).
+CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags. Home light/dark PNG snapshots are the Ubuntu CI actuals (`*-chromium-linux.png`, `*-firefox-linux.png`, `*-webkit-linux.png`). Season Estimate row snapshots are Chromium-only (Architect and UX agreed v1 is not cross-engine) and live next to the home shots. `watchCSP` records every `securitypolicyviolation` with no field filter. Home and Estimate baselines call `ignoreDuring` only around each `toHaveScreenshot`, not `emulateMedia`, and assert the event list is empty after the pause. After dark `emulateMedia`, tests assert `prefers-color-scheme: dark` and the dark `--bg` token. WebKit injects `<style>body {}</style>` on every screenshot. `e2e/tests/csp.spec.ts` serves a fixture with an inline `<style>` and a `style` attribute and asserts both still fail the watch.
 
 A prod smoke is:
 

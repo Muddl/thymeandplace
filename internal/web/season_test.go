@@ -245,6 +245,15 @@ func TestSeasonFullPage(t *testing.T) {
 	if !strings.Contains(body, "<!doctype html>") || !strings.Contains(body, `id="results"`) || !strings.Contains(body, "Tomato") {
 		t.Fatal("full page expected")
 	}
+	if strings.Contains(body, "autofocus") {
+		t.Fatal("season results must not autofocus the search box")
+	}
+	if strings.Count(body, `id="announce"`) != 1 || strings.Count(body, "aria-live") != 1 {
+		t.Fatal("season page must keep exactly one #announce live region")
+	}
+	if !strings.Contains(body, `data-announce="`) || !strings.Contains(body, "ingredients in season near Lisbon, PT") {
+		t.Fatalf("season page must carry short data-announce:\n%s", body)
+	}
 }
 
 func TestSeasonItemLinksCarryCellAndDate(t *testing.T) {
@@ -339,7 +348,7 @@ var sameCellRows = []struct {
 	}},
 }
 
-var headingRE = regexp.MustCompile(`<h2>[^<]*</h2>`)
+var h2OrDataAnnounceRE = regexp.MustCompile(`<h2>[^<]*</h2>|data-announce="[^"]*"`)
 
 // Spec §6: two points in one cell get identical results in either order.
 func TestSeasonSameCellSameResults(t *testing.T) {
@@ -355,7 +364,7 @@ func TestSeasonSameCellSameResults(t *testing.T) {
 					if code != 200 {
 						t.Fatalf("%s: %d", q, code)
 					}
-					bodies = append(bodies, headingRE.ReplaceAllString(body, ""))
+					bodies = append(bodies, h2OrDataAnnounceRE.ReplaceAllString(body, ""))
 				}
 			}
 			for i, b := range bodies[1:] {

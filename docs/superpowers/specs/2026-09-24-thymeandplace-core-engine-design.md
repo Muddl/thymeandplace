@@ -453,7 +453,7 @@ The audit tables are append-only for the app's database role: it can read `catal
 
 | Route | Returns |
 |---|---|
-| `GET /` | Full page: search box, "Use my location" button, empty results region |
+| `GET /` | Full page: search box (autofocused), "Use my location" button, empty results region |
 | `GET /places?q=` | Partial: up to 8 matches (`hx-trigger="keyup changed delay:250ms"`); queries with fewer than 2 letters or digits show a keep-typing hint and don't search |
 | `GET /season?lat=&lng=&date=` | Partial: location header + in-season list grouped Peak / In season / From storage / Year-round, with seafood as its own group |
 | `GET /ingredient/{slug}?cell=&date=` | Partial: tips, pairings, 12-month season bar, disclaimer or note. `cell` is the query cell of the `/season` page that linked it |
@@ -498,6 +498,8 @@ Over the limit returns 429 with `Retry-After`.
 ### 11.5 HTMX
 
 HTMX 2.x, vendored. It's configured to swap 4xx and 5xx responses so error partials render, with `allowEval: false`, `allowScriptTags: false` and `selfRequestsOnly: true` on both the public and admin sides. Templates contain no inline scripts, `style=` attributes, `on*` handlers or `hx-on`; a lint test in each views package enforces this so the CSP (§10.4) never needs `'unsafe-inline'`. Geolocation uses about 20 lines of vanilla JS calling `htmx.ajax` with coordinates and the local date.
+
+HTMX swaps `#places` and `#results` only. The site header stays in the layout. Public pages have one `#announce` live region (`role="status"`). After a swap, `static/app.js` copies the fragment's `data-announce` string into it, not the swapped `innerText`. The swap target is `aria-busy` for the request. A results swap does not move focus to the location heading (open on #74; this is the current behaviour). `main` starts with a fixed site `h1` (`CopySiteHeading`, "What's in season") above `#results`. The place name stays the `#results` `h2` and must not be copied into that `h1`. The search box is `#q`. It autofocuses when the page has no results (intentional; checked in the #53 pass). A `/#q` link, and the geolocation fallback, focus it. Focus rings are `:focus-visible` in `static/app.css` using `--ink`. Colour scheme follows `prefers-color-scheme` only. There is no theme toggle. Public CSS does not load web fonts.
 
 ### 11.6 Error handling and UX states
 
@@ -651,11 +653,11 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.8 Web tests
 
-`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any browser console message about Content Security Policy (`watchCSP` at the end of every browser test). `/season` tests count climate-estimated rows against the visible word Estimate, omit the badge on `Estimate: false` rows, and check that ≈ is absent from accessible names (`ariaSnapshot`). Almanac kickoff checks cover one fixed site `h1` in `main` above `#results` that does not copy the place `h2`, axe scans in light and dark (dark-mode default-link contrast is #48), light and dark screenshot baselines at 1280 and 390, a header node and box that stay put across the home-to-results swap and a results swap, and an empty `watchCSP` list. Tests are tagged `@readonly` or `@mutating`. The Playwright `baseURL` is `E2E_BASE_URL`.
+`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any `securitypolicyviolation` (`watchCSP`; screenshot style injection is paused with `ignoreDuring`, then the event list must be empty). Public pages have one `#announce` live region (`role="status"`). `/season` tests count climate-estimated rows against the visible word Estimate, omit the badge on `Estimate: false` rows, check that the badge's computed `text-transform` is `none`, and check that ≈ is absent from accessible names (`ariaSnapshot`). Almanac kickoff checks cover one fixed site `h1` in `main` above `#results` that does not copy the place `h2`, axe scans in light and dark (dark-mode default-link contrast is #48), and Chromium-only light and dark screenshot baselines at 1280 and 390. After `emulateMedia` for dark, tests assert `prefers-color-scheme: dark` and the dark `--bg` token. A header node and box stay put across the home-to-results swap and a results swap. Tests are tagged `@readonly` or `@mutating`. The Playwright `baseURL` is `E2E_BASE_URL`.
 
 ### 13.9 End-to-end (Playwright against Compose)
 
-1. Search → select → results render.
+1. Search → select → results render. Home autofocuses the town search. `/#q` focuses it. Place links work with JavaScript off.
 2. Geolocation denied → search fallback.
 3. Postgres stopped → retry panel → Postgres started → "Try again" succeeds.
 4. Admin: passkey login (virtual authenticator) → edit an ingredient → preview shows calibration change and bars → apply → the public page reflects the change without a restart.

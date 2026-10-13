@@ -31,8 +31,7 @@ export default defineConfig({
     ignoreHTTPSErrors: localTLS, // Caddy's internal CA on the compose stack
     trace: "retain-on-failure",
   },
-  expect: { toHaveScreenshot: { animations: "disabled", maxDiffPixelRatio: 0.1 } }, // GHA Ubuntu vs local system-ui raster, ~4%
-  snapshotPathTemplate: "tests/baselines/{arg}{ext}",
+  expect: { toHaveScreenshot: { animations: "disabled", maxDiffPixelRatio: 0.02 } },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     {

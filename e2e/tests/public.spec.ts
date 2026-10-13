@@ -1,3 +1,4 @@
+import type { APIRequestContext, Page, Request } from "@playwright/test";
 import { axeOk, compose, expect, isLocalOrigin, test, todayUTC, waitReady, watchCSP } from "../helpers";
 
 test("1. search → select → results render", { tag: "@readonly" }, async ({ page }) => {
@@ -173,4 +174,350 @@ test("3. Postgres stopped → retry panel → started → Try again succeeds", {
   await page.getByRole("link", { name: "Try again" }).click();
   await expect(page.locator("#results")).toContainText("Madrid");
   await expect(page.getByText("Couldn't load seasonal picks")).toHaveCount(0);
+});
+
+const searchUnavailable = "Search isn't available right now. Try again in a moment.";
+const loadError = "Couldn't load seasonal picks right now. Try again in a moment.";
+const lisbonPlaces = "/places?q=lisb";
+
+async function searchLisbon(page: Page) {
+  await page.goto("/");
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
+}
+
+function isHX(pathPrefix: string, request: Request) {
+  return request.method() === "GET" && request.url().includes(pathPrefix) && request.headers()["hx-request"] === "true";
+}
+
+async function htmxTimeoutMs(page: Page) {
+  const timeoutMs = await page.evaluate(() => (window as unknown as { htmx: { config: { timeout: number } } }).htmx.config.timeout);
+  expect(timeoutMs).toBeGreaterThan(0);
+  return timeoutMs;
+}
+
+async function expectAnnounced(page: Page, target: string, copy: string) {
+  await expect(page.locator("#announce")).toHaveText(copy);
+  await expect(page.locator(`${target} [data-announce]`)).toHaveAttribute("data-announce", copy);
+  await expect(page.locator(target)).toContainText(copy);
+  await expect(page.locator(target)).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.locator("#announce")).toHaveCount(1);
+  await expect(page.locator("[aria-live]")).toHaveCount(1);
+  await expect(page.locator("[role=alert]")).toHaveCount(0);
+}
+
+function decodeHTML(s: string) {
+  return s.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+}
+
+async function expectFocusKept(page: Page) {
+  await expect.poll(async () => page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return "body";
+    if (el.id === "q") return "search";
+    if (el.closest("#places") && el.tagName === "A") return "place";
+    if (el.closest("#results") && /^H[23]$/.test(el.tagName)) return "heading";
+    return el.tagName;
+  })).toMatch(/search|place|heading/);
+}
+
+async function recoverPlaces(page: Page) {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  const retry = page.locator("#places").getByRole("link", { name: "Try again" });
+  if (await retry.count()) {
+    await retry.click();
+  } else {
+    const box = page.getByLabel("Find your town");
+    await box.fill("");
+    await box.pressSequentially("lisb", { delay: 50 });
+  }
+  await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
+  await expect(page.locator("#places")).not.toContainText(searchUnavailable);
+  await expect(page.locator("#announce")).not.toHaveText(searchUnavailable);
+  await expect(page.locator("#announce")).toHaveText(/place/);
+  await expect(page.locator("#places")).not.toHaveAttribute("aria-busy", "true");
+  await expectFocusKept(page);
+}
+
+async function recoverSeason(page: Page, where: string | RegExp = "Lisbon") {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.locator("#results").getByRole("link", { name: "Try again" }).click();
+  await expect(page.locator("#results")).toContainText(where);
+  await expect(page.locator("#results")).not.toContainText(loadError);
+  await expect(page.locator("#announce")).not.toHaveText(loadError);
+  await expect(page.locator("#results")).not.toHaveAttribute("aria-busy", "true");
+  await expectFocusKept(page);
+}
+
+async function startAnnounceLog(page: Page) {
+  await page.evaluate(() => {
+    const a = document.getElementById("announce");
+    (window as unknown as { __announce: string[] }).__announce = [];
+    if (!a) return;
+    new MutationObserver(() => {
+      const t = (a.textContent || "").trim();
+      if (t) (window as unknown as { __announce: string[] }).__announce.push(t);
+    }).observe(a, { childList: true, characterData: true, subtree: true });
+  });
+}
+
+async function announcedMessages(page: Page) {
+  return page.evaluate(() => (window as unknown as { __announce: string[] }).__announce || []);
+}
+
+// Real error fragment from the app (same Postgres-stopped path as test 3),
+// not HTML copied in the test. Do not restart the app: Caddy then serves
+// the maintenance page instead of LoadError / PlacesUnavailable.
+async function serverErrorFragment(page: Page, request: APIRequestContext, path: string) {
+  compose("stop db");
+  try {
+    const slot = path.startsWith("/places") ? "#places" : "#results";
+    const errorRE = /Couldn't load seasonal picks|Search isn't available/;
+    let html = "";
+    for (let i = 0; i < 30; i++) {
+      await page.goto(path);
+      html = await page.locator(slot).innerHTML();
+      if (!html.includes("is updating") && errorRE.test(decodeHTML(html))) return html;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error(`no app error fragment from ${path}: ${html.slice(0, 240)}`);
+  } finally {
+    compose("start db");
+    await waitReady(request);
+  }
+}
+
+test("places abort writes search unavailable to #announce and #places", { tag: "@readonly" }, async ({ page }) => {
+  const csp = await watchCSP(page);
+  await page.route("**/places*", async (route) => {
+    if (!isHX("/places", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.abort("connectionrefused");
+  });
+  await page.goto("/");
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await expectAnnounced(page, "#places", searchUnavailable);
+  await expect(page.locator("#places").getByRole("link", { name: "Try again" })).toBeVisible();
+  await axeOk(page, "light");
+  await recoverPlaces(page);
+  expect(csp.events).toEqual([]);
+});
+
+test("season abort writes load error to #announce and #results", { tag: "@readonly" }, async ({ page }) => {
+  const csp = await watchCSP(page);
+  await searchLisbon(page);
+  await page.route("**/season*", async (route) => {
+    if (!isHX("/season", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.abort("connectionrefused");
+  });
+  await page.getByRole("link", { name: "Lisbon, PT" }).click();
+  await expectAnnounced(page, "#results", loadError);
+  await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
+  await recoverSeason(page);
+  expect(csp.events).toEqual([]);
+});
+
+test("places timeout writes search unavailable to #announce and #places", { tag: "@readonly", timeout: 90_000 }, async ({ page }) => {
+  const csp = await watchCSP(page);
+  await page.goto("/");
+  const timeoutMs = await htmxTimeoutMs(page);
+  await page.route("**/places*", async (route) => {
+    if (!isHX("/places", route.request())) {
+      await route.continue();
+      return;
+    }
+    await new Promise((r) => setTimeout(r, timeoutMs + 1500));
+    await route.abort("timedout");
+  });
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await expect(page.locator("#announce")).toHaveText(searchUnavailable, { timeout: timeoutMs + 5000 });
+  await expectAnnounced(page, "#places", searchUnavailable);
+  await recoverPlaces(page);
+  expect(csp.events).toEqual([]);
+});
+
+test("season timeout writes load error to #announce and #results", { tag: "@readonly", timeout: 90_000 }, async ({ page }) => {
+  const csp = await watchCSP(page);
+  await searchLisbon(page);
+  const timeoutMs = await htmxTimeoutMs(page);
+  await page.route("**/season*", async (route) => {
+    if (!isHX("/season", route.request())) {
+      await route.continue();
+      return;
+    }
+    await new Promise((r) => setTimeout(r, timeoutMs + 1500));
+    await route.abort("timedout");
+  });
+  await page.getByRole("link", { name: "Lisbon, PT" }).click();
+  await expect(page.locator("#announce")).toHaveText(loadError, { timeout: timeoutMs + 5000 });
+  await expectAnnounced(page, "#results", loadError);
+  await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
+  await recoverSeason(page);
+  expect(csp.events).toEqual([]);
+});
+
+test("season 500 swaps the server fragment and announces it once", { tag: "@mutating" }, async ({ page, request }) => {
+  const csp = await watchCSP(page);
+  const fragment = await serverErrorFragment(page, request, "/season?lat=39.2369&lng=-8.6850");
+  expect(decodeHTML(fragment)).toContain(loadError);
+  expect(fragment).toContain("Try again");
+  await searchLisbon(page);
+  await startAnnounceLog(page);
+  await page.route("**/season*", async (route) => {
+    if (!isHX("/season", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({ status: 500, contentType: "text/html; charset=utf-8", body: fragment });
+  });
+  await page.getByRole("link", { name: "Lisbon, PT" }).click();
+  await expectAnnounced(page, "#results", loadError);
+  await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
+  const spoken = (await announcedMessages(page)).filter((m) => m === loadError);
+  expect(spoken).toHaveLength(1);
+  await axeOk(page, "light");
+  await recoverSeason(page, /39\.24°N|can't estimate seasons/);
+  expect(csp.events).toEqual([]);
+});
+
+test("places 500 swaps the server fragment and announces it once", { tag: "@mutating" }, async ({ page, request }) => {
+  const csp = await watchCSP(page);
+  const fragment = await serverErrorFragment(page, request, lisbonPlaces);
+  expect(decodeHTML(fragment)).toContain(searchUnavailable);
+  await page.goto("/");
+  await startAnnounceLog(page);
+  await page.route("**/places*", async (route) => {
+    if (!isHX("/places", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({ status: 500, contentType: "text/html; charset=utf-8", body: fragment });
+  });
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await expectAnnounced(page, "#places", searchUnavailable);
+  const spoken = (await announcedMessages(page)).filter((m) => m === searchUnavailable);
+  expect(spoken).toHaveLength(1);
+  await recoverPlaces(page);
+  expect(csp.events).toEqual([]);
+});
+
+test("selecting a place or ingredient leaves focus where the cook put it", { tag: "@readonly" }, async ({ page }) => {
+  const csp = await watchCSP(page);
+  await searchLisbon(page);
+  const lisbon = page.getByRole("link", { name: "Lisbon, PT" });
+  await lisbon.click();
+  await expect(page.locator("#results")).toContainText("Lisbon, PT");
+  await expect(lisbon).toBeFocused();
+  const item = page.locator("#results .items a").first();
+  const name = ((await item.textContent()) ?? "").trim();
+  expect(name.length).toBeGreaterThan(0);
+  await item.click();
+  await expect(page.locator("#results")).toContainText(name);
+  await expect(lisbon).not.toBeFocused();
+  await expect(page.locator("#places a").first()).not.toBeFocused();
+  expect(csp.events).toEqual([]);
+});
+
+// A later keyup with hx-sync=replace aborts the in-flight /places XHR
+// (htmx:sendAbort). That is not a network failure.
+test("an intentional places abort does not show a network error", { tag: "@readonly" }, async ({ page }) => {
+  const csp = await watchCSP(page);
+  let n = 0;
+  let releaseFirst!: () => void;
+  let releaseSecond!: () => void;
+  const holdFirst = new Promise<void>((r) => {
+    releaseFirst = r;
+  });
+  const holdSecond = new Promise<void>((r) => {
+    releaseSecond = r;
+  });
+  await page.route("**/places*", async (route) => {
+    if (!isHX("/places", route.request())) {
+      await route.continue();
+      return;
+    }
+    n += 1;
+    if (n === 1) {
+      await holdFirst;
+      try {
+        await route.continue();
+      } catch {
+        /* htmx aborted this XHR */
+      }
+      return;
+    }
+    await holdSecond;
+    await route.continue();
+  });
+  await page.goto("/");
+  await expect(page.getByLabel("Find your town")).toBeVisible();
+  await page.locator("#q").evaluate((el) => {
+    el.setAttribute("hx-sync", "this:replace");
+    (window as unknown as { htmx: { process: (n: Element) => void } }).htmx.process(el);
+  });
+  const box = page.getByLabel("Find your town");
+  await box.pressSequentially("li", { delay: 50 });
+  await expect.poll(() => n).toBe(1);
+  await box.pressSequentially("sb", { delay: 50 });
+  await expect.poll(() => n).toBe(2);
+  await expect(page.locator("#places")).not.toContainText(searchUnavailable);
+  await expect(page.locator("#announce")).not.toHaveText(searchUnavailable);
+  releaseSecond();
+  await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
+  await expect(page.locator("#places")).not.toContainText(searchUnavailable);
+  releaseFirst();
+  expect(csp.events).toEqual([]);
+});
+
+test("error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
+  const csp = await watchCSP(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.route("**/places*", async (route) => {
+    if (!isHX("/places", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.abort("connectionrefused");
+  });
+  await page.goto("/");
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await expectAnnounced(page, "#places", searchUnavailable);
+  await expect(page.locator("#places").getByRole("link", { name: "Try again" })).toBeVisible();
+  await axeOk(page, "dark");
+  expect(csp.events).toEqual([]);
+  const dir = process.env.E2E_SHOTS || "test-results";
+  await csp.ignoreDuring(async () => {
+    await page.screenshot({ path: `${dir}/places-abort-390-dark-${browserName}.png`, animations: "disabled" });
+  });
+  expect(csp.events).toEqual([]);
+});
+
+test("season error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
+  const csp = await watchCSP(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await searchLisbon(page);
+  await page.route("**/season*", async (route) => {
+    if (!isHX("/season", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.abort("connectionrefused");
+  });
+  await page.getByRole("link", { name: "Lisbon, PT" }).click();
+  await expectAnnounced(page, "#results", loadError);
+  await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
+  await axeOk(page, "dark");
+  expect(csp.events).toEqual([]);
+  const dir = process.env.E2E_SHOTS || "test-results";
+  await csp.ignoreDuring(async () => {
+    await page.screenshot({ path: `${dir}/season-abort-390-dark-${browserName}.png`, animations: "disabled" });
+  });
+  expect(csp.events).toEqual([]);
 });

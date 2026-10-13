@@ -76,7 +76,7 @@ func AnnounceUnsupported(seafood bool) string {
 // restores refetch the full page instead. Eval (trigger filters, hx-on, js:
 // values) and script tags in swapped content are off, and requests stay on
 // this origin; the CSP would block the first two anyway.
-const htmxConfig = `{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false,"historyCacheSize":0,"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true}`
+const htmxConfig = `{"timeout":8000,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}],"includeIndicatorStyles":false,"historyCacheSize":0,"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true}`
 
 // estimatesIntro opens "How estimates work". Only land results are estimates
 // when seafood (hand-curated months) is shown too.

@@ -39,21 +39,133 @@
     if (on) t.setAttribute("aria-busy", "true");
     else t.removeAttribute("aria-busy");
   }
-  function announceSwap(e) {
+  function announceFrom(t) {
     var announce = document.getElementById("announce");
-    var t = swapTarget(e.detail && e.detail.target);
     if (!announce || !t) return;
     var src = t.querySelector("[data-announce]");
     var msg = src ? src.getAttribute("data-announce") || "" : "";
     announce.textContent = "";
     announce.textContent = msg;
   }
+  function networkCopy(t) {
+    return t && t.id === "places"
+      ? "Search isn't available right now. Try again in a moment."
+      : "Couldn't load seasonal picks right now. Try again in a moment.";
+  }
+  function requestPath(e) {
+    var d = e && e.detail || {};
+    var cfg = d.requestConfig || {};
+    var path = (d.pathInfo && (d.pathInfo.requestPath || d.pathInfo.path)) || cfg.path || "";
+    if (path && path.indexOf("?") >= 0) return path;
+    var params = cfg.parameters || {};
+    var keys = Object.keys(params);
+    if (!path || !keys.length) return path;
+    var qs = keys.map(function (k) {
+      return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]);
+    }).join("&");
+    return path + "?" + qs;
+  }
+  function writeInline(t, msg, href) {
+    if (!t) return;
+    t.replaceChildren();
+    var host;
+    if (t.id === "places") {
+      host = document.createElement("p");
+      host.className = "hint";
+      host.setAttribute("data-announce", msg);
+      host.appendChild(document.createTextNode(msg));
+      t.appendChild(host);
+    } else {
+      host = document.createElement("div");
+      host.className = "panel warn";
+      host.setAttribute("data-announce", msg);
+      var p = document.createElement("p");
+      p.appendChild(document.createTextNode(msg));
+      host.appendChild(p);
+      t.appendChild(host);
+    }
+    if (!href) return;
+    var wrap = document.createElement("p");
+    var a = document.createElement("a");
+    a.setAttribute("href", href);
+    a.setAttribute("hx-get", href);
+    a.setAttribute("hx-target", t.id === "places" ? "#places" : "#results");
+    a.appendChild(document.createTextNode("Try again"));
+    wrap.appendChild(a);
+    host.appendChild(wrap);
+    htmx.process(t);
+  }
+  function focusHeading(t) {
+    var h = t && t.querySelector(".where h2, h2, h3");
+    if (!h) return;
+    if (!h.hasAttribute("tabindex")) h.setAttribute("tabindex", "-1");
+    h.focus();
+  }
+  // lastPlace is the town link the cook last chose. retryFocus is set only
+  // when they activate Try again; afterSwap then restores focus. A normal
+  // results swap (place or ingredient) must not move it.
+  var lastPlace = null;
+  var retryFocus = false;
+  function isTryAgain(a) {
+    return !!(a && (a.textContent || "").trim() === "Try again");
+  }
+  function restoreFocus(t) {
+    if (!t) return;
+    if (t.id === "results") {
+      if (lastPlace && lastPlace.isConnected) {
+        lastPlace.focus();
+        return;
+      }
+      focusHeading(t);
+      return;
+    }
+    var link = t.querySelector("a");
+    if (link) {
+      link.focus();
+      return;
+    }
+    var q = searchBox();
+    if (q) q.focus();
+  }
+  function announceSwap(e) {
+    var t = swapTarget(e.detail && e.detail.target);
+    announceFrom(t);
+    if (!retryFocus) return;
+    retryFocus = false;
+    restoreFocus(t);
+  }
+  function onTransportError(e) {
+    var t = swapTarget(e.detail && e.detail.target);
+    setBusy(t, false);
+    writeInline(t, networkCopy(t), requestPath(e));
+    announceFrom(t);
+    if (t && t.id === "places") {
+      var q = searchBox();
+      if (q) q.focus();
+    }
+  }
+  function onResponseError(e) {
+    var t = swapTarget(e.detail && e.detail.target);
+    setBusy(t, false);
+    var xhr = e.detail && e.detail.xhr;
+    var body = xhr && xhr.responseText;
+    if (!body || !String(body).replace(/\s/g, "")) {
+      writeInline(t, networkCopy(t), requestPath(e));
+      announceFrom(t);
+    }
+  }
+  htmx.config.timeout = 8000;
   document.addEventListener("htmx:beforeRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), true); });
   document.addEventListener("htmx:afterRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), false); });
   document.addEventListener("htmx:afterSwap", announceSwap);
+  document.addEventListener("htmx:sendError", onTransportError);
+  document.addEventListener("htmx:timeout", onTransportError);
+  document.addEventListener("htmx:responseError", onResponseError);
   window.addEventListener("hashchange", focusSearch);
   document.addEventListener("click", function (e) {
     var a = e.target.closest("a");
+    if (a && a.closest("#places") && !isTryAgain(a)) lastPlace = a;
+    if (isTryAgain(a) && a.closest("#places, #results")) retryFocus = true;
     var href = a && a.getAttribute("href");
     if (href === "/#q" || href === "#q") {
       var jump = searchBox();

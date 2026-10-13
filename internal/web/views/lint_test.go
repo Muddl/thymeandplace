@@ -3,6 +3,7 @@ package views
 import (
 	"bytes"
 	"context"
+	"html"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -135,14 +136,44 @@ func TestLoadErrorSanitizesRetryURL(t *testing.T) {
 	if err := LoadError("", "javascript:alert(1)").Render(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
-	html := buf.String()
-	if !strings.Contains(html, `href="about:invalid#TemplFailedSanitizationURL"`) {
-		t.Fatalf("retry href not sanitized:\n%s", html)
+	got := buf.String()
+	if !strings.Contains(got, `href="about:invalid#TemplFailedSanitizationURL"`) {
+		t.Fatalf("retry href not sanitized:\n%s", got)
 	}
-	if !strings.Contains(html, `data-announce="`) || !strings.Contains(html, "seasonal picks") {
-		t.Fatalf("LoadError must use data-announce:\n%s", html)
+	if strings.Contains(got, `role="alert"`) {
+		t.Fatal("LoadError must not use role=alert")
 	}
-	if strings.Contains(html, `role="alert"`) {
-		t.Fatal("LoadError must not also be role=alert")
+	if !strings.Contains(html.UnescapeString(got), `data-announce="`+CopyLoadError+`"`) {
+		t.Fatal("LoadError must carry data-announce")
+	}
+}
+
+func TestAppJSSurfacesNetworkErrors(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "static", "app.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(b)
+	if strings.Contains(js, "hx-on") {
+		t.Fatal("app.js must not use hx-on")
+	}
+	if strings.Contains(js, "htmx:sendAbort") {
+		t.Fatal("app.js must not handle htmx:sendAbort: a superseded search would look like a failure")
+	}
+	for _, want := range []string{
+		CopyLoadError,
+		CopySearchUnavailable,
+		CopyTryAgain,
+		"htmx:sendError",
+		"htmx:timeout",
+		"htmx:responseError",
+		"htmx.config.timeout = 8000",
+		`setAttribute("data-announce"`,
+		`announce.textContent = ""`,
+		"htmx.process",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js missing %q", want)
+		}
 	}
 }

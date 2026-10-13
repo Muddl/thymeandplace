@@ -86,7 +86,7 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 func TestHTMXEvalAndScriptTagsDisabled(t *testing.T) {
 	hs := newHarness(t)
 	_, body, _ := hs.get("/", false)
-	for _, want := range []string{`"allowEval":false`, `"allowScriptTags":false`, `"selfRequestsOnly":true`} {
+	for _, want := range []string{`"allowEval":false`, `"allowScriptTags":false`, `"selfRequestsOnly":true`, `"timeout":8000`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("htmx config missing %s:\n%s", want, body)
 		}

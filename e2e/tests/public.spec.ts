@@ -473,7 +473,6 @@ test("an intentional places abort does not show a network error", { tag: "@reado
 });
 
 test("error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
-  test.skip(browserName === "webkit", "@readonly WebKit logs a UA stylesheet CSP warning when emulating dark mode");
   const csp = await watchCSP(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: "dark" });
@@ -494,10 +493,10 @@ test("error state is usable at 390px in dark mode", { tag: "@readonly" }, async 
   await csp.ignoreDuring(async () => {
     await page.screenshot({ path: `${dir}/places-abort-390-dark-${browserName}.png`, animations: "disabled" });
   });
+  expect(csp.events).toEqual([]);
 });
 
-test("season error state is usable at 390px in dark mode @readonly", { tag: "@readonly" }, async ({ page, browserName }) => {
-  test.skip(browserName === "webkit", "@readonly WebKit logs a UA stylesheet CSP warning when emulating dark mode");
+test("season error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
   const csp = await watchCSP(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: "dark" });
@@ -519,4 +518,5 @@ test("season error state is usable at 390px in dark mode @readonly", { tag: "@re
   await csp.ignoreDuring(async () => {
     await page.screenshot({ path: `${dir}/season-abort-390-dark-${browserName}.png`, animations: "disabled" });
   });
+  expect(csp.events).toEqual([]);
 });

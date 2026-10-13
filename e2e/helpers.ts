@@ -16,34 +16,33 @@ export type CSPEvent = {
 export type CSPWatch = {
   console: string[];
   events: CSPEvent[];
+  ignoreDuring<T>(fn: () => Promise<T>): Promise<T>;
 };
 
 const watches = new WeakMap<Page, CSPWatch>();
 
-// Playwright WebKit injects <style>body {}</style> to sync animations for
-// screenshots (sourceFile empty, blockedURI inline). Caret hide uses
-// element.style. A document <style> has a page sourceFile and still fails.
-export function isPlaywrightScreenshotStyle(e: CSPEvent): boolean {
-  const inline = e.blockedURI === "inline" || e.blockedURI === "";
-  const injected = e.sourceFile === "" || e.sourceFile === "about:blank";
-  if (!inline || !injected) return false;
-  const style = e.directive === "style-src-elem" || e.directive === "style-src" || e.directive === "style-src-attr";
-  if (!style) return false;
-  const sample = e.sample.trim();
-  return sample === "" || sample === "body {}" || /caret-color:\s*transparent/i.test(sample);
-}
-
-export function pageViolations(events: CSPEvent[]): CSPEvent[] {
-  return events.filter((e) => !isPlaywrightScreenshotStyle(e));
-}
-
 // watchCSP records securitypolicyviolation (addInitScript, before page JS)
-// and CSP console text as a backup. There is no console-text filter.
+// and CSP console text as a backup. No console-text filter, no field exemption.
+// WebKit injects <style>body {}</style> on every screenshot, so wrap
+// toHaveScreenshot in ignoreDuring.
 export async function watchCSP(page: Page): Promise<CSPWatch> {
   const existing = watches.get(page);
   if (existing) return existing;
-  const watch: CSPWatch = { console: [], events: [] };
+  let recording = true;
+  const watch: CSPWatch = {
+    console: [],
+    events: [],
+    async ignoreDuring(fn) {
+      recording = false;
+      try {
+        return await fn();
+      } finally {
+        recording = true;
+      }
+    },
+  };
   page.on("console", (m) => {
+    if (!recording) return;
     const t = m.text();
     if (t.includes("Content-Security-Policy") || t.includes("Content Security Policy")) {
       watch.console.push(t);
@@ -51,7 +50,7 @@ export async function watchCSP(page: Page): Promise<CSPWatch> {
   });
   try {
     await page.exposeFunction("__tpCspPush", (hit: CSPEvent) => {
-      watch.events.push(hit);
+      if (recording) watch.events.push(hit);
     });
     await page.addInitScript(() => {
       document.addEventListener("securitypolicyviolation", (e) => {
@@ -81,7 +80,7 @@ export const test = base.extend<{ cspGuard: void }>({
     async ({ page }, use) => {
       const seen = await watchCSP(page);
       await use();
-      expect(pageViolations(seen.events), "securitypolicyviolation events").toEqual([]);
+      expect(seen.events, "securitypolicyviolation events").toEqual([]);
     },
     { auto: true },
   ],

@@ -1,4 +1,4 @@
-import { axeOk, compose, expect, pageViolations, test, waitReady, watchCSP } from "../helpers";
+import { axeOk, compose, expect, test, waitReady, watchCSP } from "../helpers";
 
 test("1. search → select → results render", { tag: "@readonly" }, async ({ page }) => {
   const csp = await watchCSP(page);
@@ -26,7 +26,7 @@ test("1. search → select → results render", { tag: "@readonly" }, async ({ p
   expect(announced).not.toMatch(/Tomato|Peak|Estimate/);
   const headerAfter = await page.locator("header.site").boundingBox();
   expect(headerAfter).toEqual(headerBefore);
-  expect(pageViolations(csp.events)).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("/#q focuses the town search", { tag: "@readonly" }, async ({ page }) => {
@@ -35,7 +35,7 @@ test("/#q focuses the town search", { tag: "@readonly" }, async ({ page }) => {
   await expect(page.getByLabel("Find your town")).not.toBeFocused();
   await page.goto("/#q");
   await expect(page.getByLabel("Find your town")).toBeFocused();
-  expect(pageViolations(csp.events)).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("keyboard focus shows a ring on the town search", { tag: "@readonly" }, async ({ page }) => {
@@ -47,7 +47,7 @@ test("keyboard focus shows a ring on the town search", { tag: "@readonly" }, asy
   await expect(box).toBeFocused();
   const outline = await box.evaluate((el) => getComputedStyle(el).outlineStyle);
   expect(outline).not.toBe("none");
-  expect(pageViolations(csp.events)).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("place links work without JavaScript", { tag: "@readonly" }, async ({ browser }) => {
@@ -59,7 +59,7 @@ test("place links work without JavaScript", { tag: "@readonly" }, async ({ brows
   await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
   await expect(page.locator("#results")).toContainText("Lisbon, PT");
   await expect(page.getByRole("link", { name: "Thyme & Place" })).toBeVisible();
-  expect(pageViolations(csp.events)).toEqual([]);
+  expect(csp.events).toEqual([]);
   await context.close();
 });
 
@@ -71,21 +71,24 @@ test("axe scan of home and season", { tag: "@readonly" }, async ({ page }) => {
   await page.goto("/season?lat=38.7167&lng=-9.1333&place=1");
   await axeOk(page, "light");
   await axeOk(page, "dark");
-  expect(pageViolations(csp.events)).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("home light and dark baselines", { tag: "@readonly" }, async ({ page }, info) => {
   const csp = await watchCSP(page);
   await page.goto("/");
+  // WebKit injects <style>body {}</style> on every screenshot.
   const shot = {
     caret: "hide" as const,
     animations: "disabled" as const,
     maxDiffPixelRatio: info.project.name === "chromium" ? 0.02 : 0,
   };
-  await expect(page).toHaveScreenshot("home-light.png", shot);
-  await page.emulateMedia({ colorScheme: "dark" });
-  await expect(page).toHaveScreenshot("home-dark.png", shot);
-  expect(pageViolations(csp.events)).toEqual([]);
+  expect(csp.events).toEqual([]);
+  await csp.ignoreDuring(async () => {
+    await expect(page).toHaveScreenshot("home-light.png", shot);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page).toHaveScreenshot("home-dark.png", shot);
+  });
 });
 
 test("a one-letter search asks for more", { tag: "@readonly" }, async ({ page }) => {
@@ -119,7 +122,7 @@ test("2. geolocation denied → search fallback", { tag: "@readonly" }, async ({
   await page.getByRole("button", { name: "Use my location" }).click();
   await expect(page.getByText("Location access is off, so search for your town instead.")).toBeVisible();
   await expect(page.getByLabel("Find your town")).toBeFocused();
-  expect(pageViolations(csp.events)).toEqual([]);
+  expect(csp.events).toEqual([]);
   await context.close();
 });
 
@@ -135,7 +138,7 @@ test("geolocation allowed → results for the position", { tag: "@readonly" }, a
   await page.getByRole("button", { name: "Use my location" }).click();
   await expect(page).toHaveURL(/\/season\?lat=38\.72&lng=-9\.13$/);
   await expect(page.locator("#results h3").first()).toBeVisible();
-  expect(pageViolations(csp.events)).toEqual([]);
+  expect(csp.events).toEqual([]);
   await context.close();
 });
 

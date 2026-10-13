@@ -532,6 +532,10 @@ Admin errors follow the same style: validation errors appear inline next to thei
 
 The admin UI, the ingest pipeline, the calibration drift check and the engine are unaffected. Tests (§13.8) cover both states and check that no public page mentions seafood while it's off.
 
+### 11.8 Appearance
+
+Public pages follow `prefers-color-scheme`. Body text, links, the town search controls and the season bar meet WCAG 2.2 AA contrast (4.5:1 for normal text) in light and dark. All of that lives in `static/app.css`. `e2e/tests/contrast.spec.ts` runs axe-core's `color-contrast` rule on `/`, `/season`, `/ingredient` and `/about/data`, plus town-search results, in both schemes.
+
 ## 12. Season engine
 
 ### 12.1 Interface

@@ -2,7 +2,9 @@
   "name": "thymeandplace-e2e",
   "private": true,
   "scripts": {
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:readonly": "playwright test --grep @readonly",
+    "test:mutating": "playwright test --grep-invert @readonly"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

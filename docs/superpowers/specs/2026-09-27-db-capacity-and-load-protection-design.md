@@ -16,7 +16,7 @@ Evidence at HEAD (`22befca`):
 
 - **Pool size is never set.** `db.Open` calls `pgxpool.New(ctx, url)` (`internal/db/db.go:18-28`). `deploy/env.example:8` has no `pool_max_conns`. So the pool uses the pgx default of `max(4, runtime.NumCPU())`, checked in the pgx docs via Context7. On a 1–2 vCPU VPS, that is 4 connections. The admin CLI, `ingest` and `devseed` use the same `db.Open`, with the same default.
 - **One connection is always taken.** The data-version watcher calls `pool.Acquire` for its `LISTEN` session (`internal/dataversion/watcher.go:106`). It holds the connection until the session ends on an error or at shutdown (`:110`). That leaves 3 connections for everything else.
-- **Apply needs two connections at once.** It holds a transaction with `catalog_meta` locked `FOR UPDATE`, then calls `catalog.Load(ctx, s.pool)`, which takes a second connection (`internal/changeset/service.go:170-181`). The comment there already flags this.
+- **Apply used two connections at once.** It held a transaction with `catalog_meta` locked `FOR UPDATE`, then called `catalog.Load(ctx, s.pool)`, which took a second connection (`internal/changeset/service.go`). Apply now reads the catalog and checks ecoregions on that same transaction.
 - **Every public cache miss makes several queries in a row.** A `/season` miss runs climate `CellsIn`, then ocean `NearbyEcoregions` (`ST_DWithin` on geography multipolygons, 100 km), then `NearestPlace` (`internal/web/season.go:137-155`). `/ingredient` is never cached: every request runs `ForCell` and `Nearby` (`internal/web/ingredient.go:36-48`). `/places` runs a trigram search on every keystroke pause.
 - **Waiting for a connection eats the request budget.** The public timeout is 2 s (`internal/web/server.go:56`, applied at `:92`). Waiting for a free pool connection counts against it.
 - **Nothing limits total load.** Rate limits are per IP (`internal/web/middleware.go:162-171`). There is no global limit and no load shedding. A spike from many addresses queues on the pool, not in front of it.
@@ -86,7 +86,7 @@ The shutdown ordering comment in `start()` (`cmd/server/app.go:173-178`) is kept
 
 ### 4.3 Public DB gate
 
-`web.Server` gets a gate: a buffered channel of `Deps.DBSlots` tokens. The default of 12 leaves 4 of the server's 16 connections for admin, background work and Apply's second connection.
+`web.Server` gets a gate: a buffered channel of `Deps.DBSlots` tokens. The default of 12 leaves 4 of the server's 16 connections for admin, background work and Apply.
 
 ```go
 // withDB runs f while holding a DB slot. It waits at most gateWait (250 ms,
@@ -200,6 +200,7 @@ It runs on the production VPS before launch, at a quiet time, with results recor
 - **`cache`:** the existing tests pass with the generic key, plus one test for `CellKey`.
 - **Load test:** manual, as in §4.6. Its results file is the evidence for the issue's acceptance criteria.
 - **E2E:** no new scenario. The existing public and admin flows must pass unchanged.
+- **`changeset` Apply (testcontainers):** `TestApplyUsesOneConnection` applies a seafood upsert on a pool with `MaxConns: 1` within 5 s. If Apply takes a second connection for `catalog.Load` or `ocean.Missing`, the call hits the deadline instead of returning. `TestLoadInSeesUncommittedWrite` checks that `catalog.LoadIn` sees an upsert that the same read-write transaction has not committed.
 
 ## 7. Rollout, operations and rollback
 

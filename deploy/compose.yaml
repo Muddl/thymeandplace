@@ -31,6 +31,7 @@ services:
       - dbdata:/var/lib/postgresql/data
       # Runs once, on an empty data directory, after the image's 10_postgis.sh.
       - ./db/initdb/20-roles.sh:/docker-entrypoint-initdb.d/20-roles.sh:ro
+      - ./db/roles.sql:/roles.sql:ro
     healthcheck:
       # Over TCP: on first boot the entrypoint's init-only server listens on
       # the socket alone, so a socket check passes before migrate can connect.

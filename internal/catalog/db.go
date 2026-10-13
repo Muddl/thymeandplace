@@ -68,8 +68,13 @@ func Load(ctx context.Context, db TxBeginner) (*Snapshot, error) {
 		return nil, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // read-only
-	q := store.New(tx)
+	return LoadIn(ctx, store.New(tx))
+}
 
+// LoadIn reads the whole catalog through q. The caller must already be
+// in Load's read-only repeatable-read transaction, or hold catalog_meta
+// FOR UPDATE (Apply does, via LockCatalogVersion).
+func LoadIn(ctx context.Context, q *store.Queries) (*Snapshot, error) {
 	version, err := q.GetCatalogVersion(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("catalog version: %w", err)

@@ -567,6 +567,25 @@ A database created before the roles existed (everything owned by the bootstrap s
 
 **Rollback:** the previous release migrates at startup as whatever its `DATABASE_URL` says, and its compose file reads the single `app.env` for every service. Point `app.env`'s `DATABASE_URL` at `tp_owner` temporarily (never at the superuser), add `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` back to it for the `db` health check, and redeploy the old release. Leave the roles and grants in place: they're additive, and the old code works as `tp_owner`.
 
+## Schema migrations
+
+Goose SQL files live in `migrations/`. Never edit a file that has already shipped. Add a new numbered file.
+
+`migrations/checksums` pins the sha256 of every `*.sql` file. `go test ./migrations` fails if a pinned file changes, if a new file has no pin, or if a pin names a missing file. After you add a migration, append its line:
+
+```bash
+sha256sum migrations/000NN_name.sql >> migrations/checksums
+```
+
+An Up-section `DROP`, `RENAME`, column `TYPE` change, or `SET NOT NULL` needs a `-- contract:` marker on that line or the previous non-empty line. The marker says why the change is safe. Down-section drops do not need one. Adding a nullable column and `DROP NOT NULL` do not need a marker. Example:
+
+```sql
+-- contract: preview_cache is unused after 00012
+DROP TABLE preview_cache;
+```
+
+Tests apply `deploy/db/roles.sql` (the same file `20-roles.sh` runs on a fresh volume) instead of a separate copy of the `CREATE ROLE` statements.
+
 ## Reverse proxy trust and logging
 
 - The app trusts `X-Forwarded-*` headers (`TRUST_PROXY_HEADERS=true`, set in `deploy/compose.yaml`) from **exactly one proxy hop, Caddy**, and uses the **rightmost** `X-Forwarded-For` entry as the client IP (`web.ClientIP`). Caddy has no `trusted_proxies`, so it discards any `X-Forwarded-For` a client sends and writes the address it saw. If the rightmost entry isn't a valid IP, the app uses Caddy's own address, which is one shared bucket, so a garbled header can't earn a fresh rate-limit budget. **Before putting a CDN or any other proxy in front of Caddy, change `web.ClientIP` first.** With `trusted_proxies` set, the rightmost entry becomes the CDN edge, and every visitor behind it would share one public rate-limit bucket and one admin sign-in budget. The recommended change is to set both global server options `trusted_proxies static <CDN ranges>` and `trusted_proxies_strict`, have Caddy send `header_up X-Client-IP {client_ip}`, and have the app read only that header. `trusted_proxies_strict` is required: without it Caddy parses `X-Forwarded-For` left to right, so `{client_ip}` becomes the leftmost entry, which the client controls (spec `2026-09-27-admin-abuse-resistance-design.md` §8 question 3). **Never publish the app's own port** (`8080`) alongside Caddy's 80/443. If a client could reach the app directly, it could forge those headers and spoof its source IP past the admin sign-in budget. `deploy/compose.yaml` intentionally has no `ports:` entry under `app`; only `caddy` publishes ports.

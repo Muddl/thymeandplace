@@ -44,7 +44,9 @@
     var t = swapTarget(e.detail && e.detail.target);
     if (!announce || !t) return;
     var src = t.querySelector("[data-announce]");
-    announce.textContent = src ? src.getAttribute("data-announce") || "" : "";
+    var msg = src ? src.getAttribute("data-announce") || "" : "";
+    announce.textContent = "";
+    announce.textContent = msg;
   }
   document.addEventListener("htmx:beforeRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), true); });
   document.addEventListener("htmx:afterRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), false); });

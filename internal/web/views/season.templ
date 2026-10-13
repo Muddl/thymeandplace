@@ -16,14 +16,12 @@ templ Unsupported(seafood bool) {
 }
 
 templ LoadError(label, retryURL string) {
-	<div data-announce={ CopyLoadError }>
-		if label != "" {
-			@Location(label)
-		}
-		<div class="panel warn" role="alert">
-			<p>{ CopyLoadError }</p>
-			<p><a href={ templ.URL(retryURL) } hx-get={ retryURL } hx-target="#results">{ CopyTryAgain }</a></p>
-		</div>
+	if label != "" {
+		@Location(label)
+	}
+	<div class="panel warn" role="alert">
+		<p>{ CopyLoadError }</p>
+		<p><a href={ templ.URL(retryURL) } hx-get={ retryURL } hx-target="#results">{ CopyTryAgain }</a></p>
 	</div>
 }
 

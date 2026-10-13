@@ -135,7 +135,14 @@ func TestLoadErrorSanitizesRetryURL(t *testing.T) {
 	if err := LoadError("", "javascript:alert(1)").Render(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), `href="about:invalid#TemplFailedSanitizationURL"`) {
-		t.Fatalf("retry href not sanitized:\n%s", buf.String())
+	html := buf.String()
+	if !strings.Contains(html, `href="about:invalid#TemplFailedSanitizationURL"`) {
+		t.Fatalf("retry href not sanitized:\n%s", html)
+	}
+	if !strings.Contains(html, `role="alert"`) {
+		t.Fatal("LoadError must be role=alert")
+	}
+	if strings.Contains(html, "data-announce") {
+		t.Fatal("LoadError must not also data-announce")
 	}
 }

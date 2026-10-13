@@ -66,9 +66,11 @@ test("place links work without JavaScript", { tag: "@readonly" }, async ({ brows
 test("axe scan of home and season", { tag: "@readonly" }, async ({ page }) => {
   const csp = watchCSP(page);
   await page.goto("/");
-  await axeOk(page);
+  await axeOk(page, "light");
+  await axeOk(page, "dark");
   await page.goto("/season?lat=38.7167&lng=-9.1333&place=1");
-  await axeOk(page);
+  await axeOk(page, "light");
+  await axeOk(page, "dark");
   expect(csp).toEqual([]);
 });
 

@@ -5,13 +5,22 @@ import { APIRequestContext, Page, expect, test as base } from "@playwright/test"
 
 const deploy = path.resolve(__dirname, "..", "deploy");
 
+// WebKit logs this when Playwright emulates prefers-color-scheme: dark.
+// It is a user-agent stylesheet, not a page violation. Filter only this
+// exact text; any other CSP message still fails the test.
+const webkitUAStylesheetCSP =
+  "Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline' does not appear in the style-src directive of the Content Security Policy.";
+
 // watchCSP collects the page's browser console messages about Content
 // Security Policy. The site sends a strict CSP (internal/web/middleware.go),
 // so any such message means a page uses something the policy blocks.
 export function watchCSP(page: Page): string[] {
   const seen: string[] = [];
   page.on("console", (m) => {
-    if (m.text().includes("Content Security Policy")) seen.push(m.text());
+    const t = m.text();
+    if (!t.includes("Content Security Policy")) return;
+    if (t === webkitUAStylesheetCSP) return;
+    seen.push(t);
   });
   return seen;
 }

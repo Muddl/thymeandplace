@@ -123,6 +123,8 @@ jobs:
         run: ./e2e/select-browsers.sh --self-test
       - name: e2e tag completeness
         run: node e2e/check-tags.mjs --self-test && node e2e/check-tags.mjs
+      - name: e2e capture settings
+        run: node e2e/check-capture.mjs
 
   e2e-select:
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'

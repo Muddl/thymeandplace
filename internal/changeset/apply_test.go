@@ -198,7 +198,10 @@ func TestImportUpsertOnlyAndListReplacement(t *testing.T) {
 
 // Apply uses one pool connection for the whole write, including the catalog
 // reload and ecoregion check. A second Acquire on a one-connection pool
-// would wait on the open transaction until the deadline.
+// would wait on the open transaction until the deadline. Preview also runs
+// on this pool. That is intentional: Preview holds no transaction, so
+// previewing on the larger pool would hide a second-connection bug in the
+// setup that Apply then inherits.
 func TestApplyUsesOneConnection(t *testing.T) {
 	ctx := context.Background()
 	svc, pool := newTestService(t, true)

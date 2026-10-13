@@ -34,10 +34,14 @@ type Service struct {
 	pool  *pgxpool.Pool
 	cases CasesFunc
 	write writeFunc // catalog.Write; replaced in tests to inject failures
+	eco   func(store.DBTX) EcoregionChecker
 }
 
 func NewService(pool *pgxpool.Pool, cases CasesFunc) *Service {
-	return &Service{pool: pool, cases: cases, write: catalog.Write}
+	return &Service{
+		pool: pool, cases: cases, write: catalog.Write,
+		eco: func(db store.DBTX) EcoregionChecker { return ocean.NewService(db) },
+	}
 }
 
 // Preview validates cs against the catalog as stored now, stores it for one
@@ -104,7 +108,7 @@ func (s *Service) Reopen(ctx context.Context, id int64) (Pending, Preview, error
 }
 
 func (s *Service) build(ctx context.Context, cs Changeset, cur *catalog.Snapshot) (Preview, error) {
-	proposed, problems, err := Validate(ctx, cs, cur, ocean.NewService(s.pool))
+	proposed, problems, err := Validate(ctx, cs, cur, s.eco(s.pool))
 	if err != nil {
 		return Preview{}, err
 	}
@@ -169,14 +173,14 @@ func (s *Service) Apply(ctx context.Context, id int64, actor string, opts ApplyO
 
 	// catalog_meta is locked, so no other writer can commit until we finish;
 	// a fresh read on this transaction sees the previewed base version.
-	cur, err := catalog.LoadFrom(ctx, q)
+	cur, err := catalog.LoadIn(ctx, q)
 	if err != nil {
 		return err
 	}
 	if cur.Version() != version {
 		return ErrStale
 	}
-	if _, problems, err := Validate(ctx, cs, cur, ocean.NewService(tx)); err != nil {
+	if _, problems, err := Validate(ctx, cs, cur, s.eco(tx)); err != nil {
 		return err
 	} else if len(problems) > 0 {
 		return &InvalidError{Problems: problems}

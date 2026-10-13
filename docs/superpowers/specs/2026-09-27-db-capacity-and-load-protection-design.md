@@ -200,7 +200,7 @@ It runs on the production VPS before launch, at a quiet time, with results recor
 - **`cache`:** the existing tests pass with the generic key, plus one test for `CellKey`.
 - **Load test:** manual, as in §4.6. Its results file is the evidence for the issue's acceptance criteria.
 - **E2E:** no new scenario. The existing public and admin flows must pass unchanged.
-- **`changeset` Apply (testcontainers):** `TestApplyUsesOneConnection` applies a seafood upsert on a pool with `MaxConns: 1` within 5 s. If Apply takes a second connection for `catalog.Load` or `ocean.Missing`, the call hits the deadline instead of returning.
+- **`changeset` Apply (testcontainers):** `TestApplyUsesOneConnection` applies a seafood upsert on a pool with `MaxConns: 1` within 5 s. If Apply takes a second connection for `catalog.Load` or `ocean.Missing`, the call hits the deadline instead of returning. `TestLoadInSeesUncommittedWrite` checks that `catalog.LoadIn` sees an upsert that the same read-write transaction has not committed.
 
 ## 7. Rollout, operations and rollback
 

@@ -121,6 +121,8 @@ jobs:
           -x deploy/*.sh deploy/backup/*.sh deploy/db/initdb/*.sh e2e/*.sh scripts/*.sh
       - name: e2e browser-selection self-test
         run: ./e2e/select-browsers.sh --self-test
+      - name: e2e tag completeness
+        run: node e2e/check-tags.mjs --self-test && node e2e/check-tags.mjs
 
   e2e-select:
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
@@ -210,6 +212,18 @@ jobs:
           name: playwright-report
           path: e2e/playwright-report
           retention-days: 7
+
+  e2e-result:
+    if: always() && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+    needs: [e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: e2e matrix must be green
+        run: |
+          result="${{ needs.e2e.result }}"
+          echo "e2e matrix result: $result"
+          [ "$result" = success ]
 
   backup:
     if: github.ref == 'refs/heads/main'

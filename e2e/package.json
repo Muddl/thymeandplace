@@ -4,7 +4,7 @@
   "scripts": {
     "test": "playwright test",
     "test:readonly": "playwright test --grep @readonly",
-    "test:mutating": "playwright test --grep @mutating"
+    "test:mutating": "playwright test --grep-invert @readonly"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

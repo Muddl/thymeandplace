@@ -8,7 +8,7 @@ Playwright drives the Compose stack behind Caddy (`https://localhost` by default
 ./e2e/run.sh                          # chromium, full suite, local compose stack
 BROWSER=firefox ./e2e/run.sh          # firefox (public specs only; see below)
 GREP=@readonly ./e2e/run.sh           # smoke subset
-GREP=@mutating ./e2e/run.sh           # tests that write or take the database down
+GREP=@mutating ./e2e/run.sh           # everything not tagged @readonly
 ```
 
 From `e2e/` after `npm ci`:
@@ -16,27 +16,27 @@ From `e2e/` after `npm ci`:
 ```bash
 npx playwright test --project=chromium
 npm run test:readonly                 # --grep @readonly
-npm run test:mutating                 # --grep @mutating
+npm run test:mutating                 # --grep-invert @readonly
 ```
 
 ## Tags
 
-QA tags each spec `@readonly` or `@mutating`. Untagged tests count as mutating.
+QA tags each spec `@readonly`. `@mutating` is not a grep match. `GREP=@mutating` runs `--grep-invert @readonly`, so untagged tests are in the mutating subset.
 
 | Tag | Meaning | Typical use |
 |---|---|---|
 | `@readonly` | GET-only. No catalog writes, no admin enrollment, no `compose stop`. Safe against a live site. | Smoke: `GREP=@readonly` |
-| `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | Default CI run (no `GREP`, so both tags) |
+| untagged or `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | `GREP=@mutating` is `--grep-invert @readonly` |
 
-CI does not pass `GREP`, so it runs the whole suite. A prod smoke is:
+CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags, once at least one `@readonly` or `@mutating` exists in `e2e/tests`. Until QA tags the specs, that check skips (it must not go red only because tags are not in yet).
+
+A prod smoke is:
 
 ```bash
 E2E_BASE_URL=https://thymeand.place GREP=@readonly BROWSER=chromium ./e2e/run.sh
 ```
 
-`run.sh` skips Compose when `E2E_BASE_URL` is not localhost (or when `E2E_SKIP_STACK=1`).
-
-The specs themselves are tagged in a separate change. Until then, `--grep @readonly` matches nothing.
+`run.sh` and the Playwright config refuse a non-local origin unless `GREP=@readonly`. Compose is skipped when the origin is not localhost (or when `E2E_SKIP_STACK=1`).
 
 ## Browsers
 
@@ -52,7 +52,7 @@ Each job installs only its browser and caches `~/.cache/ms-playwright`. `./e2e/s
 
 ## Shards
 
-CI is `browser × shard` (`SHARD=1/2` and `SHARD=2/2`). Each shard brings up its own compose project because the suite stops the database and edits the catalog (`workers: 1`). Blob reports are merged and uploaded when a shard fails.
+CI is `browser × shard` (`SHARD=1/2` and `SHARD=2/2`). Each shard brings up its own compose project because the suite stops the database and edits the catalog (`workers: 1`). `admin.spec.ts` uses `test.describe.configure({ mode: "serial" })` so those four tests stay in one shard and run in file order. Public specs shard individually. Blob reports are merged and uploaded when a shard fails. The required check is the aggregate job `e2e-result`.
 
 ## Environment
 

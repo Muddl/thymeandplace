@@ -2,8 +2,15 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.E2E_BASE_URL || "https://localhost";
 const localTLS = /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(baseURL);
+const grep = process.env.GREP || "";
 const browser = process.env.BROWSER || "chromium";
 const shard = (process.env.SHARD || "1/1").replace("/", "-of-");
+
+if (!localTLS && grep !== "@readonly") {
+  throw new Error(
+    `Refusing ${baseURL} unless GREP=@readonly (got GREP=${grep || "unset"}). Mutating tests must not run against a remote origin.`,
+  );
+}
 
 export default defineConfig({
   testDir: "./tests",

@@ -16,11 +16,9 @@ E2E_BASE_URL="${E2E_BASE_URL:-https://localhost}"
 export E2E_BASE_URL
 export BROWSER
 export SHARD
+export GREP
 
-start_stack() {
-  if [ "${E2E_SKIP_STACK:-}" = 1 ]; then
-    return 1
-  fi
+is_local_origin() {
   case "$E2E_BASE_URL" in
     https://localhost | https://localhost:* | https://localhost/* | \
     http://localhost | http://localhost:* | http://localhost/* | \
@@ -32,6 +30,19 @@ start_stack() {
       return 1
       ;;
   esac
+}
+
+if ! is_local_origin && [ "$GREP" != "@readonly" ]; then
+  echo "e2e/run.sh: refusing $E2E_BASE_URL unless GREP=@readonly (got GREP=${GREP:-unset})" >&2
+  echo "Mutating tests enroll passkeys and apply catalog changes. They must not run against prod." >&2
+  exit 2
+fi
+
+start_stack() {
+  if [ "${E2E_SKIP_STACK:-}" = 1 ]; then
+    return 1
+  fi
+  is_local_origin
 }
 
 if start_stack; then
@@ -51,7 +62,9 @@ args=(test --project="$BROWSER")
 if [ -n "$SHARD" ]; then
   args+=(--shard="$SHARD")
 fi
-if [ -n "$GREP" ]; then
+if [ "$GREP" = "@mutating" ]; then
+  args+=(--grep-invert @readonly)
+elif [ -n "$GREP" ]; then
   args+=(--grep="$GREP")
 fi
 npx playwright "${args[@]}"

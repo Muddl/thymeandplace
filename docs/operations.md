@@ -227,9 +227,9 @@ Merge one when CI is green, then deploy the release it produces as usual. That i
 
 ## CI end-to-end tests
 
-The `e2e` job in `.github/workflows/ci.yml` runs on every pull request and on every push to `main`. It does not run on a feature-branch push that has no pull request.
+The `e2e` job in `.github/workflows/ci.yml` runs on every pull request and on every push to `main`. It does not run on a feature-branch push that has no pull request. Branch protection should require `e2e-result`, not the matrix cell names. That job `needs: e2e` with `if: always()` on pull requests and on `main`, and it fails if the matrix failed, was cancelled, or was skipped.
 
-`e2e/select-browsers.sh` chooses the browser list. A push to `main`, or a pull request that touches `views/`, `static/` or `e2e/`, runs Chromium, Firefox and WebKit. Other pull requests run Chromium only. The `deploy` job runs `./e2e/select-browsers.sh --self-test` on every push so a broken path rule fails CI even when e2e itself is skipped. Each matrix cell installs only its browser and restores `~/.cache/ms-playwright` from `actions/cache`.
+`e2e/select-browsers.sh` chooses the browser list. A push to `main`, or a pull request that touches `views/`, `static/` or `e2e/`, runs Chromium, Firefox and WebKit. Other pull requests run Chromium only. If `git diff` fails, the script prints all three engines rather than falling back to Chromium. The `deploy` job runs `./e2e/select-browsers.sh --self-test` and `node e2e/check-tags.mjs` on every push so a broken path or tag rule fails CI even when e2e itself is skipped. Each matrix cell installs only its browser and restores `~/.cache/ms-playwright` from `actions/cache`.
 
 The matrix is `browser × shard` (`1/2` and `2/2`). Each cell starts its own Compose stack, because the suite stops Postgres and edits the catalog (`workers: 1` in `e2e/playwright.config.ts`). Admin specs (`e2e/tests/admin.spec.ts`) use CDP WebAuthn, which is Chromium-only; the Firefox and WebKit projects set `testIgnore` on that file.
 
@@ -240,7 +240,7 @@ GREP=@readonly ./e2e/run.sh
 E2E_BASE_URL=https://thymeand.place GREP=@readonly BROWSER=chromium ./e2e/run.sh
 ```
 
-`@readonly` is GET-only. `@mutating` covers the database-outage test and every admin spec (passkey enrollment or a catalog apply). QA tags the specs. Until those tags land, `--grep @readonly` matches nothing. See `e2e/README.md`.
+`GREP=@mutating` is `--grep-invert @readonly`, so untagged tests run in the mutating subset. `run.sh` exits 2 if the origin is not localhost unless `GREP=@readonly`. QA tags the specs. `check-tags.mjs` skips until at least one `@readonly` or `@mutating` appears in `e2e/tests`, then fails on any untagged test. See `e2e/README.md`.
 
 On failure, each shard uploads its blob report and `e2e-report` merges them into the `playwright-report` artifact.
 

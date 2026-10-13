@@ -24,20 +24,33 @@ wants_all_browsers() {
 }
 
 changed_files() {
+  if [ "${FORCE_DIFF_FAIL:-}" = 1 ]; then
+    echo "select-browsers: forced diff failure" >&2
+    return 1
+  fi
   if [ -n "${CHANGED_FILES+x}" ]; then
     printf '%s' "$CHANGED_FILES"
-    return
+    return 0
   fi
   if [ -n "${GITHUB_BASE_SHA:-}" ]; then
     git fetch --no-tags --depth=1 origin "${GITHUB_BASE_SHA}" >/dev/null 2>&1 || true
-    git diff --name-only "${GITHUB_BASE_SHA}" HEAD
-    return
+    if git cat-file -e "${GITHUB_BASE_SHA}^{commit}" 2>/dev/null; then
+      git diff --name-only "${GITHUB_BASE_SHA}" HEAD
+      return 0
+    fi
+    echo "select-browsers: cannot resolve GITHUB_BASE_SHA ${GITHUB_BASE_SHA}" >&2
+    return 1
   fi
   if [ -n "${GITHUB_BASE_REF:-}" ]; then
-    git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF}" >/dev/null
-    git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD"
-    return
+    if git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF}" >/dev/null 2>&1; then
+      git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD"
+      return 0
+    fi
+    echo "select-browsers: git fetch/diff against origin/${GITHUB_BASE_REF} failed" >&2
+    return 1
   fi
+  echo "select-browsers: no CHANGED_FILES, GITHUB_BASE_SHA, or GITHUB_BASE_REF" >&2
+  return 1
 }
 
 select_browsers() {
@@ -48,7 +61,13 @@ select_browsers() {
     return
   fi
   if [ "$event" = pull_request ]; then
-    if printf '%s\n' "$(changed_files)" | wants_all_browsers; then
+    local files
+    if ! files=$(changed_files); then
+      echo "select-browsers: diff failed, using all engines" >&2
+      printf '%s\n' "$all"
+      return
+    fi
+    if printf '%s\n' "$files" | wants_all_browsers; then
       printf '%s\n' "$all"
     else
       printf '%s\n' "$chromium_only"
@@ -101,7 +120,9 @@ self_test() {
   GITHUB_EVENT_NAME=push GITHUB_REF=refs/heads/feature CHANGED_FILES='static/app.js' \
     expect "push to a feature branch" "$chromium_only"
 
-  unset GITHUB_EVENT_NAME GITHUB_REF CHANGED_FILES
+  GITHUB_EVENT_NAME=pull_request FORCE_DIFF_FAIL=1 expect "diff failure fail-closed" "$all"
+
+  unset GITHUB_EVENT_NAME GITHUB_REF CHANGED_FILES FORCE_DIFF_FAIL
   expect "local default" "$chromium_only"
 
   echo "select-browsers self-test ok"

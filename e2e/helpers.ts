@@ -96,6 +96,28 @@ export async function axeOk(page: Page, scheme: "light" | "dark") {
   expect(leftover, `${scheme} axe: ${JSON.stringify(leftover, null, 2)}`).toEqual([]);
 }
 
+export function todayUTC(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export { isLocalOrigin } from "./capture.mjs";
+
+export async function findLisbonHref(page: Page): Promise<string> {
+  await page.goto("/");
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  const link = page.getByRole("link", { name: "Lisbon, PT" });
+  await expect(link).toBeVisible();
+  const href = await link.getAttribute("href");
+  if (!href) throw new Error("Lisbon, PT link has no href");
+  return href;
+}
+
+export function withDate(path: string, date = todayUTC()): string {
+  const u = new URL(path, "https://localhost");
+  u.searchParams.set("date", date);
+  return `${u.pathname}${u.search}`;
+}
+
 export function compose(args: string): string {
   return execSync(`docker compose -p thymeandplace-e2e -f compose.yaml -f compose.e2e.yaml ${args}`, {
     cwd: deploy,

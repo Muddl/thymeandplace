@@ -107,3 +107,22 @@ func TestEmbeddedFixturesLoad(t *testing.T) {
 		t.Fatalf("embedded fixtures invalid: %v", err)
 	}
 }
+
+// A drop of exactly OverrideThreshold is allowed; anything more needs an
+// override. The epsilon absorbs float noise in a decimal 0.02.
+func TestScoreDropped(t *testing.T) {
+	for _, tc := range []struct {
+		before, after float64
+		want          bool
+	}{
+		{0.50, 0.48, false},
+		{0.50, 0.4799, true},
+		{0.671, 0.651, false}, // 0.02 in decimal, 0.020000000000000018 in float64
+		{0.5, 0.5, false},
+		{0.5, 0.6, false},
+	} {
+		if got := ScoreDropped(tc.before, tc.after); got != tc.want {
+			t.Errorf("ScoreDropped(%v, %v) = %v, want %v", tc.before, tc.after, got, tc.want)
+		}
+	}
+}

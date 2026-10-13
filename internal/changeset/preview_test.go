@@ -89,12 +89,3 @@ func TestPreviewFromEmptyCatalog(t *testing.T) {
 		t.Fatalf("preview = %+v", p)
 	}
 }
-
-func TestNeedsOverrideBoundary(t *testing.T) {
-	if NeedsOverride(0.50, 0.48) {
-		t.Fatal("a drop of exactly 0.02 must not need an override")
-	}
-	if !NeedsOverride(0.50, 0.4799) {
-		t.Fatal("a drop above 0.02 needs an override")
-	}
-}

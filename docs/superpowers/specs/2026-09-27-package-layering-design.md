@@ -1,6 +1,6 @@
 # Thyme & Place - Package layering and shared infrastructure - Design
 
-- **Status:** Proposed
+- **Status:** Step 1 implemented (F18). Steps 2–5 still proposed.
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (findings F16, F17, F18, F19, F20)
 - **Related issues:** [#16](https://github.com/Muddl/thymeandplace/issues/16) (F16), [#17](https://github.com/Muddl/thymeandplace/issues/17) (F17), [#18](https://github.com/Muddl/thymeandplace/issues/18) (F18), [#19](https://github.com/Muddl/thymeandplace/issues/19) (F19), [#20](https://github.com/Muddl/thymeandplace/issues/20) (F20)

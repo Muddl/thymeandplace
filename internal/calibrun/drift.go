@@ -12,7 +12,6 @@ import (
 
 	"thymeandplace/internal/calibration"
 	"thymeandplace/internal/catalog"
-	"thymeandplace/internal/changeset"
 	"thymeandplace/internal/jobs"
 	"thymeandplace/internal/store"
 )
@@ -80,7 +79,7 @@ func (d *Drift) RunOnce(ctx context.Context) (rep calibration.Report, err error)
 	}); err != nil {
 		return rep, err
 	}
-	if hasPrev && changeset.NeedsOverride(prev.Score, rep.Score) {
+	if hasPrev && calibration.ScoreDropped(prev.Score, rep.Score) {
 		dropped = true
 		summary = fmt.Sprintf("calibration score dropped %.3f → %.3f (data version %s → %s)", prev.Score, rep.Score, prev.DataVersion, dv)
 		d.Log.Warn("calibration score dropped", "previous", prev.Score, "current", rep.Score,

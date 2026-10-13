@@ -6,7 +6,7 @@ import { enrollAndSignIn, expect, test } from "../helpers";
 // are deterministic regardless of the real calendar date.
 const maySeason = "/season?lat=38.7167&lng=-9.1333&place=1&date=2026-05-15";
 
-test("4. passkey login → edit → preview → apply → public page reflects change", async ({ page }) => {
+test("4. passkey login → edit → preview → apply → public page reflects change", { tag: "@mutating" }, async ({ page }) => {
   await page.goto(maySeason);
   await expect(page.locator("#results")).not.toContainText("Tomato"); // May: not yet in season
 
@@ -36,7 +36,7 @@ test("4. passkey login → edit → preview → apply → public page reflects c
 // swapped-in partial (GET /admin/kind-fields), not a full page reload.
 // This never previews or applies, so it can't disturb the catalog state
 // scenario 4 depends on (Tomato's default months_to_harvest).
-test("6. changing Kind swaps the season-rule fields", async ({ page }) => {
+test("6. changing Kind swaps the season-rule fields", { tag: "@mutating" }, async ({ page }) => {
   await enrollAndSignIn(page);
   await page.goto("/admin/ingredients/tomato");
   await expect(page.getByLabel("Minimum growing mean temperature (°C)")).toBeVisible();
@@ -50,7 +50,7 @@ test("6. changing Kind swaps the season-rule fields", async ({ page }) => {
 // dead end — the form it came from should still be fillable and able to
 // preview again. Uses Basil (not Tomato) and never applies, so scenario 4/5
 // are unaffected regardless of test order.
-test("7. Back from the preview page returns to a usable, re-previewable form", async ({ page }) => {
+test("7. Back from the preview page returns to a usable, re-previewable form", { tag: "@mutating" }, async ({ page }) => {
   await enrollAndSignIn(page);
   await page.goto("/admin/ingredients/basil");
   await page.getByLabel("Months from planting to harvest").fill("1");
@@ -69,7 +69,7 @@ const chard = {
   storage_months: 0, tips: { choose: "Glossy leaves.", store: "Fridge, wrapped." }, pairings: ["kale"], note: "",
 };
 
-test("5. import → preview → apply → export matches", async ({ page }) => {
+test("5. import → preview → apply → export matches", { tag: "@mutating" }, async ({ page }) => {
   await enrollAndSignIn(page);
   await page.goto("/admin/import");
   await page.setInputFiles('input[name="file"]', {

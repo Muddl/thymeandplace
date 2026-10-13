@@ -13,6 +13,7 @@ You also grant the copyright holder a perpetual, worldwide, irrevocable, royalty
 
 ## Before you start
 
+- Follow `docs/WAYS-OF-WORKING.md` for ready, done, vetoes, and sign-offs. Roles are in `docs/RACI.md` (PR #77).
 - For anything larger than a fix, open an issue first, or write a short design spec in `docs/superpowers/specs/` (see the existing ones for the shape). The core design is `docs/superpowers/specs/2026-09-24-thymeandplace-core-engine-design.md`.
 - Branch from `main` and keep each pull request to one change.
 - To report a security problem, tell the owner directly, not in an issue.
@@ -43,7 +44,7 @@ docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 -x deploy/*.s
 
 ## House rules
 
-These are enforced by tests where they can be. Where they can't, reviewers check them.
+These are enforced by tests where they can be. Where they can't, reviewers check them. Farmers never merge, never enable auto-merge, and never ask Wade to post on GitHub for them.
 
 - **Honest copy.** Every result is labeled as an estimate, and every error message says what happened and what to do next (core spec §11.6). Never give foraging advice for wild mushrooms.
 - **No seafood while it's off.** With `FEATURE_SEAFOOD` off, no public page may mention seafood or marine data (`internal/web/seafood_test.go`). New public copy goes through the same check.

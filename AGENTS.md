@@ -8,6 +8,7 @@ Thyme & Place: a Go + templ + Postgres/PostGIS site that shows what's in season 
 - Verify UI changes with `/verify-thymeandplace` once it exists. Until then, drive the real app yourself (see "Dev stack") and attach screenshots. `/create-verification-skill` generates it.
 - Branch from `main` and keep each PR to one change.
 - Never merge your own PR and never enable auto-merge. A human merges.
+- Follow `docs/WAYS-OF-WORKING.md` for vetoes, ready, done, and path sign-offs.
 
 ## House rules
 

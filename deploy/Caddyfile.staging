@@ -1,0 +1,24 @@
+staging.thymeand.place {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+	# No access log, same reason as the production Caddyfile.
+	# Import the Wade-only user/hash file (deploy/STAGING.md).
+	import /etc/caddy/basicauth
+	reverse_proxy app:8080 {
+		health_uri /healthz
+		health_interval 10s
+		health_timeout 2s
+	}
+	handle_errors 502 503 504 {
+		header Retry-After 30
+		root * /srv
+		rewrite * /maintenance.html
+		file_server {
+			status 503
+		}
+	}
+}

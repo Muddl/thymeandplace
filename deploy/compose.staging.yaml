@@ -1,0 +1,29 @@
+# Staging overlay for the shared UX-review stack on a separate VM.
+#   TP_IMAGE_TAG=<sha> TP_COMPOSE_OVERLAY=compose.staging.yaml \
+#     docker compose -f compose.yaml -f compose.release.yaml -f compose.staging.yaml ...
+# deploy/staging-remote.sh does this, then deploy.sh writes COMPOSE_FILE with
+# this file included. Production never sets TP_COMPOSE_OVERLAY.
+#
+# Data is fixture/dev-seed only (run once; deploy/STAGING.md). Do not ingest
+# TerraClimate or other production datasets here.
+
+services:
+  db:
+    command: ["postgres", "-c", "shared_buffers=512MB"]
+
+  app:
+    environment:
+      DB_MAX_CONNS: "10"
+
+  caddy:
+    volumes:
+      - ./Caddyfile.staging:/etc/caddy/Caddyfile:ro
+      - ./maintenance.html:/srv/maintenance.html:ro
+      - type: bind
+        source: ${TP_ENV_DIR:-/etc/thymeandplace}/Caddyfile.basicauth
+        target: /etc/caddy/basicauth
+        read_only: true
+        bind:
+          create_host_path: false
+      - caddy_data:/data
+      - caddy_config:/config

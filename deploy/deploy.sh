@@ -11,7 +11,9 @@ sha=${1:-}
 [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "deploy: give the full 40-character commit SHA (got '${sha}')" >&2; exit 2; }
 cd "$(dirname "$0")"
 export TP_IMAGE_TAG=$sha
-C="docker compose -f compose.yaml -f compose.release.yaml --profile tools"
+# Unset TP_COMPOSE_OVERLAY (production): same compose command as before.
+overlay=${TP_COMPOSE_OVERLAY:-}
+C="docker compose -f compose.yaml -f compose.release.yaml${overlay:+ -f $overlay} --profile tools"
 $C pull db caddy migrate app ingest transform backup restore
 start=$(date +%s)
 # Compose recreates a changed dependency of app (db) but never a dependent
@@ -22,8 +24,9 @@ elapsed=$(( $(date +%s) - start ))
 # `docker compose ...` here (the backup and restore-test timers, tools runs,
 # `up -d`) uses this release instead of the source-built *:latest images.
 # A command with its own -f ignores COMPOSE_FILE.
+compose_file="compose.yaml:compose.release.yaml${overlay:+:$overlay}"
 printf '%s\n' "# Written by deploy.sh on every deploy; don't edit. Delete it to go back to source builds." \
-  "COMPOSE_PATH_SEPARATOR=:" "COMPOSE_FILE=compose.yaml:compose.release.yaml" "TP_IMAGE_TAG=$sha" > .tmp.env
+  "COMPOSE_PATH_SEPARATOR=:" "COMPOSE_FILE=$compose_file" "TP_IMAGE_TAG=$sha" > .tmp.env
 mv -f .tmp.env .env
 digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "ghcr.io/muddl/thymeandplace-app:$sha")
 mkdir -p /var/lib/thymeandplace

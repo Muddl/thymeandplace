@@ -155,3 +155,14 @@ func Jaccard(a, b [12]bool) float64 {
 	}
 	return float64(inter) / float64(union)
 }
+
+// OverrideThreshold is the largest calibration score drop allowed without an
+// explicit override, both for catalog edits (changeset) and in the daily
+// drift check (calibrun).
+const OverrideThreshold = 0.02
+
+// ScoreDropped reports a drop of more than OverrideThreshold. The epsilon
+// keeps a drop of exactly 0.02 (in decimal) from tripping on float noise.
+func ScoreDropped(before, after float64) bool {
+	return before-after > OverrideThreshold+1e-9
+}

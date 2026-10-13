@@ -232,7 +232,7 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 			return nil, fmt.Errorf("admin auth: %w", err)
 		}
 		a.auth = authSvc
-		changes := changeset.NewService(pool, a.ocean, a.cases)
+		changes := changeset.NewService(pool, a.cases)
 		adminH := admin.New(admin.Deps{
 			Auth: authSvc, Log: log, TrustProxy: cfg.TrustProxy, Changes: changes, Pool: pool,
 			Load: func(ctx context.Context) (*catalog.Snapshot, error) { return catalog.Load(ctx, pool) },
@@ -249,7 +249,7 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 
 // publicDBSlots is how many of the pool's connections public requests may
 // hold at once: three quarters (12 of 16, 7 of 10), leaving the rest for
-// admin, the drift check, catalog reloads and Apply's second connection.
+// admin, the drift check, catalog reloads and Apply.
 func publicDBSlots(poolSize int32) int {
 	return max(1, int(poolSize)*3/4)
 }

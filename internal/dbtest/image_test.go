@@ -3,6 +3,7 @@ package dbtest_test
 import (
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 
 	"thymeandplace/internal/dbtest"
@@ -27,5 +28,22 @@ func TestImageMatchesCompose(t *testing.T) {
 				t.Errorf("%s uses %s, dbtest.Image is %s", path, got, dbtest.Image)
 			}
 		}
+		if !strings.Contains(string(src), "./db/roles.sql:/roles.sql:ro") {
+			t.Errorf("%s does not mount deploy/db/roles.sql at /roles.sql", path)
+		}
+	}
+}
+
+func TestInitScriptRunsProductionRolesSQL(t *testing.T) {
+	src, err := os.ReadFile("../../deploy/db/initdb/20-roles.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	if !strings.Contains(body, "-f \"$roles_sql\"") {
+		t.Fatal("20-roles.sh does not run roles.sql with psql -f")
+	}
+	if !strings.Contains(body, "roles_sql=/roles.sql") {
+		t.Fatal("20-roles.sh does not read /roles.sql")
 	}
 }

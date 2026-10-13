@@ -39,11 +39,13 @@
     if (on) t.setAttribute("aria-busy", "true");
     else t.removeAttribute("aria-busy");
   }
-  function writeAnnounce(msg) {
-    var el = document.getElementById("announce");
-    if (!el) return;
-    el.textContent = "";
-    el.textContent = msg;
+  function announceFrom(t) {
+    var announce = document.getElementById("announce");
+    if (!announce || !t) return;
+    var src = t.querySelector("[data-announce]");
+    var msg = src ? src.getAttribute("data-announce") || "" : "";
+    announce.textContent = "";
+    announce.textContent = msg;
   }
   function networkCopy(t) {
     return t && t.id === "places"
@@ -53,33 +55,27 @@
   function writeInline(t, msg) {
     if (!t) return;
     if (t.id === "places") {
-      t.innerHTML = '<p class="hint">' + msg + "</p>";
+      t.innerHTML = '<p class="hint" data-announce="' + msg + '">' + msg + "</p>";
     } else {
-      t.innerHTML = '<div class="panel warn" role="alert"><p>' + msg + "</p></div>";
+      t.innerHTML = '<div class="panel warn" data-announce="' + msg + '"><p>' + msg + "</p></div>";
     }
   }
   function announceSwap(e) {
-    var t = swapTarget(e.detail && e.detail.target);
-    if (!t) return;
-    var src = t.querySelector("[data-announce]");
-    if (!src) return;
-    writeAnnounce(src.getAttribute("data-announce") || "");
+    announceFrom(swapTarget(e.detail && e.detail.target));
   }
   function onTransportError(e) {
     var t = swapTarget(e.detail && e.detail.target);
     setBusy(t, false);
-    var msg = networkCopy(t);
-    writeInline(t, msg);
-    writeAnnounce(msg);
+    writeInline(t, networkCopy(t));
+    announceFrom(t);
   }
   function onResponseError(e) {
     var t = swapTarget(e.detail && e.detail.target);
     setBusy(t, false);
     var xhr = e.detail && e.detail.xhr;
     var body = xhr && xhr.responseText;
-    var msg = networkCopy(t);
-    if (!body || !String(body).replace(/\s/g, "")) writeInline(t, msg);
-    writeAnnounce(msg);
+    if (!body || !String(body).replace(/\s/g, "")) writeInline(t, networkCopy(t));
+    announceFrom(t);
   }
   htmx.config.timeout = 8000;
   document.addEventListener("htmx:beforeRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), true); });

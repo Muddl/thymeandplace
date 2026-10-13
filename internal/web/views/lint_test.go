@@ -163,6 +163,8 @@ func TestAppJSSurfacesNetworkErrors(t *testing.T) {
 		"htmx:timeout",
 		"htmx:responseError",
 		"htmx.config.timeout = 8000",
+		`data-announce="`,
+		`announce.textContent = ""`,
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js missing %q", want)

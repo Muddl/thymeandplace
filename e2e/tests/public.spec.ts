@@ -177,6 +177,16 @@ async function htmxTimeoutMs(page: Page) {
   return timeoutMs;
 }
 
+async function expectAnnounced(page: Page, target: string, copy: string) {
+  await expect(page.locator("#announce")).toHaveText(copy);
+  await expect(page.locator(`${target} [data-announce]`)).toHaveAttribute("data-announce", copy);
+  await expect(page.locator(target)).toContainText(copy);
+  await expect(page.locator(target)).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.locator("#announce")).toHaveCount(1);
+  await expect(page.locator("[aria-live]")).toHaveCount(1);
+  await expect(page.locator("[role=alert]")).toHaveCount(0);
+}
+
 test("places abort writes search unavailable to #announce and #places", { tag: "@readonly" }, async ({ page }) => {
   await page.route("**/places*", async (route) => {
     if (!isHX("/places", route.request())) {
@@ -187,9 +197,7 @@ test("places abort writes search unavailable to #announce and #places", { tag: "
   });
   await page.goto("/");
   await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
-  await expect(page.locator("#announce")).toHaveText(searchUnavailable);
-  await expect(page.locator("#places")).toContainText(searchUnavailable);
-  await expect(page.locator("#places")).not.toHaveAttribute("aria-busy", "true");
+  await expectAnnounced(page, "#places", searchUnavailable);
 });
 
 test("season abort writes load error to #announce and #results", { tag: "@readonly" }, async ({ page }) => {
@@ -202,10 +210,8 @@ test("season abort writes load error to #announce and #results", { tag: "@readon
     await route.abort("connectionrefused");
   });
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
-  await expect(page.locator("#announce")).toHaveText(loadError);
-  await expect(page.locator("#results")).toContainText(loadError);
+  await expectAnnounced(page, "#results", loadError);
   await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toHaveCount(0);
-  await expect(page.locator("#results")).not.toHaveAttribute("aria-busy", "true");
 });
 
 test("places timeout writes search unavailable to #announce and #places", { tag: "@readonly" }, async ({ page }) => {
@@ -221,8 +227,7 @@ test("places timeout writes search unavailable to #announce and #places", { tag:
   });
   await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
   await expect(page.locator("#announce")).toHaveText(searchUnavailable, { timeout: timeoutMs + 5000 });
-  await expect(page.locator("#places")).toContainText(searchUnavailable);
-  await expect(page.locator("#places")).not.toHaveAttribute("aria-busy", "true");
+  await expectAnnounced(page, "#places", searchUnavailable);
 });
 
 test("season timeout writes load error to #announce and #results", { tag: "@readonly" }, async ({ page }) => {
@@ -238,14 +243,13 @@ test("season timeout writes load error to #announce and #results", { tag: "@read
   });
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
   await expect(page.locator("#announce")).toHaveText(loadError, { timeout: timeoutMs + 5000 });
-  await expect(page.locator("#results")).toContainText(loadError);
+  await expectAnnounced(page, "#results", loadError);
   await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toHaveCount(0);
-  await expect(page.locator("#results")).not.toHaveAttribute("aria-busy", "true");
 });
 
 test("season 500 swaps the server fragment and announces it", { tag: "@readonly" }, async ({ page }) => {
   const fragment =
-    `<div class="panel warn" role="alert">` +
+    `<div class="panel warn" data-announce="${loadError}">` +
     `<p>${loadError}</p>` +
     `<p><a href="/season?lat=38.7167&lng=-9.1333&place=1" hx-get="/season?lat=38.7167&lng=-9.1333&place=1" hx-target="#results">Try again</a></p>` +
     `</div>`;
@@ -258,8 +262,6 @@ test("season 500 swaps the server fragment and announces it", { tag: "@readonly"
     await route.fulfill({ status: 500, contentType: "text/html; charset=utf-8", body: fragment });
   });
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
-  await expect(page.locator("#results")).toContainText(loadError);
+  await expectAnnounced(page, "#results", loadError);
   await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
-  await expect(page.locator("#announce")).toHaveText(loadError);
-  await expect(page.locator("#results")).not.toHaveAttribute("aria-busy", "true");
 });

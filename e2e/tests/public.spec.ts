@@ -2,13 +2,38 @@ import { compose, expect, test, waitReady, watchCSP } from "../helpers";
 
 test("1. search → select → results render", async ({ page }) => {
   await page.goto("/");
+  const box = page.getByLabel("Find your town");
+  await expect(box).toBeFocused();
+  await expect(page.locator("#announce")).toHaveCount(1);
+  await expect(page.locator("[aria-live]")).toHaveCount(1);
   // Type key by key: the search input triggers on keyup, which fill() doesn't fire.
-  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await box.pressSequentially("lisb", { delay: 50 });
+  await expect(box).toBeFocused();
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
   const results = page.locator("#results");
   await expect(results).toContainText("Lisbon, PT");
   await expect(results.locator("h3").first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Thyme & Place" })).toBeVisible();
   await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
+  await expect(box).not.toBeFocused();
+});
+
+test("/#q focuses the town search", async ({ page }) => {
+  await page.goto("/season?lat=38.7167&lng=-9.1333&place=1");
+  await expect(page.getByLabel("Find your town")).not.toBeFocused();
+  await page.goto("/#q");
+  await expect(page.getByLabel("Find your town")).toBeFocused();
+});
+
+test("place links work without JavaScript", async ({ browser }) => {
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.goto("/places?q=lisb");
+  await page.getByRole("link", { name: "Lisbon, PT" }).click();
+  await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
+  await expect(page.locator("#results")).toContainText("Lisbon, PT");
+  await expect(page.getByRole("link", { name: "Thyme & Place" })).toBeVisible();
+  await context.close();
 });
 
 test("a one-letter search asks for more", async ({ page }) => {

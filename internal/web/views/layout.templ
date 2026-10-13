@@ -15,6 +15,7 @@ templ Page(p PageVM) {
 			<script src={ Asset("app.js") } defer></script>
 		</head>
 		<body>
+			<div id="announce" aria-live="polite"></div>
 			<header class="site">
 				<a class="brand" href="/">Thyme &amp; Place</a>
 				<p class="tag">What's in season where you live, how to buy it, and what it goes with.</p>
@@ -27,6 +28,7 @@ templ Page(p PageVM) {
 						name="q"
 						type="search"
 						autocomplete="off"
+						autofocus?={ p.Results == nil }
 						value={ p.Query }
 						placeholder="Start typing a town or city"
 						hx-get="/places"
@@ -35,13 +37,13 @@ templ Page(p PageVM) {
 					/>
 					<button type="button" data-geolocate>Use my location</button>
 					<p id="geo-hint" class="hint" hidden>{ CopyGeoOff }</p>
-					<div id="places" aria-live="polite">
+					<div id="places">
 						if p.Places != nil {
 							@p.Places
 						}
 					</div>
 				</section>
-				<section id="results" aria-live="polite">
+				<section id="results">
 					if p.Results != nil {
 						@p.Results
 					}

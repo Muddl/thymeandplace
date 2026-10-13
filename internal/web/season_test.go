@@ -200,6 +200,12 @@ func TestSeasonFullPage(t *testing.T) {
 	if !strings.Contains(body, "<!doctype html>") || !strings.Contains(body, `id="results"`) || !strings.Contains(body, "Tomato") {
 		t.Fatal("full page expected")
 	}
+	if strings.Contains(body, "autofocus") {
+		t.Fatal("season results must not autofocus the search box")
+	}
+	if strings.Count(body, `id="announce"`) != 1 || strings.Count(body, "aria-live") != 1 {
+		t.Fatal("season page must keep exactly one #announce live region")
+	}
 }
 
 func TestSeasonItemLinksCarryCellAndDate(t *testing.T) {

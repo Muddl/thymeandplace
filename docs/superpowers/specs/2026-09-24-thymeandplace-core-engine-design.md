@@ -453,7 +453,7 @@ The audit tables are append-only for the app's database role: it can read `catal
 
 | Route | Returns |
 |---|---|
-| `GET /` | Full page: search box, "Use my location" button, empty results region |
+| `GET /` | Full page: search box (autofocused), "Use my location" button, empty results region |
 | `GET /places?q=` | Partial: up to 8 matches (`hx-trigger="keyup changed delay:250ms"`); queries with fewer than 2 letters or digits show a keep-typing hint and don't search |
 | `GET /season?lat=&lng=&date=` | Partial: location header + in-season list grouped Peak / In season / From storage / Year-round, with seafood as its own group |
 | `GET /ingredient/{slug}?cell=&date=` | Partial: tips, pairings, 12-month season bar, disclaimer or note. `cell` is the query cell of the `/season` page that linked it |
@@ -498,6 +498,8 @@ Over the limit returns 429 with `Retry-After`.
 ### 11.5 HTMX
 
 HTMX 2.x, vendored. It's configured to swap 4xx and 5xx responses so error partials render, with `allowEval: false`, `allowScriptTags: false` and `selfRequestsOnly: true` on both the public and admin sides. Templates contain no inline scripts, `style=` attributes, `on*` handlers or `hx-on`; a lint test in each views package enforces this so the CSP (§10.4) never needs `'unsafe-inline'`. Geolocation uses about 20 lines of vanilla JS calling `htmx.ajax` with coordinates and the local date.
+
+HTMX swaps `#places` and `#results` only. The site header stays in the layout. Public pages have one `#announce` live region, updated from `static/app.js` after those swaps. The search box is `#q`. It autofocuses when the page has no results. A `/#q` link, and the geolocation fallback, focus it. Focus rings are `:focus-visible` in `static/app.css`. Colour scheme follows `prefers-color-scheme` only. There is no theme toggle. Public CSS does not load web fonts.
 
 ### 11.6 Error handling and UX states
 
@@ -655,7 +657,7 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.9 End-to-end (Playwright against Compose)
 
-1. Search → select → results render.
+1. Search → select → results render. Home autofocuses the town search. `/#q` focuses it. Place links work with JavaScript off.
 2. Geolocation denied → search fallback.
 3. Postgres stopped → retry panel → Postgres started → "Try again" succeeds.
 4. Admin: passkey login (virtual authenticator) → edit an ingredient → preview shows calibration change and bars → apply → the public page reflects the change without a restart.

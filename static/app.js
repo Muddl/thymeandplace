@@ -26,11 +26,31 @@
       e.detail.parameters.date = localDate();
     }
   });
+  function searchBox() { return document.getElementById("q"); }
+  function focusSearch() {
+    var search = searchBox();
+    if (search && location.hash === "#q") search.focus();
+  }
+  function announceSwap(e) {
+    var announce = document.getElementById("announce");
+    var t = e.detail && e.detail.target;
+    if (!announce || !t) return;
+    if (t.id !== "places" && t.id !== "results") return;
+    announce.textContent = (t.innerText || "").replace(/\s+/g, " ").trim();
+  }
+  document.addEventListener("htmx:afterSwap", announceSwap);
+  window.addEventListener("hashchange", focusSearch);
   document.addEventListener("click", function (e) {
+    var a = e.target.closest("a");
+    var href = a && a.getAttribute("href");
+    if (href === "/#q" || href === "#q") {
+      var jump = searchBox();
+      if (jump) jump.focus();
+    }
     var btn = e.target.closest("[data-geolocate]");
     if (!btn) return;
     var hint = document.getElementById("geo-hint");
-    var search = document.getElementById("q");
+    var search = searchBox();
     function fallback() { hint.hidden = false; search.focus(); }
     if (!navigator.geolocation) { fallback(); return; }
     navigator.geolocation.getCurrentPosition(function (pos) {
@@ -42,4 +62,5 @@
       });
     }, fallback, { timeout: 10000, maximumAge: 600000 });
   });
+  focusSearch();
 })();

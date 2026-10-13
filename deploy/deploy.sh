@@ -17,7 +17,6 @@ start=$(date +%s)
 # Compose recreates a changed dependency of app (db) but never a dependent
 # (caddy), so caddy is named too.
 $C up -d --wait app caddy
-$C exec -T app /app/server -healthcheck http://127.0.0.1:8080/readyz
 elapsed=$(( $(date +%s) - start ))
 # Compose reads .env from the directory it runs in: from now on a plain
 # `docker compose ...` here (the backup and restore-test timers, tools runs,

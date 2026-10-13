@@ -366,7 +366,7 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 var (
 	ErrCatalogNotLoaded    = errors.New("catalog not loaded")
 	ErrDatabaseUnavailable = errors.New("database unavailable")
-	ErrSchemaNotCurrent    = errors.New("database has pending migrations; run the migrate service (server -migrate-only)")
+	ErrSchemaNotCurrent    = errors.New("schema not current")
 )
 
 // Ready is the conjunction that makes /readyz and the watchdog say ready.
@@ -412,6 +412,9 @@ func withReadyTimeout(ctx context.Context, fn func(context.Context) error) error
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if err := CheckReady(r.Context(), Ready{Snapshot: s.d.Snapshot, Ping: s.sharedPing, Schema: s.sharedSchema}); err != nil {
+		if errors.Is(err, ErrSchemaNotCurrent) && s.d.Log != nil {
+			s.d.Log.Warn("schema not current; run the migrate service (server -migrate-only)")
+		}
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte(err.Error()))
 		return

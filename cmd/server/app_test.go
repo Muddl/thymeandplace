@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"thymeandplace/internal/auth"
@@ -26,7 +27,6 @@ import (
 	"thymeandplace/internal/jobs"
 	"thymeandplace/internal/monitor"
 	"thymeandplace/internal/store"
-	"thymeandplace/internal/web"
 )
 
 func get(t *testing.T, url string) (int, string) {
@@ -254,47 +254,136 @@ func TestNewAppRefusesPendingMigrations(t *testing.T) {
 	}
 }
 
-// /readyz re-checks the schema after start, so a restore to an older
-// goose_db_version fails readiness while /healthz stays up.
-func TestReadyzRefusesPendingMigrations(t *testing.T) {
+func startReadyApp(t *testing.T, log *slog.Logger) (*httptest.Server, *pgxpool.Pool) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	t.Cleanup(cancel)
 	pool := dbtest.New(t)
-	tx, _ := pool.Begin(ctx)
-	if err := catalog.Write(ctx, store.New(tx), catalogtest.SmallCatalog(), nil); err != nil {
-		t.Fatal(err)
-	}
-	_ = tx.Commit(ctx)
-	cfg := config{DatabaseURL: dbtest.URLAs(pool, dbtest.App)}
-	a, err := newApp(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.close()
+	if err := catalog.Write(ctx, store.New(tx), catalogtest.SmallCatalog(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if log == nil {
+		log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	a, err := newApp(ctx, config{DatabaseURL: dbtest.URLAs(pool, dbtest.App)}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.close)
 	a.start(ctx)
 	srv := httptest.NewServer(a.handler)
-	defer srv.Close()
+	t.Cleanup(srv.Close)
+	return srv, pool
+}
+
+func waitReadyz(t *testing.T, base string, wantCode int, wantBody string, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	var code int
+	var body string
+	for {
+		code, body = get(t, base+"/readyz")
+		if code == wantCode && body == wantBody {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("readyz: %d %q, want %d %q", code, body, wantCode, wantBody)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func adminExec(t *testing.T, pool *pgxpool.Pool, query string) {
+	t.Helper()
+	cfg := pool.Config().ConnConfig.Copy()
+	cfg.Database = "tp_admin"
+	conn, err := pgx.ConnectConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(context.Background())
+	if _, err := conn.Exec(context.Background(), query); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// /readyz re-checks the schema after start, so a restore to an older
+// goose_db_version fails readiness while /healthz stays up. The public
+// body stays short; the migrate hint is in the log only.
+func TestReadyzRefusesPendingMigrations(t *testing.T) {
+	var logBuf syncBuffer
+	log := slog.New(slog.NewTextHandler(&logBuf, nil))
+	srv, pool := startReadyApp(t, log)
 
 	if code, body := get(t, srv.URL+"/readyz"); code != 200 || body != "ready" {
 		t.Fatalf("readyz on a current schema: %d %q", code, body)
 	}
-	if _, err := pool.Exec(ctx, `DELETE FROM goose_db_version WHERE version_id = (SELECT max(version_id) FROM goose_db_version)`); err != nil {
+	if _, err := pool.Exec(context.Background(), `DELETE FROM goose_db_version WHERE version_id = (SELECT max(version_id) FROM goose_db_version)`); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		code, body := get(t, srv.URL+"/readyz")
-		if code == 503 && body == web.ErrSchemaNotCurrent.Error() {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("readyz after a pending migration: %d %q", code, body)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	waitReadyz(t, srv.URL, 503, "schema not current", 2*time.Second)
 	if code, body := get(t, srv.URL+"/healthz"); code != 200 || body != "ok" {
 		t.Fatalf("healthz must stay up: %d %q", code, body)
 	}
+	if !strings.Contains(logBuf.String(), "run the migrate service (server -migrate-only)") {
+		t.Fatalf("log missing migrate hint:\n%s", logBuf.String())
+	}
+}
+
+// A goose_db_version row newer than this binary still counts as ready.
+func TestReadyzAllowsNewerSchema(t *testing.T) {
+	srv, pool := startReadyApp(t, nil)
+	if _, err := pool.Exec(context.Background(), `INSERT INTO goose_db_version (version_id, is_applied) VALUES (99999, true)`); err != nil {
+		t.Fatal(err)
+	}
+	waitReadyz(t, srv.URL, 200, "ready", 2*time.Second)
+	if code, body := get(t, srv.URL+"/healthz"); code != 200 || body != "ok" {
+		t.Fatalf("healthz: %d %q", code, body)
+	}
+}
+
+// A hole in applied versions is goose's missing-migrations error, mapped
+// to the same public /readyz body as a pending tail.
+func TestReadyzRefusesMissingMigrations(t *testing.T) {
+	var logBuf syncBuffer
+	log := slog.New(slog.NewTextHandler(&logBuf, nil))
+	srv, pool := startReadyApp(t, log)
+	if _, err := pool.Exec(context.Background(), `DELETE FROM goose_db_version WHERE version_id = (SELECT min(version_id) FROM goose_db_version WHERE version_id > 0)`); err != nil {
+		t.Fatal(err)
+	}
+	waitReadyz(t, srv.URL, 503, "schema not current", 2*time.Second)
+	if code, body := get(t, srv.URL+"/healthz"); code != 200 || body != "ok" {
+		t.Fatalf("healthz must stay up: %d %q", code, body)
+	}
+	if !strings.Contains(logBuf.String(), "run the migrate service (server -migrate-only)") {
+		t.Fatalf("log missing migrate hint:\n%s", logBuf.String())
+	}
+}
+
+// The shared dbtest container cannot be stopped, so this flips
+// ALLOW_CONNECTIONS on this test's database instead. That is the
+// practical stand-in for a compose db bounce.
+func TestReadyzTracksDatabaseUnavailable(t *testing.T) {
+	srv, pool := startReadyApp(t, nil)
+	name := pool.Config().ConnConfig.Database
+	t.Cleanup(func() {
+		adminExec(t, pool, "ALTER DATABASE "+name+" ALLOW_CONNECTIONS true")
+	})
+	adminExec(t, pool, "ALTER DATABASE "+name+" ALLOW_CONNECTIONS false")
+	adminExec(t, pool, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '"+name+"' AND pid <> pg_backend_pid()")
+	waitReadyz(t, srv.URL, 503, "database unavailable", 5*time.Second)
+	if code, body := get(t, srv.URL+"/healthz"); code != 200 || body != "ok" {
+		t.Fatalf("healthz must stay up: %d %q", code, body)
+	}
+	adminExec(t, pool, "ALTER DATABASE "+name+" ALLOW_CONNECTIONS true")
+	waitReadyz(t, srv.URL, 200, "ready", 5*time.Second)
 }
 
 func TestMigrateOnly(t *testing.T) {

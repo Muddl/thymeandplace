@@ -114,12 +114,20 @@ func checkMigrated(ctx context.Context, sqldb *sql.DB) error {
 	defer p.Close()
 	pending, err := p.HasPending(ctx)
 	if err != nil {
+		if isMissingMigrations(err) {
+			return ErrPendingMigrations
+		}
 		return fmt.Errorf("check migrations: %w", err)
 	}
 	if pending {
 		return ErrPendingMigrations
 	}
 	return nil
+}
+
+// Goose reports out-of-order holes as this string. There is no sentinel.
+func isMissingMigrations(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "missing (out-of-order) migration")
 }
 
 // Migrate applies all pending migrations.

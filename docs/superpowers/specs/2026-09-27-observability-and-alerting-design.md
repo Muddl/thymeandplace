@@ -110,13 +110,13 @@ func (p *Pinger) Fail(ctx context.Context, body string)     // POSTs to <url>/fa
   - `backup_login` fires next to the existing `WARN` in `LogAttempt`.
   - `backup_lockout` fires in `BackupLogin` after a commit that sets `locked_until`, which also logs a new `WARN "backup login locked" until=<time>`.
   - Passkey logins and plain failures fire nothing. IPs stay in `admin_login_log` and the local log.
-- **`Ready`.** `web.CheckReady(ctx, web.Ready) error` is extracted from `readyz`, so the watchdog and `/readyz` can't drift apart. It checks that a snapshot is loaded, the DB answers a ping within 500 ms, and the schema has no pending migrations.
+- **`Ready`.** `web.CheckReady(ctx, web.Ready) error` is extracted from `readyz`, so the watchdog and `/readyz` can't drift apart. It checks that a snapshot is loaded, the DB answers a ping within 500 ms, and the schema has no pending or missing migrations. A database ahead of this binary is ready.
 
 **Loop.** The watchdog samples `Ready` every minute. It reports every 5th sample, and also at once on the sample where readiness reaches 3 consecutive failures. That is at most one report a minute. A report sends:
 
 - **To `app`:**
   - `Fail` with one line per reason:
-    - `not ready: <catalog not loaded | database unavailable | database has pending migrations; run the migrate service (server -migrate-only)>` after 3 consecutive failed samples.
+    - `not ready: <catalog not loaded | database unavailable | schema not current>` after 3 consecutive failed samples.
     - `5xx: <n> of <m> requests` when n ≥ 5 and n ≥ 5% of m.
     - `errors: <n> (<msg>; <msg>)` when n ≥ 1.
   - Otherwise `Success("ok requests=<m> 5xx=<n>")`.

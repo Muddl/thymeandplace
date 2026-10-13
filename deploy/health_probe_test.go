@@ -24,8 +24,11 @@ func TestReadyzGatesComposeAndDeploy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(script), "-healthcheck http://127.0.0.1:8080/readyz") {
-		t.Fatal("deploy.sh must gate on /readyz")
+	if !strings.Contains(string(script), "up -d --wait app caddy") {
+		t.Fatal("deploy.sh must wait for the app healthcheck")
+	}
+	if strings.Contains(string(script), "-healthcheck http://127.0.0.1:8080/readyz") {
+		t.Fatal("deploy.sh must not exec /readyz; compose --wait already waits on the healthcheck")
 	}
 
 	for _, path := range []string{"Caddyfile", "Caddyfile.local"} {

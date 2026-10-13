@@ -462,7 +462,7 @@ The audit tables are append-only for the app's database role: it can read `catal
 | `GET /sitemap.xml` | The home and About pages, plus a season page for each calibration city |
 | `GET /llms.txt` | Markdown summary for language models (llmstxt.org): what the site does, how far to trust it, featured season pages and the ingredient list. Follows the seafood flag (§11.7) |
 | `GET /healthz` | 200 if the process is up |
-| `GET /readyz` | 200 if a catalog snapshot is loaded, a database ping succeeded within the last second (one shared ping, reused for 1 s; each ping times out after 500 ms), and the schema has no pending migrations (one shared check, reused for 1 s) |
+| `GET /readyz` | 200 if a catalog snapshot is loaded, a database ping succeeded within the last second (one shared ping, reused for 1 s; each ping times out after 500 ms), and the schema has no pending or missing migrations (one shared check, reused for 1 s). A database ahead of this binary is ready. The public body on a schema miss is `schema not current`; the migrate hint is in the app log. |
 
 Requests without an `HX-Request` header get full-page versions of `/season` and `/ingredient`, so URLs are shareable and indexable. The absolute URLs in `robots.txt`, `sitemap.xml` and `llms.txt` use `PUBLIC_BASE_URL` (default: the admin origin, `https://thymeand.place`).
 

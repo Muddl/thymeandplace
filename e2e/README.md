@@ -1,6 +1,6 @@
 # End-to-end tests
 
-Playwright drives the Compose stack behind Caddy (`https://localhost` by default). `./e2e/run.sh` builds that stack, seeds it, installs one browser, and runs the suite.
+Playwright drives the Compose stack behind Caddy (`https://localhost` by default). `./e2e/run.sh` builds that stack, seeds it, installs one browser, and runs the suite. On a local Chromium run that is not `GREP=@readonly`, it wipes the e2e volumes first, then reseeds after the suite and runs scenario 5 again. A prod smoke skips Compose and does none of that.
 
 ## Commands
 

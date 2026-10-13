@@ -32,6 +32,16 @@ function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+function cssRgb(color: string): string {
+  const hex = color.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(hex)) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+  }
+  const { r, g, b } = parseColor(color);
+  return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+}
+
 function contrastFailures(violations: { id: string; nodes: { html: string; target: unknown[]; failureSummary?: string }[] }[]) {
   return violations
     .filter((v) => v.id === "color-contrast")
@@ -44,39 +54,55 @@ function contrastFailures(violations: { id: string; nodes: { html: string; targe
     );
 }
 
+const schemeBg = { light: "rgb(251, 250, 246)", dark: "rgb(20, 24, 20)" } as const;
+
 for (const scheme of ["light", "dark"] as const) {
-  test(`public pages pass axe color-contrast in ${scheme} scheme @mutating`, async ({ page }) => {
-    test.skip(!isLocalOrigin() || !process.env.TP_PUBLIC_TODAY, "needs a local target with TP_PUBLIC_TODAY");
-    await page.emulateMedia({ colorScheme: scheme });
-    for (const path of pages) {
-      await page.goto(path);
+  test.describe(`${scheme} scheme`, () => {
+    test.use({ colorScheme: scheme });
+
+    test(`public pages pass axe color-contrast in ${scheme} scheme @mutating`, async ({ page }) => {
+      test.skip(!isLocalOrigin() || !process.env.TP_PUBLIC_TODAY, "needs a local target with TP_PUBLIC_TODAY");
+      await page.goto("/");
+      await page.emulateMedia({ colorScheme: scheme });
+      const applied = await page.evaluate(() => ({
+        dark: matchMedia("(prefers-color-scheme: dark)").matches,
+        bgToken: getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(),
+        bodyBg: getComputedStyle(document.body).backgroundColor,
+      }));
+      expect(applied.dark, "prefers-color-scheme: dark").toBe(scheme === "dark");
+      expect(cssRgb(applied.bodyBg), `${scheme} body background`).toBe(schemeBg[scheme]);
+      expect(cssRgb(applied.bgToken), `${scheme} --bg`).toBe(schemeBg[scheme]);
+
+      for (const path of pages) {
+        await page.goto(path);
+        const results = await new AxeBuilder({ page }).withRules(["color-contrast"]).analyze();
+        expect(contrastFailures(results.violations), `${scheme} ${path}`).toEqual([]);
+      }
+
+      await page.goto("/");
+      await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+      await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
       const results = await new AxeBuilder({ page }).withRules(["color-contrast"]).analyze();
-      expect(contrastFailures(results.violations), `${scheme} ${path}`).toEqual([]);
-    }
+      expect(contrastFailures(results.violations), `${scheme} search results`).toEqual([]);
 
-    await page.goto("/");
-    await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
-    await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
-    const results = await new AxeBuilder({ page }).withRules(["color-contrast"]).analyze();
-    expect(contrastFailures(results.violations), `${scheme} search results`).toEqual([]);
+      const controls = await page.evaluate(() => {
+        const style = (sel: string) => {
+          const cs = getComputedStyle(document.querySelector(sel)!);
+          return { bg: cs.backgroundColor, border: cs.borderTopColor };
+        };
+        return { input: style(".finder input"), button: style(".finder button") };
+      });
+      expect(contrastRatio(controls.input.border, controls.input.bg), `${scheme} input border`).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(controls.button.border, controls.button.bg), `${scheme} button border`).toBeGreaterThanOrEqual(3);
 
-    const controls = await page.evaluate(() => {
-      const style = (sel: string) => {
-        const cs = getComputedStyle(document.querySelector(sel)!);
-        return { bg: cs.backgroundColor, border: cs.borderTopColor };
-      };
-      return { input: style(".finder input"), button: style(".finder button") };
+      await page.goto(`/ingredient/banana?cell=295883&date=${pinnedToday}`);
+      const year = page.locator(".s-year").first();
+      await expect(year).toBeVisible();
+      const yearColors = await year.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { color: cs.color, bg: cs.backgroundColor };
+      });
+      expect(contrastRatio(yearColors.color, yearColors.bg), `${scheme} year-round bar`).toBeGreaterThanOrEqual(4.5);
     });
-    expect(contrastRatio(controls.input.border, controls.input.bg), `${scheme} input border`).toBeGreaterThanOrEqual(3);
-    expect(contrastRatio(controls.button.border, controls.button.bg), `${scheme} button border`).toBeGreaterThanOrEqual(3);
-
-    await page.goto(`/ingredient/banana?cell=295883&date=${pinnedToday}`);
-    const year = page.locator(".s-year").first();
-    await expect(year).toBeVisible();
-    const yearColors = await year.evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return { color: cs.color, bg: cs.backgroundColor };
-    });
-    expect(contrastRatio(yearColors.color, yearColors.bg), `${scheme} year-round bar`).toBeGreaterThanOrEqual(4.5);
   });
 }

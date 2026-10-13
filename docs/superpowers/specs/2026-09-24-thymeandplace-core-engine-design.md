@@ -534,7 +534,7 @@ The admin UI, the ingest pipeline, the calibration drift check and the engine ar
 
 ### 11.8 Appearance
 
-Public pages follow `prefers-color-scheme`. Body text, links, the town search controls and the season bar meet WCAG 2.2 AA contrast (4.5:1 for normal text, 3:1 for input and button borders) in light and dark. All of that lives in `static/app.css`. `e2e/tests/contrast.spec.ts` runs axe-core's `color-contrast` rule on `/`, `/season`, `/ingredient` and `/about/data`, plus town-search results, in both schemes. It also measures the Year-round bar and the search control borders, which that rule does not flag.
+Public pages follow `prefers-color-scheme`. Body text, links, the town search controls and the season bar meet WCAG 2.2 AA contrast (4.5:1 for normal text, 3:1 for input and button borders) in light and dark. All of that lives in `static/app.css`. `e2e/tests/contrast.spec.ts` runs axe-core's `color-contrast` rule on `/`, `/season`, `/ingredient` and `/about/data`, plus town-search results, in both schemes. It also measures the Year-round bar and the search control borders, which that rule does not flag. The dark case sets `colorScheme` on the Playwright context and fails if `prefers-color-scheme: dark` or `--bg` did not apply.
 
 ## 12. Season engine
 

@@ -82,7 +82,6 @@
   document.addEventListener("htmx:afterRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), false); });
   document.addEventListener("htmx:afterSwap", announceSwap);
   document.addEventListener("htmx:sendError", onTransportError);
-  document.addEventListener("htmx:sendAbort", onTransportError);
   document.addEventListener("htmx:timeout", onTransportError);
   document.addEventListener("htmx:responseError", onResponseError);
   window.addEventListener("hashchange", focusSearch);

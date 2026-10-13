@@ -156,6 +156,9 @@ func TestAppJSSurfacesNetworkErrors(t *testing.T) {
 	if strings.Contains(js, "hx-on") {
 		t.Fatal("app.js must not use hx-on")
 	}
+	if strings.Contains(js, "htmx:sendAbort") {
+		t.Fatal("app.js must not handle htmx:sendAbort: a superseded search would look like a failure")
+	}
 	for _, want := range []string{
 		CopyLoadError,
 		CopySearchUnavailable,

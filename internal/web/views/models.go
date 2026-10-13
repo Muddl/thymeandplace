@@ -29,6 +29,7 @@ const (
 	CopyLandEstimate       = "Estimated from local climate normals."
 	CopyEstimate           = "Estimate"
 	CopyEstimateMark       = "≈"
+	CopySiteHeading        = "What's in season"
 )
 
 // HTMX config: swap 4xx/5xx so error partials render (§11.5), and keep no

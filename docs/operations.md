@@ -75,9 +75,9 @@ The site launches with seafood off, because the MEOW terms aren't confirmed (`do
 - leaves seafood items out of `/season`, answers `/ingredient/{slug}` for them with 404, and drops pairings that point at them;
 - says estimates cover land areas only, and leaves the seafood paragraph and marine credits off `/about/data`.
 
-Every `/season` result row shows the word Estimate. A decorative ≈ next to it is `aria-hidden` and is not painted with generated content, so it never enters an accessible name. The "Estimates from local climate: how we estimate" link under the place name stays free of ≈. Visual uppercase comes from CSS `text-transform` on `.item .badge`. The HTML source stays `Estimate` so a screen reader speaks the word.
+Every climate-estimated `/season` row (`Estimate: true`) shows the word Estimate in normal case next to a decorative ≈ in an `aria-hidden` span. Generated content must not paint ≈, so the mark never enters an accessible name. The "Estimates from local climate: how we estimate" link under the place name stays free of ≈. Hand-curated rows (`Estimate: false`, including seafood) omit the badge.
 
-The public page keeps one live region, `#announce` with `role="status"`. `main` has one `h1` above `#results`. Dark mode follows `prefers-color-scheme` only.
+`main` has one fixed site `h1` ("What's in season") above `#results`. The place name stays the results `h2` and must not be copied into that `h1`. Dark mode follows `prefers-color-scheme` only.
 
 The admin UI is unchanged: seafood items can still be edited there, and they stay hidden until the flag is on.
 

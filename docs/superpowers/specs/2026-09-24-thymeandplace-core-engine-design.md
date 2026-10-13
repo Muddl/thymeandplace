@@ -18,7 +18,7 @@ Sub-project 1 builds the **core seasonal engine**: location in → estimated in-
 
 1. A cook anywhere on land or near a coast gets a plausible, clearly labeled in-season list within ~1 second (p95, warm cache) or ~2 seconds (cold).
 2. For places with published seasonal guides, the engine's output broadly agrees with them, measured by the calibration score (§12). No catalog change lowers it without an explicit override.
-3. Every result is labeled as an estimate, and the site explains how estimates are made. Each `/season` row shows the word Estimate in normal-case source (CSS `text-transform` sets the visual case) and may show a decorative ≈ in an `aria-hidden` span. Generated content must not add ≈, so the accessibility tree never names the mark.
+3. Every climate-estimated result is labeled as an estimate, and the site explains how estimates are made. Each estimated `/season` row shows the word Estimate in normal-case source and may show a decorative ≈ in an `aria-hidden` span. Generated content must not add ≈, so the accessibility tree never names the mark. Hand-curated rows (`Estimate: false`) omit the badge.
 4. The site never dead-ends: every failure produces a useful, honest message and a next step (§11).
 5. The owner can add, edit, bulk-import and export catalog data without a deploy, and sees the effect of each change on seasons before applying it.
 
@@ -651,7 +651,7 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.8 Web tests
 
-`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any browser console message about Content Security Policy. `/season` tests count result rows against the visible word Estimate and check that ≈ is absent from accessible names. Almanac kickoff checks cover one `h1` in `main` above `#results`, one `#announce` with `role="status"`, an axe scan, light and dark screenshot baselines, a header bounding box that does not move across a results swap, and an empty `watchCSP` list.
+`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any browser console message about Content Security Policy (`watchCSP` at the end of every browser test). `/season` tests count climate-estimated rows against the visible word Estimate, omit the badge on `Estimate: false` rows, and check that ≈ is absent from accessible names (`ariaSnapshot`). Almanac kickoff checks cover one fixed site `h1` in `main` above `#results` that does not copy the place `h2`, axe scans in light and dark (dark-mode default-link contrast is #48), light and dark screenshot baselines at 1280 and 390, a header node and box that stay put across the home-to-results swap and a results swap, and an empty `watchCSP` list. Tests are tagged `@readonly` or `@mutating`. The Playwright `baseURL` is `E2E_BASE_URL`.
 
 ### 13.9 End-to-end (Playwright against Compose)
 

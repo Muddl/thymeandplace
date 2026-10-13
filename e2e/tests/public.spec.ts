@@ -77,7 +77,6 @@ test("axe scan of home and season", { tag: "@readonly" }, async ({ page }) => {
 test("home light and dark baselines", { tag: "@readonly" }, async ({ page }, info) => {
   const csp = await watchCSP(page);
   await page.goto("/");
-  // WebKit injects <style>body {}</style> on every screenshot.
   const shot = {
     caret: "hide" as const,
     animations: "disabled" as const,

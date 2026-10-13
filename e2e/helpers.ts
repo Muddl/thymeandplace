@@ -21,8 +21,6 @@ export type CSPWatch = {
 
 const watches = new WeakMap<Page, CSPWatch>();
 
-// watchCSP records securitypolicyviolation (addInitScript, before page JS)
-// and CSP console text as a backup. No console-text filter, no field exemption.
 // WebKit injects <style>body {}</style> on every screenshot, so wrap
 // toHaveScreenshot in ignoreDuring.
 export async function watchCSP(page: Page): Promise<CSPWatch> {
@@ -72,9 +70,6 @@ export async function watchCSP(page: Page): Promise<CSPWatch> {
   return watch;
 }
 
-// test is Playwright's test with a guard that fails any test whose page
-// fired a page CSP violation. Pages from a context a test makes itself
-// need their own watchCSP.
 export const test = base.extend<{ cspGuard: void }>({
   cspGuard: [
     async ({ page }, use) => {

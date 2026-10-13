@@ -56,6 +56,7 @@
 - [ ] The recovery key is in your password manager and on paper, and not on the VPS ("Backup encryption").
 - [ ] Every check in "Monitoring and alerts" is green, and a test notification reached you.
 - [ ] Seafood is off: `FEATURE_SEAFOOD` is unset or `off` in `app.env`, `docker compose logs app | grep 'seafood feature'` shows `enabled=false`, and `/about/data` doesn't mention seafood or marine data. (Only once the MEOW row in `docs/reference-data-licenses.md` is confirmed and an ocean version is live may it be `on`; see "Turning seafood on".)
+- [ ] Dark scheme: home, season, ingredient and About pass the e2e color-contrast check (`e2e/tests/contrast.spec.ts`).
 - [ ] `SELECT id, license, license_reviewed, is_live, promoted_at FROM dataset_versions WHERE dataset = 'ocean'` shows no approved or promoted row whose license starts with `UNRESOLVED:`. If one exists, withdraw it ("Withdrawing a dataset").
 
 ### Ocean dataset: two sources, two licenses
@@ -231,7 +232,7 @@ Merge one when CI is green, then deploy the release it produces as usual. That i
 
 The `e2e` job in `.github/workflows/ci.yml` runs on every pull request and on every push to `main`. It does not run on a feature-branch push that has no pull request. Branch protection should require `e2e-result`, not the matrix cell names. That job `needs: e2e` with `if: always()` on pull requests and on `main`, and it fails if the matrix failed, was cancelled, or was skipped.
 
-`e2e/select-browsers.sh` chooses the browser list. A push to `main`, or a pull request that touches `views/`, `static/` or `e2e/`, runs Chromium, Firefox and WebKit. Other pull requests run Chromium only. If `git diff` fails, the script prints all three engines rather than falling back to Chromium. The `deploy` job runs `./e2e/select-browsers.sh --self-test` and `node e2e/check-tags.mjs` on every push so a broken path or tag rule fails CI even when e2e itself is skipped. Each matrix cell installs only its browser and restores `~/.cache/ms-playwright` from `actions/cache`.
+`e2e/select-browsers.sh` chooses the browser list. A push to `main`, or a pull request that touches `views/`, `static/` or `e2e/`, runs Chromium, Firefox and WebKit. Other pull requests run Chromium only. If `git diff` fails, the script prints all three engines rather than falling back to Chromium. The `deploy` job runs `./e2e/select-browsers.sh --self-test`, `node e2e/check-tags.mjs`, and `node e2e/check-capture.mjs` on every push so a broken path, tag, or capture rule fails CI even when e2e itself is skipped. Each matrix cell installs only its browser and restores `~/.cache/ms-playwright` from `actions/cache`.
 
 The matrix is `browser × shard` (`1/2` and `2/2`). Each cell starts its own Compose stack, because the suite stops Postgres and edits the catalog (`workers: 1` in `e2e/playwright.config.ts`). Admin specs (`e2e/tests/admin.spec.ts`) use CDP WebAuthn, which is Chromium-only; the Firefox and WebKit projects set `testIgnore` on that file.
 
@@ -242,9 +243,9 @@ GREP=@readonly ./e2e/run.sh
 E2E_BASE_URL=https://thymeand.place GREP=@readonly BROWSER=chromium ./e2e/run.sh
 ```
 
-`GREP=@mutating` is `--grep-invert @readonly`, so untagged tests run in the mutating subset. `run.sh` exits 2 if the origin is not localhost unless `GREP=@readonly`. On a local Chromium run that is not `GREP=@readonly`, `run.sh` reseeds after the suite and runs admin scenario 5 again. A prod smoke does not wipe, reseed, or run a `@mutating` test. Every spec title carries `@readonly` or `@mutating`. `check-tags.mjs` fails on any untagged test. Specs search for Lisbon by name and pass today's UTC date. The 1 s warm `/season` test skips when `E2E_BASE_URL` is not localhost. The Tomato flow is `@mutating` and skips unless the origin is local and `TP_PUBLIC_TODAY` is set. See `e2e/README.md`.
+`GREP=@mutating` is `--grep-invert @readonly`, so untagged tests run in the mutating subset. `run.sh` exits 2 if the origin is not localhost unless `GREP=@readonly`. On a local Chromium run that is not `GREP=@readonly`, `run.sh` reseeds after the suite and runs admin scenario 5 again. A prod smoke does not wipe, reseed, or run a `@mutating` test. Every spec title carries `@readonly` or `@mutating`. `check-tags.mjs` fails on any untagged test. Specs search for Lisbon by name and pass today's UTC date. The 1 s warm `/season` test skips when `E2E_BASE_URL` is not localhost. The Tomato flow is `@mutating` and skips unless the origin is local and `TP_PUBLIC_TODAY` is set. Playwright `trace`, `screenshot`, and `video` are off for any non-local `E2E_BASE_URL`. Local runs keep `trace: retain-on-failure`. That split lives in `e2e/capture.mjs` and is checked by `e2e/check-capture.mjs`. See `e2e/README.md`.
 
-On failure, each shard uploads its blob report and `e2e-report` merges them into the `playwright-report` artifact.
+On failure, each local-CI shard uploads its blob report and `e2e-report` merges them into the `playwright-report` artifact. The `e2e-remote-config` workflow runs `GREP=@readonly` against `https://example.com` (config load and capture check, not the live site) and has no `upload-artifact` step. A job that points Playwright at a remote origin must not upload artifacts.
 
 The suite still builds app and ingest from the current tree. It does not pull the GHCR images a production deploy runs. Release images exist only after `ci` on `main` succeeds, pull-request commits are never published, and `compose.e2e.yaml` injects calibration fixtures at build time. A follow-up would run `GREP=@readonly` against `compose.release.yaml` for the last green `main`. Until then, `E2E_BASE_URL` is how a `@readonly` smoke points at prod.
 

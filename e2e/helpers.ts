@@ -35,9 +35,7 @@ export function todayUTC(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function isLocalOrigin(url = process.env.E2E_BASE_URL || "https://localhost"): boolean {
-  return /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(url);
-}
+export { isLocalOrigin } from "./capture.mjs";
 
 export async function findLisbonHref(page: Page): Promise<string> {
   await page.goto("/");

@@ -532,6 +532,10 @@ Admin errors follow the same style: validation errors appear inline next to thei
 
 The admin UI, the ingest pipeline, the calibration drift check and the engine are unaffected. Tests (§13.8) cover both states and check that no public page mentions seafood while it's off.
 
+### 11.8 Appearance
+
+Public pages follow `prefers-color-scheme`. Body text, links, the town search controls and the season bar meet WCAG 2.2 AA contrast (4.5:1 for normal text, 3:1 for input and button borders) in light and dark. All of that lives in `static/app.css`. `e2e/tests/contrast.spec.ts` runs axe-core's `color-contrast` rule on `/`, `/season`, `/ingredient` and `/about/data`, plus town-search results, in both schemes. It also measures the Year-round bar and the search control borders, which that rule does not flag.
+
 ## 12. Season engine
 
 ### 12.1 Interface
@@ -668,7 +672,7 @@ When `e2e/run.sh` starts a local stack it wipes the `thymeandplace-e2e` volumes 
 
 ### 13.10 CI
 
-Units, scoring, auth, store integration, and pipeline tests run on every push, under the race detector (`go test -race`). Every push also runs `go vet`, `staticcheck` and `govulncheck` (a reachable known vulnerability fails the build) and lints the shell scripts with `shellcheck`. End-to-end tests run on `main` and on pull requests: Chromium, Firefox and WebKit on `main` and on PRs that touch `views/`, `static/` or `e2e/`; Chromium only on other PRs. Admin specs stay on Chromium (`testIgnore` on the other projects) and run as a serial group so sharding does not split them. The suite is sharded `browser × shard`. `GREP=@readonly` selects the smoke subset; `GREP=@mutating` is `--grep-invert @readonly`. A non-local `E2E_BASE_URL` is refused unless `GREP=@readonly`. The required check is `e2e-result`. Release images are built only after CI passes on `main`, from that exact commit (§14). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
+Units, scoring, auth, store integration, and pipeline tests run on every push, under the race detector (`go test -race`). Every push also runs `go vet`, `staticcheck` and `govulncheck` (a reachable known vulnerability fails the build) and lints the shell scripts with `shellcheck`. End-to-end tests run on `main` and on pull requests: Chromium, Firefox and WebKit on `main` and on PRs that touch `views/`, `static/` or `e2e/`; Chromium only on other PRs. Admin specs stay on Chromium (`testIgnore` on the other projects) and run as a serial group so sharding does not split them. The suite is sharded `browser × shard`. `GREP=@readonly` selects the smoke subset; `GREP=@mutating` is `--grep-invert @readonly`. A non-local `E2E_BASE_URL` is refused unless `GREP=@readonly`. Playwright tracing, screenshots, and video are off for any non-local origin; `retain-on-failure` is local-only. A remote-origin job has no `upload-artifact` step. The required check is `e2e-result`. Release images are built only after CI passes on `main`, from that exact commit (§14). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
 
 ## 14. Deployment and operations
 

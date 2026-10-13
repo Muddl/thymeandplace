@@ -1,0 +1,36 @@
+# Resolves Playwright capture for a non-local origin. This workflow must
+# not ship traces, screenshots, or videos off the runner.
+name: e2e-remote-config
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-remote-config-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  remote-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Capture is off for a non-local origin
+        working-directory: e2e
+        env:
+          E2E_BASE_URL: https://example.com
+          GREP: "@readonly"
+          CI: true
+        run: |
+          node check-capture.mjs
+          npm ci
+          npx playwright test --project=chromium --grep @readonly --list

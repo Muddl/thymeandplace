@@ -663,7 +663,7 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.10 CI
 
-Units, scoring, auth, store integration, and pipeline tests run on every push, under the race detector (`go test -race`). Every push also runs `go vet`, `staticcheck` and `govulncheck` (a reachable known vulnerability fails the build) and lints the shell scripts with `shellcheck`. End-to-end tests run on `main`. Release images are built only after CI passes on `main`, from that exact commit (§14). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
+Units, scoring, auth, store integration, and pipeline tests run on every push, under the race detector (`go test -race`). Every push also runs `go vet`, `staticcheck` and `govulncheck` (a reachable known vulnerability fails the build) and lints the shell scripts with `shellcheck`. End-to-end tests run on `main` and on pull requests: Chromium, Firefox and WebKit on `main` and on PRs that touch `views/`, `static/` or `e2e/`; Chromium only on other PRs. Admin specs stay on Chromium (`testIgnore` on the other projects). The suite is sharded `browser × shard`. `GREP=@readonly` selects the smoke subset; `GREP=@mutating` selects writes and the database-outage case. `E2E_BASE_URL` is the Playwright origin (default `https://localhost`). Release images are built only after CI passes on `main`, from that exact commit (§14). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
 
 ## 14. Deployment and operations
 

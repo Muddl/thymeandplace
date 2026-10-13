@@ -12,10 +12,18 @@ updates:
     directories: [/deploy, /deploy/backup, /pipeline/transform]
     schedule: { interval: weekly }
     groups: { docker: { patterns: ["*"] } }
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker-compose
     directory: /deploy
     schedule: { interval: weekly }
     groups: { docker-compose: { patterns: ["*"] } }
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+      - dependency-name: postgis/postgis
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: pip
     directory: /pipeline/transform
     schedule: { interval: weekly }

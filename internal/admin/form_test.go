@@ -74,9 +74,9 @@ func TestTipAndNoteCRLFNormalized(t *testing.T) {
 	v := url.Values{
 		"slug": {"tomato"}, "name": {"Tomato"}, "category": {"vegetable"}, "kind": {"annual"},
 		"storage_months": {"0"},
-		"tip_choose":      {"Line one\r\nLine two"},
-		"tip_store":       {"Store one\r\nStore two"},
-		"note":            {"Note one\r\nNote two"},
+		"tip_choose":     {"Line one\r\nLine two"},
+		"tip_store":      {"Store one\r\nStore two"},
+		"note":           {"Note one\r\nNote two"},
 	}
 	ing, ps := parseIngredientForm(v)
 	if len(ps) != 0 {

@@ -25,7 +25,7 @@ elapsed=$(( $(date +%s) - start ))
 printf '%s\n' "# Written by deploy.sh on every deploy; don't edit. Delete it to go back to source builds." \
   "COMPOSE_PATH_SEPARATOR=:" "COMPOSE_FILE=compose.yaml:compose.release.yaml" "TP_IMAGE_TAG=$sha" > .tmp.env
 mv -f .tmp.env .env
-digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "ghcr.io/muddl/thymeandplace-app:$sha")
+digest=$(docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.ID}}{{end}}' "ghcr.io/muddl/thymeandplace-app:$sha")
 mkdir -p /var/lib/thymeandplace
 echo "$(date -u +%FT%TZ) $sha $digest ${elapsed}s" >> /var/lib/thymeandplace/deploys.log
 echo "deploy ok: $sha ($digest); maintenance window about ${elapsed}s"

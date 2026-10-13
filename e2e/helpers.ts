@@ -5,30 +5,83 @@ import { APIRequestContext, Page, expect, test as base } from "@playwright/test"
 
 const deploy = path.resolve(__dirname, "..", "deploy");
 
-// watchCSP collects the page's browser console messages about Content
-// Security Policy. The site sends a strict CSP (internal/web/middleware.go),
-// so any such message means a page uses something the policy blocks.
-export function watchCSP(page: Page): string[] {
-  const seen: string[] = [];
+export type CSPEvent = {
+  directive: string;
+  blockedURI: string;
+  sourceFile: string;
+  sample: string;
+  lineNumber: number;
+};
+
+export type CSPWatch = {
+  console: string[];
+  events: CSPEvent[];
+};
+
+const watches = new WeakMap<Page, CSPWatch>();
+
+// Playwright WebKit injects <style>body {}</style> to sync animations for
+// screenshots (sourceFile empty, blockedURI inline). Caret hide uses
+// element.style. A document <style> has a page sourceFile and still fails.
+export function isPlaywrightScreenshotStyle(e: CSPEvent): boolean {
+  const inline = e.blockedURI === "inline" || e.blockedURI === "";
+  const injected = e.sourceFile === "" || e.sourceFile === "about:blank";
+  if (!inline || !injected) return false;
+  const style = e.directive === "style-src-elem" || e.directive === "style-src" || e.directive === "style-src-attr";
+  if (!style) return false;
+  const sample = e.sample.trim();
+  return sample === "" || sample === "body {}" || /caret-color:\s*transparent/i.test(sample);
+}
+
+export function pageViolations(events: CSPEvent[]): CSPEvent[] {
+  return events.filter((e) => !isPlaywrightScreenshotStyle(e));
+}
+
+// watchCSP records securitypolicyviolation (addInitScript, before page JS)
+// and CSP console text as a backup. There is no console-text filter.
+export async function watchCSP(page: Page): Promise<CSPWatch> {
+  const existing = watches.get(page);
+  if (existing) return existing;
+  const watch: CSPWatch = { console: [], events: [] };
   page.on("console", (m) => {
     const t = m.text();
-    if (!t.includes("Content Security Policy")) return;
-    // Playwright's caret/animation screenshot helpers inject a <style>; WebKit logs it.
-    if (t.includes("Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline'")) return;
-    seen.push(t);
+    if (t.includes("Content-Security-Policy") || t.includes("Content Security Policy")) {
+      watch.console.push(t);
+    }
   });
-  return seen;
+  try {
+    await page.exposeFunction("__tpCspPush", (hit: CSPEvent) => {
+      watch.events.push(hit);
+    });
+    await page.addInitScript(() => {
+      document.addEventListener("securitypolicyviolation", (e) => {
+        const w = window as unknown as { __tpCspPush?: (h: CSPEvent) => void };
+        w.__tpCspPush?.({
+          directive: e.effectiveDirective,
+          blockedURI: e.blockedURI,
+          sourceFile: e.sourceFile,
+          sample: e.sample,
+          lineNumber: e.lineNumber,
+        });
+      });
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/JavaScript is disabled|javaScriptEnabled/i.test(msg)) throw err;
+  }
+  watches.set(page, watch);
+  return watch;
 }
 
 // test is Playwright's test with a guard that fails any test whose page
-// logged a CSP message. Pages from a context a test makes itself need their
-// own watchCSP.
+// fired a page CSP violation. Pages from a context a test makes itself
+// need their own watchCSP.
 export const test = base.extend<{ cspGuard: void }>({
   cspGuard: [
     async ({ page }, use) => {
-      const seen = watchCSP(page);
+      const seen = await watchCSP(page);
       await use();
-      expect(seen, "Content Security Policy messages in the browser console").toEqual([]);
+      expect(pageViolations(seen.events), "securitypolicyviolation events").toEqual([]);
     },
     { auto: true },
   ],

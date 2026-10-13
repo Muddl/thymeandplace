@@ -28,7 +28,7 @@ Every spec is tagged `@readonly` or `@mutating`. `@mutating` is not a grep match
 | `@readonly` | GET-only. No catalog writes, no admin enrollment, no `compose stop`. Safe against a live site. | Smoke: `GREP=@readonly` |
 | `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | `GREP=@mutating` is `--grep-invert @readonly` |
 
-CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags. Home light/dark PNG snapshots are the Ubuntu CI actuals (`*-chromium-linux.png`, `*-firefox-linux.png`, `*-webkit-linux.png`).
+CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags. Home light/dark PNG snapshots are the Ubuntu CI actuals (`*-chromium-linux.png`, `*-firefox-linux.png`, `*-webkit-linux.png`). `watchCSP` listens for `securitypolicyviolation` and drops only Playwright's screenshot style helpers; `e2e/tests/csp.spec.ts` proves a real inline `<style>` still fails.
 
 A prod smoke is:
 

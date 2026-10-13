@@ -49,8 +49,6 @@ jobs:
           provenance: mode=max
           # The SBOM scanner runs inside the build too; pinned like BuildKit.
           sbom: generator=docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
-          # SHA first, :main last. Both land in one push. deploy.sh only
-          # accepts the 40-hex SHA; :main is a GHCR pointer, never a deploy tag.
           tags: |
             ghcr.io/muddl/thymeandplace-${{ matrix.name }}:${{ github.event.workflow_run.head_sha }}
             ghcr.io/muddl/thymeandplace-${{ matrix.name }}:main

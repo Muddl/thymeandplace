@@ -28,8 +28,6 @@ func TestPostgisImageRegexRequiresDigest(t *testing.T) {
 	}
 }
 
-// Dependabot bumps the compose digests but not the Go constant, so this
-// keeps the test database on the image production runs.
 func TestImageMatchesCompose(t *testing.T) {
 	for _, path := range []string{"../../deploy/compose.yaml", "../../deploy/compose.dev.yaml"} {
 		src, err := os.ReadFile(path)

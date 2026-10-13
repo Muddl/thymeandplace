@@ -12,8 +12,6 @@ updates:
     directories: [/deploy, /deploy/backup, /pipeline/transform]
     schedule: { interval: weekly }
     groups: { docker: { patterns: ["*"] } }
-    # A Postgres major needs dump/restore and a matching PostGIS image.
-    # Do that as a planned upgrade, not a weekly grouped bump.
     ignore:
       - dependency-name: postgres
         update-types: ["version-update:semver-major"]

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # usage (as root, from /opt/thymeandplace/deploy): ./deploy.sh <40-hex commit SHA>
 # Pulls the images CI built for that commit and compose.yaml's pinned db and
-# caddy images, starts them (migrate first, then app, waiting for its health
-# check; db and caddy only if their image or settings changed), points plain
+# caddy images, starts them (migrate first, then app, waiting for /readyz;
+# db and caddy only if their image or settings changed), points plain
 # `docker compose` commands here at the release, and records the deploy.
 # Rollback is the same command with the previous SHA from
 # /var/lib/thymeandplace/deploys.log.

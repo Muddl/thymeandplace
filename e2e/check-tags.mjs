@@ -13,9 +13,12 @@ export function listTests(src, filename) {
       continue;
     }
     const titleMatch = slice.match(/test(?:\.(?:only|skip|fixme))?\(\s*(`[\s\S]*?`|'[^']*'|"[^"]*")/);
+    if (!titleMatch) {
+      continue;
+    }
     tests.push({
       filename,
-      title: titleMatch ? titleMatch[1] : "?",
+      title: titleMatch[1],
       tagged: /@readonly|@mutating/.test(slice),
     });
   }
@@ -51,6 +54,13 @@ function selfTest() {
   const skipDescribe = listTests(`test.describe("g", () => {});\ntest("x @readonly", async () => {});`, "t.ts");
   if (skipDescribe.length !== 1) {
     throw new Error(`describe counted as a test: ${skipDescribe.length}`);
+  }
+  const condSkip = listTests(
+    `test("Tomato @mutating", async () => { test.skip(!true, "needs TP_PUBLIC_TODAY"); });`,
+    "t.ts",
+  );
+  if (condSkip.length !== 1 || !condSkip[0].tagged) {
+    throw new Error(`conditional test.skip counted as a spec: ${JSON.stringify(condSkip)}`);
   }
   console.log("check-tags self-test ok");
 }

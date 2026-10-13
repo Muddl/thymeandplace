@@ -17,6 +17,10 @@ export E2E_BASE_URL
 export BROWSER
 export SHARD
 export GREP
+if [ -z "${TP_PUBLIC_TODAY:-}" ]; then
+  TP_PUBLIC_TODAY=$(sed -n 's/^TP_PUBLIC_TODAY=//p' ../deploy/e2e/app.env)
+fi
+export TP_PUBLIC_TODAY
 
 is_local_origin() {
   case "$E2E_BASE_URL" in

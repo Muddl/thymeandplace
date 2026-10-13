@@ -11,22 +11,22 @@
 #   tp_backup  pg_dump, via pg_read_all_data
 #
 # Passwords come from db.env (docs/operations.md, "Database roles").
+# The SQL is deploy/db/roles.sql, mounted at /roles.sql in compose.
 set -euo pipefail
 : "${TP_OWNER_PASSWORD:?set TP_OWNER_PASSWORD in db.env}"
 : "${TP_APP_PASSWORD:?set TP_APP_PASSWORD in db.env}"
 : "${TP_BACKUP_PASSWORD:?set TP_BACKUP_PASSWORD in db.env}"
 
+roles_sql=/roles.sql
+if [ ! -f "$roles_sql" ]; then
+  roles_sql="$(cd "$(dirname "$0")" && pwd)/../roles.sql"
+fi
+if [ ! -f "$roles_sql" ]; then
+  echo "deploy/db/roles.sql not found; mount it at /roles.sql" >&2
+  exit 1
+fi
+
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   -v owner_password="$TP_OWNER_PASSWORD" -v app_password="$TP_APP_PASSWORD" \
-  -v backup_password="$TP_BACKUP_PASSWORD" -v db="$POSTGRES_DB" <<'SQL'
-SELECT format('CREATE ROLE tp_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', :'owner_password') \gexec
-SELECT format('CREATE ROLE tp_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', :'app_password') \gexec
-SELECT format('CREATE ROLE tp_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', :'backup_password') \gexec
-GRANT pg_read_all_data TO tp_backup;
--- In Postgres 15+ the public schema belongs to pg_database_owner, so this
--- makes tp_owner its owner too.
-ALTER DATABASE :"db" OWNER TO tp_owner;
--- Extensions need a superuser; migration 00001 then finds them present.
-CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-SQL
+  -v backup_password="$TP_BACKUP_PASSWORD" -v db="$POSTGRES_DB" \
+  -f "$roles_sql"

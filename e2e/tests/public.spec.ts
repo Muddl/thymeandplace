@@ -1,4 +1,4 @@
-import type { Page, Request } from "@playwright/test";
+import type { APIRequestContext, Page, Request } from "@playwright/test";
 import { axeOk, compose, expect, test, waitReady, watchCSP } from "../helpers";
 
 test("1. search → select → results render", { tag: "@readonly" }, async ({ page }) => {
@@ -75,7 +75,8 @@ test("axe scan of home and season", { tag: "@readonly" }, async ({ page }) => {
   expect(csp).toEqual([]);
 });
 
-test("home light and dark baselines", { tag: "@readonly" }, async ({ page }) => {
+test("home light and dark baselines", { tag: "@readonly" }, async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "PNG baselines are chromium-linux");
   const csp = watchCSP(page);
   await page.goto("/");
   await expect(page).toHaveScreenshot("home-light.png", { caret: "hide", animations: "disabled" });
@@ -160,6 +161,8 @@ test("3. Postgres stopped → retry panel → started → Try again succeeds", a
 
 const searchUnavailable = "Search isn't available right now. Try again in a moment.";
 const loadError = "Couldn't load seasonal picks right now. Try again in a moment.";
+const lisbonSeason = "/season?lat=38.7167&lng=-9.1333&place=1";
+const lisbonPlaces = "/places?q=lisb";
 
 async function searchLisbon(page: Page) {
   await page.goto("/");
@@ -187,7 +190,51 @@ async function expectAnnounced(page: Page, target: string, copy: string) {
   await expect(page.locator("[role=alert]")).toHaveCount(0);
 }
 
+async function recoverPlaces(page: Page) {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  const box = page.getByLabel("Find your town");
+  await box.fill("");
+  await box.pressSequentially("lisb", { delay: 50 });
+  await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
+  await expect(page.locator("#places")).not.toContainText(searchUnavailable);
+  await expect(page.locator("#announce")).not.toHaveText(searchUnavailable);
+  await expect(page.locator("#announce")).toHaveText(/place/);
+  await expect(page.locator("#places")).not.toHaveAttribute("aria-busy", "true");
+}
+
+async function recoverSeason(page: Page) {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  const retry = page.locator("#results").getByRole("link", { name: "Try again" });
+  if (await retry.count()) {
+    await retry.click();
+  } else {
+    await page.getByRole("link", { name: "Lisbon, PT" }).click();
+  }
+  await expect(page.locator("#results")).toContainText("Lisbon, PT");
+  await expect(page.locator("#results h3").first()).toBeVisible();
+  await expect(page.locator("#results")).not.toContainText(loadError);
+  await expect(page.locator("#announce")).not.toHaveText(loadError);
+  await expect(page.locator("#announce")).toHaveText(/ingredients? in season near Lisbon/);
+  await expect(page.locator("#results")).not.toHaveAttribute("aria-busy", "true");
+}
+
+// The 500 cases fulfill the HTMX request with a real error fragment from the
+// app (Postgres down → 503 panel), not HTML copied in the test.
+async function serverErrorFragment(request: APIRequestContext, path: string) {
+  compose("stop db");
+  try {
+    const res = await request.get(path, { headers: { "HX-Request": "true" } });
+    expect(res.status(), `${path} while Postgres is down`).toBeGreaterThanOrEqual(500);
+    const body = await res.text();
+    expect(body).toContain("data-announce");
+    return body;
+  } finally {
+    compose("start db");
+  }
+}
+
 test("places abort writes search unavailable to #announce and #places", { tag: "@readonly" }, async ({ page }) => {
+  const csp = watchCSP(page);
   await page.route("**/places*", async (route) => {
     if (!isHX("/places", route.request())) {
       await route.continue();
@@ -198,9 +245,13 @@ test("places abort writes search unavailable to #announce and #places", { tag: "
   await page.goto("/");
   await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
   await expectAnnounced(page, "#places", searchUnavailable);
+  await axeOk(page, "light");
+  await recoverPlaces(page);
+  expect(csp).toEqual([]);
 });
 
 test("season abort writes load error to #announce and #results", { tag: "@readonly" }, async ({ page }) => {
+  const csp = watchCSP(page);
   await searchLisbon(page);
   await page.route("**/season*", async (route) => {
     if (!isHX("/season", route.request())) {
@@ -212,9 +263,12 @@ test("season abort writes load error to #announce and #results", { tag: "@readon
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
   await expectAnnounced(page, "#results", loadError);
   await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toHaveCount(0);
+  await recoverSeason(page);
+  expect(csp).toEqual([]);
 });
 
-test("places timeout writes search unavailable to #announce and #places", { tag: "@readonly" }, async ({ page }) => {
+test("places timeout writes search unavailable to #announce and #places", { tag: "@readonly", timeout: 90_000 }, async ({ page }) => {
+  const csp = watchCSP(page);
   await page.goto("/");
   const timeoutMs = await htmxTimeoutMs(page);
   await page.route("**/places*", async (route) => {
@@ -228,9 +282,12 @@ test("places timeout writes search unavailable to #announce and #places", { tag:
   await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
   await expect(page.locator("#announce")).toHaveText(searchUnavailable, { timeout: timeoutMs + 5000 });
   await expectAnnounced(page, "#places", searchUnavailable);
+  await recoverPlaces(page);
+  expect(csp).toEqual([]);
 });
 
-test("season timeout writes load error to #announce and #results", { tag: "@readonly" }, async ({ page }) => {
+test("season timeout writes load error to #announce and #results", { tag: "@readonly", timeout: 90_000 }, async ({ page }) => {
+  const csp = watchCSP(page);
   await searchLisbon(page);
   const timeoutMs = await htmxTimeoutMs(page);
   await page.route("**/season*", async (route) => {
@@ -245,14 +302,16 @@ test("season timeout writes load error to #announce and #results", { tag: "@read
   await expect(page.locator("#announce")).toHaveText(loadError, { timeout: timeoutMs + 5000 });
   await expectAnnounced(page, "#results", loadError);
   await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toHaveCount(0);
+  await recoverSeason(page);
+  expect(csp).toEqual([]);
 });
 
-test("season 500 swaps the server fragment and announces it", { tag: "@readonly" }, async ({ page }) => {
-  const fragment =
-    `<div class="panel warn" data-announce="${loadError}">` +
-    `<p>${loadError}</p>` +
-    `<p><a href="/season?lat=38.7167&lng=-9.1333&place=1" hx-get="/season?lat=38.7167&lng=-9.1333&place=1" hx-target="#results">Try again</a></p>` +
-    `</div>`;
+test("season 500 swaps the server fragment and announces it", async ({ page, request }) => {
+  const csp = watchCSP(page);
+  const fragment = await serverErrorFragment(request, lisbonSeason);
+  await waitReady(request);
+  expect(fragment).toContain(loadError);
+  expect(fragment).toContain("Try again");
   await searchLisbon(page);
   await page.route("**/season*", async (route) => {
     if (!isHX("/season", route.request())) {
@@ -264,4 +323,73 @@ test("season 500 swaps the server fragment and announces it", { tag: "@readonly"
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
   await expectAnnounced(page, "#results", loadError);
   await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
+  await axeOk(page, "light");
+  await recoverSeason(page);
+  expect(csp).toEqual([]);
+});
+
+test("places 500 swaps the server fragment and announces it", async ({ page, request }) => {
+  const csp = watchCSP(page);
+  const fragment = await serverErrorFragment(request, lisbonPlaces);
+  await waitReady(request);
+  expect(fragment).toContain(searchUnavailable);
+  await page.route("**/places*", async (route) => {
+    if (!isHX("/places", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({ status: 500, contentType: "text/html; charset=utf-8", body: fragment });
+  });
+  await page.goto("/");
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await expectAnnounced(page, "#places", searchUnavailable);
+  await recoverPlaces(page);
+  expect(csp).toEqual([]);
+});
+
+// A later keyup aborts the in-flight /places XHR (htmx:sendAbort). That is
+// not a network failure, so #places and #announce must stay quiet until the
+// surviving request swaps.
+test("an intentional places abort does not show a network error", { tag: "@readonly" }, async ({ page }) => {
+  const csp = watchCSP(page);
+  let n = 0;
+  let releaseFirst!: () => void;
+  let releaseSecond!: () => void;
+  const holdFirst = new Promise<void>((r) => {
+    releaseFirst = r;
+  });
+  const holdSecond = new Promise<void>((r) => {
+    releaseSecond = r;
+  });
+  await page.route("**/places*", async (route) => {
+    if (!isHX("/places", route.request())) {
+      await route.continue();
+      return;
+    }
+    n += 1;
+    if (n === 1) {
+      await holdFirst;
+      try {
+        await route.continue();
+      } catch {
+        /* htmx aborted this XHR */
+      }
+      return;
+    }
+    await holdSecond;
+    await route.continue();
+  });
+  await page.goto("/");
+  const box = page.getByLabel("Find your town");
+  await box.pressSequentially("li", { delay: 50 });
+  await expect.poll(() => n).toBe(1);
+  await box.pressSequentially("sb", { delay: 50 });
+  await expect.poll(() => n).toBe(2);
+  await expect(page.locator("#places")).not.toContainText(searchUnavailable);
+  await expect(page.locator("#announce")).not.toHaveText(searchUnavailable);
+  releaseSecond();
+  await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
+  await expect(page.locator("#places")).not.toContainText(searchUnavailable);
+  releaseFirst();
+  expect(csp).toEqual([]);
 });

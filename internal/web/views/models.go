@@ -27,6 +27,8 @@ const (
 	CopyKeepTyping         = "Keep typing: enter at least 2 letters of your town's name."
 	WildMushroomDisclaimer = "Look for wild mushrooms at markets and from sellers who can identify them. We don't give foraging advice: many edible mushrooms have deadly look-alikes."
 	CopyLandEstimate       = "Estimated from local climate normals."
+	CopyEstimate           = "Estimate"
+	CopyEstimateMark       = "≈"
 )
 
 // HTMX config: swap 4xx/5xx so error partials render (§11.5), and keep no

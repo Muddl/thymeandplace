@@ -129,6 +129,40 @@ func TestNoSafeURLInPublicViews(t *testing.T) {
 	}
 }
 
+func TestStaticCSSKeepsEstimateVisible(t *testing.T) {
+	generatedApprox := regexp.MustCompile(`content:\s*["'][^"']*(\\2248|≈)`)
+	clippedBadge := regexp.MustCompile(`\.item\s+\.badge\s*\{[^}]*clip-path`)
+	itemGenerated := regexp.MustCompile(`\.item::(before|after)\s*\{[^}]*content:`)
+	whenGenerated := regexp.MustCompile(`\.when(?:\s+a)?::(before|after)\s*\{[^}]*content:`)
+	err := filepath.Walk(filepath.Join("..", "..", "..", "static"), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".css") {
+			return nil
+		}
+		b, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		css := string(b)
+		switch {
+		case generatedApprox.MatchString(css):
+			t.Errorf("%s paints ≈ with generated content", path)
+		case clippedBadge.MatchString(css):
+			t.Errorf("%s clips .item .badge", path)
+		case itemGenerated.MatchString(css):
+			t.Errorf("%s uses ::before/::after on .item", path)
+		case whenGenerated.MatchString(css):
+			t.Errorf("%s uses ::before/::after on .when", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The retry link is sanitized: a script URL renders as templ's placeholder.
 func TestLoadErrorSanitizesRetryURL(t *testing.T) {
 	var buf bytes.Buffer

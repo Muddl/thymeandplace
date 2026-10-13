@@ -53,9 +53,8 @@ templ Season(vm SeasonVM) {
 						<li class={ "item", it.StatusClass }>
 							<a href={ templ.URL(it.URL) } hx-get={ it.URL } hx-target="#results" hx-push-url="true">{ it.Name }</a>
 							<span class="basis">{ it.Basis }</span>
-							if it.Estimate {
-								<span class="badge">Estimate</span>
-							}
+							<span class="approx" aria-hidden="true">{ CopyEstimateMark }</span>
+							<span class="badge">{ CopyEstimate }</span>
 						</li>
 					}
 				</ul>

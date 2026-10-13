@@ -11,6 +11,23 @@ test("1. search → select → results render", async ({ page }) => {
   await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
 });
 
+test("every season row shows Estimate and keeps ≈ out of accessible names", async ({ page }) => {
+  await page.goto("/season?lat=38.7167&lng=-9.1333&place=1&date=2026-05-15");
+  const items = page.locator("#results .item");
+  await expect(items.first()).toBeVisible();
+  const n = await items.count();
+  expect(n).toBeGreaterThan(0);
+  for (let i = 0; i < n; i++) {
+    const item = items.nth(i);
+    await expect(item.getByText("Estimate", { exact: true })).toBeVisible();
+    await expect(item.locator(".approx")).toHaveAttribute("aria-hidden", "true");
+    await expect(item).not.toHaveAccessibleName(/≈/);
+  }
+  await expect(page.getByRole("link", { name: /≈/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /how we estimate/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /how we estimate/i })).not.toHaveAccessibleName(/≈/);
+});
+
 test("a one-letter search asks for more", async ({ page }) => {
   await page.goto("/");
   const box = page.getByLabel("Find your town");

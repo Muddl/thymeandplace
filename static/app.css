@@ -15,6 +15,8 @@ header.site, main, footer.site { max-width: 46rem; margin: 0 auto; padding: 1rem
 .item { padding:.3rem 0; border-bottom:1px solid var(--line); }
 .item .basis { display:block; font-size:.9rem; }
 .badge { font-size:.75rem; color: var(--muted); }
+.item .badge { text-transform: uppercase; }
+.item .approx { color: var(--muted); }
 .bar { display:grid; grid-template-columns: repeat(12, 1fr); gap:2px; list-style:none; padding:0; }
 .bar .m { text-align:center; padding:.3rem 0; background: var(--line); border-radius:.2rem; font-size:.8rem; }
 .bar .s-peak { background: var(--peak); color:#fff; } .bar .s-in { background: var(--in); }

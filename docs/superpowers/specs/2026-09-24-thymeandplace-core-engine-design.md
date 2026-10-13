@@ -18,7 +18,7 @@ Sub-project 1 builds the **core seasonal engine**: location in → estimated in-
 
 1. A cook anywhere on land or near a coast gets a plausible, clearly labeled in-season list within ~1 second (p95, warm cache) or ~2 seconds (cold).
 2. For places with published seasonal guides, the engine's output broadly agrees with them, measured by the calibration score (§12). No catalog change lowers it without an explicit override.
-3. Every result is labeled as an estimate, and the site explains how estimates are made.
+3. Every result is labeled as an estimate, and the site explains how estimates are made. Each `/season` row shows the word Estimate in normal-case source (CSS `text-transform` sets the visual case) and may show a decorative ≈ in an `aria-hidden` span. Generated content must not add ≈, so the accessibility tree never names the mark.
 4. The site never dead-ends: every failure produces a useful, honest message and a next step (§11).
 5. The owner can add, edit, bulk-import and export catalog data without a deploy, and sees the effect of each change on seasons before applying it.
 
@@ -651,7 +651,7 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.8 Web tests
 
-`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any browser console message about Content Security Policy.
+`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any browser console message about Content Security Policy. `/season` tests count result rows against the visible word Estimate and check that ≈ is absent from accessible names.
 
 ### 13.9 End-to-end (Playwright against Compose)
 

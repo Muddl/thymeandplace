@@ -98,6 +98,37 @@ func TestWriteReplacesLinks(t *testing.T) {
 	}
 }
 
+func TestLoadInSeesUncommittedWrite(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	q := store.New(tx)
+	kale := catalogtest.Hardy()
+	kale.Name = "Uncommitted kale"
+	if err := catalog.Write(ctx, q, []catalog.Ingredient{kale}, nil); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	snap, err := catalog.LoadIn(ctx, q)
+	if err != nil {
+		t.Fatalf("LoadIn: %v", err)
+	}
+	got, ok := snap.Get("kale")
+	if !ok || got.Name != "Uncommitted kale" {
+		t.Fatalf("in-tx load: ok=%v name=%q", ok, got.Name)
+	}
+	outside, err := catalog.Load(ctx, pool)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := outside.Get("kale"); ok {
+		t.Fatal("uncommitted upsert visible outside the transaction")
+	}
+}
+
 func TestWritePairingsBetweenNewIngredients(t *testing.T) {
 	pool := dbtest.New(t)
 	a := catalogtest.Hardy()

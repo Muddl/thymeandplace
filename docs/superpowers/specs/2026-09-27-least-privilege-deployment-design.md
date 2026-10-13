@@ -144,7 +144,7 @@ Down migration: revoke the grants, drop the prune function, and turn the two fun
 
 ### 4.6 Tests (`internal/dbtest`)
 
-`dbtest.start()` creates the three roles in the container, then creates `tp_template` owned by `tp_owner`. It creates the extensions in the template as the superuser, then runs `db.Migrate` as `tp_owner`. That is the same order as production. `dbtest.New` still returns a superuser pool, because fixtures insert freely. A new `dbtest.NewAs(t, "tp_app")` returns a pool on the same per-test database connected as `tp_app`.
+`dbtest.start()` creates `tp_template`, applies `deploy/db/roles.sql` (the same file `deploy/db/initdb/20-roles.sh` runs on a fresh volume) as the superuser, then runs `db.Migrate` as `tp_owner`. That is the same order as production. `dbtest.New` still returns a superuser pool, because fixtures insert freely. `dbtest.As(t, pool, "tp_app")` returns a pool on the same per-test database connected as `tp_app`.
 
 ## 5. Implementation outline
 

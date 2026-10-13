@@ -2,6 +2,7 @@ name: pr-governance
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+  merge_group:
 
 permissions:
   contents: read
@@ -9,34 +10,41 @@ permissions:
   issues: read
 
 concurrency:
-  group: pr-governance-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: pr-governance-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   governance:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Pass merge queue without PR code
+        if: github.event_name == 'merge_group'
+        run: echo "merge_group: skipping sign-off re-check; required checks already passed to enter the queue"
       - name: Checkout base (trusted checker)
+        if: github.event_name == 'pull_request'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
       - name: Checkout PR head (base has no cmd/prcheck yet)
-        if: hashFiles('cmd/prcheck/main.go') == ''
+        if: github.event_name == 'pull_request' && hashFiles('cmd/prcheck/main.go') == ''
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: false
       - name: Print HEAD
+        if: github.event_name == 'pull_request'
         run: |
           echo "pull_request.head.sha=${{ github.event.pull_request.head.sha }}"
           git rev-parse HEAD
       - name: Check issue link and sign-offs
+        if: github.event_name == 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: go run ./cmd/prcheck

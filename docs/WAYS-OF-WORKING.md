@@ -60,7 +60,7 @@ A farmer may have at most two open pull requests by default. Count one per issue
 
 ## Path sign-offs
 
-The `pr-governance` workflow runs only on `pull_request` events (`opened`, `edited`, `synchronize`, `reopened`, `labeled`, `unlabeled`). It checks out the pull request's base SHA and runs that `cmd/prcheck`. The pull request is input through the GitHub API. The workflow never runs on `issue_comment`, so a comment cannot attach a check to `main` or execute head code in the default-branch context.
+The `pr-governance` workflow runs on `pull_request` events (`opened`, `edited`, `synchronize`, `reopened`, `labeled`, `unlabeled`) and on `merge_group`. On a `pull_request` event, the workflow checks out the pull request's base SHA and runs that `cmd/prcheck`. The pull request is input through the GitHub API. On `merge_group`, the workflow passes without a checkout and without running `prcheck`. The skip is `github.event_name == 'merge_group'` only. A branch name, label, pull request body, or extra environment variable cannot trigger it. The workflow never runs on `issue_comment`, so a comment cannot attach a check to `main` or execute head code in the default-branch context.
 
 If the base commit has no `cmd/prcheck` yet, the introducing pull request checks out the head for that first merge only.
 
@@ -100,7 +100,19 @@ Do these steps in the GitHub UI. Do not change repository settings from an agent
 1. Open the repository **Settings**, then **Branches**.
 2. Add a branch protection rule for `main`.
 3. Enable **Require a pull request before merging**, so nobody pushes to `main` directly.
-4. Enable **Require status checks to pass before merging**. Add the checks that run on every pull request: `go`, `python`, `deploy`, and `governance`. Do not require `backup` on pull requests. That job runs only on `main`. Once #86 merges, `e2e-result` becomes a required check. Wade decides when to turn it on.
+4. Enable **Require status checks to pass before merging**. Add the checks `go`, `python`, `deploy-checks`, `governance`, and `e2e-result`. Those checks must run on `merge_group`. Do not require `backup`. That job runs only on `main`. #89 renames the compose job from `deploy` to `deploy-checks`. Until it merges, the check name is still `deploy`. When #89 rebases, keep the `merge_group` trigger.
 5. Enable **Do not allow bypassing the above settings**.
 6. Leave auto-merge disabled.
 7. After the first pull request that adds `pr-governance` is merged, confirm that the `governance` check appears on the next pull request before you add it to the required list.
+
+## Merge queue (Wade)
+
+Do these steps in the GitHub UI. Do not change repository settings from this pull request.
+
+1. Open **Settings**, then **Branches**, then edit the `main` rule.
+2. Enable **Require merge queue**.
+3. Keep the required checks `go`, `python`, `deploy-checks`, `governance`, and `e2e-result`.
+4. Do not require `backup`.
+5. Until #89 merges, the compose job check is still named `deploy`. After #89, require `deploy-checks` instead. When #89 rebases onto this change, keep the `merge_group` trigger. #86 also edits `ci.yml`, and it has already merged.
+6. Leave **Allow auto-merge** off.
+7. Disable **Require this branch to be up to date before merging**. The queue already rebuilds each entry against `main`.

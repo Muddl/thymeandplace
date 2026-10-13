@@ -60,6 +60,10 @@ select_browsers() {
     printf '%s\n' "$all"
     return
   fi
+  if [ "$event" = merge_group ]; then
+    printf '%s\n' "$all"
+    return
+  fi
   if [ "$event" = pull_request ]; then
     local files
     if ! files=$(changed_files); then
@@ -91,6 +95,14 @@ self_test() {
   }
 
   GITHUB_EVENT_NAME=push GITHUB_REF=refs/heads/main expect "push to main" "$all"
+
+  GITHUB_EVENT_NAME=merge_group GITHUB_REF=refs/heads/gh-readonly-queue/main/pr-1-deadbeef \
+    CHANGED_FILES='cmd/server/main.go' \
+    expect "merge_group with Go-only files" "$all"
+
+  GITHUB_EVENT_NAME=pull_request GITHUB_REF=refs/heads/gh-readonly-queue/main/pr-1-deadbeef \
+    CHANGED_FILES='cmd/server/main.go' \
+    expect "pull_request with queue-like ref" "$chromium_only"
 
   GITHUB_EVENT_NAME=pull_request GITHUB_REF=refs/heads/feature \
     CHANGED_FILES='cmd/server/main.go' \

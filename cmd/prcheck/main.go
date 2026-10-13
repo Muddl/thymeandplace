@@ -29,6 +29,11 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer, cl
 		return 2
 	}
 
+	if prcheck.SkipGovernance(getenv("GITHUB_EVENT_NAME")) {
+		fmt.Fprintln(stdout, "prcheck: ok (merge_group)")
+		return 0
+	}
+
 	f, err := os.Open(mapPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "prcheck: %v\n", err)

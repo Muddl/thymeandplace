@@ -32,7 +32,6 @@ const (
 	CopyAboutAnnounce      = "About the data"
 )
 
-// Short live-region copy for data-announce on swapped fragments (#51 M2).
 func AnnounceSeason(n int, label string) string {
 	where := label
 	if !strings.HasPrefix(label, "near ") {

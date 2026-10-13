@@ -303,9 +303,7 @@ var sameCellRows = []struct {
 	}},
 }
 
-// headingRE strips per-request place copy (the h2 and data-announce) so
-// same-cell responses can be compared for identical results.
-var headingRE = regexp.MustCompile(`<h2>[^<]*</h2>|data-announce="[^"]*"`)
+var h2OrDataAnnounceRE = regexp.MustCompile(`<h2>[^<]*</h2>|data-announce="[^"]*"`)
 
 // Spec §6: two points in one cell get identical results in either order.
 func TestSeasonSameCellSameResults(t *testing.T) {
@@ -321,7 +319,7 @@ func TestSeasonSameCellSameResults(t *testing.T) {
 					if code != 200 {
 						t.Fatalf("%s: %d", q, code)
 					}
-					bodies = append(bodies, headingRE.ReplaceAllString(body, ""))
+					bodies = append(bodies, h2OrDataAnnounceRE.ReplaceAllString(body, ""))
 				}
 			}
 			for i, b := range bodies[1:] {

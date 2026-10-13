@@ -499,7 +499,7 @@ Over the limit returns 429 with `Retry-After`.
 
 HTMX 2.x, vendored. It's configured to swap 4xx and 5xx responses so error partials render, with `allowEval: false`, `allowScriptTags: false` and `selfRequestsOnly: true` on both the public and admin sides. Templates contain no inline scripts, `style=` attributes, `on*` handlers or `hx-on`; a lint test in each views package enforces this so the CSP (§10.4) never needs `'unsafe-inline'`. Geolocation uses about 20 lines of vanilla JS calling `htmx.ajax` with coordinates and the local date.
 
-HTMX swaps `#places` and `#results` only. The site header stays in the layout. Public pages have one `#announce` live region (`role="status"`). After a swap, `static/app.js` copies the fragment's `data-announce` string into it, not the swapped `innerText`. The swap target is `aria-busy` for the request. A results swap does not move focus to the location heading (open on #74; this is the current behaviour). `main` starts with an `h1` (the page title) above `#results`. The search box is `#q`. It autofocuses when the page has no results (intentional; checked in the #53 pass). A `/#q` link, and the geolocation fallback, focus it. Focus rings are `:focus-visible` in `static/app.css` using `--ink`. Colour scheme follows `prefers-color-scheme` only. There is no theme toggle. Public CSS does not load web fonts.
+HTMX swaps `#places` and `#results` only. The site header stays in the layout. Public pages have one `#announce` live region (`role="status"`). After a swap, `static/app.js` copies the fragment's `data-announce` string into it, not the swapped `innerText`. The swap target is `aria-busy` for the request. A results swap does not move focus to the location heading (open on #74; this is the current behaviour). `main` starts with a fixed site `h1` (`CopySiteHeading`, "What's in season") above `#results`. The place name stays the `#results` `h2` and must not be copied into that `h1`. The search box is `#q`. It autofocuses when the page has no results (intentional; checked in the #53 pass). A `/#q` link, and the geolocation fallback, focus it. Focus rings are `:focus-visible` in `static/app.css` using `--ink`. Colour scheme follows `prefers-color-scheme` only. There is no theme toggle. Public CSS does not load web fonts.
 
 ### 11.6 Error handling and UX states
 
@@ -653,7 +653,7 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.8 Web tests
 
-`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any browser console message about Content Security Policy.
+`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any browser console message about Content Security Policy. Almanac kickoff checks cover one fixed site `h1` in `main` above `#results` that does not copy the place `h2`.
 
 ### 13.9 End-to-end (Playwright against Compose)
 

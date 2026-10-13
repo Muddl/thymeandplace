@@ -8,7 +8,7 @@ test("1. search → select → results render", { tag: "@readonly" }, async ({ p
   await expect(page.locator("#announce")).toHaveCount(1);
   await expect(page.locator("[aria-live]")).toHaveCount(1);
   await expect(page.locator("#announce")).toHaveAttribute("role", "status");
-  await expect(page.locator("main h1")).toBeVisible();
+  await expect(page.locator("main h1")).toHaveText("What's in season");
   const headerBefore = await page.locator("header.site").boundingBox();
   // Type key by key: the search input triggers on keyup, which fill() doesn't fire.
   await box.pressSequentially("lisb", { delay: 50 });
@@ -16,6 +16,8 @@ test("1. search → select → results render", { tag: "@readonly" }, async ({ p
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
   const results = page.locator("#results");
   await expect(results).toContainText("Lisbon, PT");
+  await expect(page.locator("main h1")).toHaveText("What's in season");
+  await expect(results.locator("h2")).toHaveText("Lisbon, PT");
   await expect(results.locator("h3").first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Thyme & Place" })).toBeVisible();
   await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
@@ -58,6 +60,8 @@ test("place links work without JavaScript", { tag: "@readonly" }, async ({ brows
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
   await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
   await expect(page.locator("#results")).toContainText("Lisbon, PT");
+  await expect(page.locator("main h1")).toHaveText("What's in season");
+  await expect(page.locator("#results h2")).toHaveText("Lisbon, PT");
   await expect(page.getByRole("link", { name: "Thyme & Place" })).toBeVisible();
   expect(csp.events).toEqual([]);
   await context.close();

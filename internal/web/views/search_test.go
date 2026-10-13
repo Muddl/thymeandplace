@@ -3,6 +3,7 @@ package views
 import (
 	"bytes"
 	"context"
+	"html"
 	"strings"
 	"testing"
 )
@@ -30,8 +31,9 @@ func TestSearchShell(t *testing.T) {
 	if !strings.Contains(home, `id="announce" role="status"`) {
 		t.Fatal("home #announce must have role=status")
 	}
-	if !strings.Contains(home, "<h1>What&#39;s in season</h1>") {
-		t.Fatal("home must have an h1 in main")
+	wantH1 := "<h1>" + html.EscapeString(CopySiteHeading) + "</h1>"
+	if !strings.Contains(home, wantH1) {
+		t.Fatalf("home must have a fixed site h1 %q", CopySiteHeading)
 	}
 	if !strings.Contains(home, `id="q"`) || !strings.Contains(home, "autofocus") {
 		t.Fatal("home search must be #q with autofocus")
@@ -56,8 +58,17 @@ func TestSearchShell(t *testing.T) {
 	if !strings.Contains(season, `<header class="site">`) || !strings.Contains(season, `id="q"`) {
 		t.Fatal("season page must keep the site header and search box")
 	}
-	if !strings.Contains(season, "<h1>Lisbon, PT</h1>") {
-		t.Fatal("season page must have an h1 in main above #results")
+	if !strings.Contains(season, wantH1) {
+		t.Fatalf("season page must keep the fixed site h1 %q", CopySiteHeading)
+	}
+	if i, j := strings.Index(season, "<h1>"), strings.Index(season, `id="results"`); i < 0 || j < 0 || i > j {
+		t.Fatal("h1 must sit in main above #results")
+	}
+	if !strings.Contains(season, "<h2>Lisbon, PT</h2>") {
+		t.Fatal("place label must stay the results h2")
+	}
+	if strings.Contains(season, "<h1>Lisbon, PT</h1>") {
+		t.Fatal("site h1 must not copy the results h2")
 	}
 	want := `data-announce="1 ingredient in season near Lisbon, PT"`
 	if !strings.Contains(season, want) {

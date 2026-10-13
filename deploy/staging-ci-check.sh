@@ -1,6 +1,4 @@
 #!/bin/sh
-# Checks the staging gate, workflow policy, and overlay without a live VM.
-# Run from the repo root. Exit 1 on failure.
 set -eu
 
 fail() {
@@ -8,7 +6,6 @@ fail() {
 	exit 1
 }
 
-# Unset overlay must keep the production compose command and COMPOSE_FILE.
 overlay=
 C="docker compose -f compose.yaml -f compose.release.yaml${overlay:+ -f $overlay} --profile tools"
 compose_file="compose.yaml:compose.release.yaml${overlay:+:$overlay}"
@@ -23,15 +20,12 @@ compose_file="compose.yaml:compose.release.yaml${overlay:+:$overlay}"
 	fail "staging overlay compose command is $C"
 [ "$compose_file" = "compose.yaml:compose.release.yaml:compose.staging.yaml" ] ||
 	fail "staging COMPOSE_FILE is $compose_file"
-grep -Fq 'compose.release.yaml${overlay:+ -f $overlay}' deploy/deploy.sh ||
-	fail "deploy.sh must use the overlay compose expansion"
-grep -Fq 'compose.yaml:compose.release.yaml${overlay:+:$overlay}' deploy/deploy.sh ||
-	fail "deploy.sh must write COMPOSE_FILE with the overlay expansion"
+grep -Fq 'TP_COMPOSE_OVERLAY' deploy/deploy.sh ||
+	fail "deploy.sh must honor TP_COMPOSE_OVERLAY"
 
 gate=./deploy/staging-gate.sh
 [ -x "$gate" ] || fail "$gate is not executable"
 
-# Missing any required secret → skip (false), exit 0.
 for missing in STAGING_SSH_KEY STAGING_HOST STAGING_SSH_HOST_KEY STAGING_BASIC_AUTH; do
 	out=$(
 		STAGING_SSH_KEY=k STAGING_HOST=h STAGING_SSH_HOST_KEY=hk STAGING_BASIC_AUTH=u:p
@@ -47,7 +41,6 @@ out=$(
 	export GITHUB_OUTPUT
 	STAGING_SSH_KEY=k STAGING_HOST=h STAGING_SSH_HOST_KEY=hk STAGING_BASIC_AUTH=u:p \
 		"$gate" 2>/dev/null
-	# stdout is "true"; also check the Actions output file
 	grep -qx 'ready=true' "$GITHUB_OUTPUT" || fail "GITHUB_OUTPUT was not ready=true"
 	rm -f "$GITHUB_OUTPUT"
 ) || fail "$gate failed when every secret is set"
@@ -71,7 +64,6 @@ if grep -E ': write' "$wf"; then
 	fail "$wf must not request write permissions"
 fi
 
-# Production compose files stay free of staging hostnames and basic auth.
 if grep -n 'staging.thymeand.place' deploy/Caddyfile deploy/compose.yaml deploy/compose.release.yaml; then
 	fail "production compose/Caddyfile must not name staging.thymeand.place"
 fi

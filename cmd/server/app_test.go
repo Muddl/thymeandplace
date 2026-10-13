@@ -26,6 +26,7 @@ import (
 	"thymeandplace/internal/jobs"
 	"thymeandplace/internal/monitor"
 	"thymeandplace/internal/store"
+	"thymeandplace/internal/web"
 )
 
 func get(t *testing.T, url string) (int, string) {
@@ -250,6 +251,49 @@ func TestNewAppRefusesPendingMigrations(t *testing.T) {
 	_, err := newApp(ctx, config{DatabaseURL: dbtest.URLAs(pool, dbtest.App)}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if !errors.Is(err, db.ErrPendingMigrations) {
 		t.Fatalf("newApp with a pending migration: %v, want ErrPendingMigrations", err)
+	}
+}
+
+// /readyz re-checks the schema after start, so a restore to an older
+// goose_db_version fails readiness while /healthz stays up.
+func TestReadyzRefusesPendingMigrations(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool := dbtest.New(t)
+	tx, _ := pool.Begin(ctx)
+	if err := catalog.Write(ctx, store.New(tx), catalogtest.SmallCatalog(), nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = tx.Commit(ctx)
+	cfg := config{DatabaseURL: dbtest.URLAs(pool, dbtest.App)}
+	a, err := newApp(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.close()
+	a.start(ctx)
+	srv := httptest.NewServer(a.handler)
+	defer srv.Close()
+
+	if code, body := get(t, srv.URL+"/readyz"); code != 200 || body != "ready" {
+		t.Fatalf("readyz on a current schema: %d %q", code, body)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM goose_db_version WHERE version_id = (SELECT max(version_id) FROM goose_db_version)`); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		code, body := get(t, srv.URL+"/readyz")
+		if code == 503 && body == web.ErrSchemaNotCurrent.Error() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("readyz after a pending migration: %d %q", code, body)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if code, body := get(t, srv.URL+"/healthz"); code != 200 || body != "ok" {
+		t.Fatalf("healthz must stay up: %d %q", code, body)
 	}
 }
 

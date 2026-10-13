@@ -196,8 +196,19 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 		}
 	}
 	window := &monitor.Window{}
+	schema := func(ctx context.Context) error {
+		if err := db.SchemaCurrent(ctx, pool); err != nil {
+			if errors.Is(err, db.ErrPendingMigrations) {
+				return web.ErrSchemaNotCurrent
+			}
+			return err
+		}
+		return nil
+	}
 	a.watchdog = &monitor.Watchdog{
-		Ready:     func(ctx context.Context) error { return web.CheckReady(ctx, a.holder.Current, pool.Ping) },
+		Ready: func(ctx context.Context) error {
+			return web.CheckReady(ctx, web.Ready{Snapshot: a.holder.Current, Ping: pool.Ping, Schema: schema})
+		},
 		Window:    window,
 		Errors:    errs,
 		App:       monitor.NewPinger("app", cfg.HeartbeatApp, log),
@@ -214,7 +225,7 @@ func newApp(ctx context.Context, cfg config, log *slog.Logger) (*app, error) {
 	public := web.New(web.Deps{
 		Climate: a.climate, Ocean: a.ocean, Places: places.NewService(pool),
 		Snapshot: a.holder.Current, DataVersion: a.watcher.Current, Adjuster: season.NoopAdjuster{},
-		Ping: pool.Ping, Now: cfg.now, Log: log, TrustProxy: cfg.TrustProxy,
+		Ping: pool.Ping, Schema: schema, Now: cfg.now, Log: log, TrustProxy: cfg.TrustProxy,
 		DBSlots: publicDBSlots(pool.Config().MaxConns), Seafood: cfg.Seafood,
 		BaseURL: cfg.BaseURL, Featured: featured,
 	})

@@ -48,9 +48,12 @@ type Deps struct {
 	DataVersion func() string
 	Adjuster    season.Adjuster
 	Ping        func(context.Context) error
-	Now         func() time.Time
-	Log         *slog.Logger
-	TrustProxy  bool
+	// Schema reports whether this binary's migrations are applied. Nil
+	// skips the check (tests that only exercise snapshot and ping).
+	Schema     func(context.Context) error
+	Now        func() time.Time
+	Log        *slog.Logger
+	TrustProxy bool
 	// DBSlots is how many public requests may use the database at once
 	// (§11.4); 0 → DefaultDBSlots. Keep it below the pool size so admin,
 	// background work and Apply always have connections left.
@@ -100,7 +103,8 @@ type Server struct {
 	shedN    int       // requests shed since the last log line
 	shedLast time.Time // when the last "public DB gate full" line went out
 
-	ready pingCache // #13: one shared DB ping for /readyz
+	ready  pingCache // #13: one shared DB ping for /readyz
+	schema pingCache // one shared schema-version check for /readyz
 }
 
 // New returns the public handler with its own middleware (§11.4):
@@ -362,30 +366,52 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 var (
 	ErrCatalogNotLoaded    = errors.New("catalog not loaded")
 	ErrDatabaseUnavailable = errors.New("database unavailable")
+	ErrSchemaNotCurrent    = errors.New("database has pending migrations; run the migrate service (server -migrate-only)")
 )
 
+// Ready is the conjunction that makes /readyz and the watchdog say ready.
+type Ready struct {
+	Snapshot func() *catalog.Snapshot
+	Ping     func(context.Context) error
+	Schema   func(context.Context) error
+}
+
 // CheckReady is /readyz's check, shared with the monitoring watchdog so the
-// two can't drift apart: a catalog snapshot is loaded and the database
-// answers a ping within 500 ms.
-func CheckReady(ctx context.Context, snapshot func() *catalog.Snapshot, ping func(context.Context) error) error {
-	if snapshot() == nil {
+// two can't drift apart: a catalog snapshot is loaded, the database answers
+// a ping within 500 ms, and the schema has no pending migrations.
+func CheckReady(ctx context.Context, r Ready) error {
+	if r.Snapshot() == nil {
 		return ErrCatalogNotLoaded
 	}
-	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	if err := ping(ctx); err != nil {
+	if err := withReadyTimeout(ctx, r.Ping); err != nil {
+		return ErrDatabaseUnavailable
+	}
+	if r.Schema == nil {
+		return nil
+	}
+	if err := withReadyTimeout(ctx, r.Schema); err != nil {
+		if errors.Is(err, ErrSchemaNotCurrent) {
+			return ErrSchemaNotCurrent
+		}
 		return ErrDatabaseUnavailable
 	}
 	return nil
 }
 
-// readyz answers ready when a catalog snapshot is loaded and the database
-// answered a ping in the last second. The snapshot check is free and never
-// cached. The ping goes through sharedPing (#13), which detaches from the
-// request's cancellation, so its own 500 ms timeout is the one that bounds it.
+func withReadyTimeout(ctx context.Context, fn func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	return fn(ctx)
+}
+
+// readyz answers ready when a catalog snapshot is loaded, the database
+// answered a ping in the last second, and the schema is current. The
+// snapshot check is free and never cached. The ping and schema checks go
+// through shared caches (#13), which detach from the request's cancellation,
+// so each one's own 500 ms timeout is the one that bounds it.
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	if err := CheckReady(r.Context(), s.d.Snapshot, s.sharedPing); err != nil {
+	if err := CheckReady(r.Context(), Ready{Snapshot: s.d.Snapshot, Ping: s.sharedPing, Schema: s.sharedSchema}); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte(err.Error()))
 		return

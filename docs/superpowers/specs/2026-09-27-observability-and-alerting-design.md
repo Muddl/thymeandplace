@@ -110,13 +110,13 @@ func (p *Pinger) Fail(ctx context.Context, body string)     // POSTs to <url>/fa
   - `backup_login` fires next to the existing `WARN` in `LogAttempt`.
   - `backup_lockout` fires in `BackupLogin` after a commit that sets `locked_until`, which also logs a new `WARN "backup login locked" until=<time>`.
   - Passkey logins and plain failures fire nothing. IPs stay in `admin_login_log` and the local log.
-- **`Ready`.** `web.CheckReady(ctx, snapshot, ping) error` is extracted from `readyz` (`internal/web/server.go:208-223`), so the watchdog and `/readyz` can't drift apart. It checks that a snapshot is loaded and the DB answers a ping within 500 ms.
+- **`Ready`.** `web.CheckReady(ctx, web.Ready) error` is extracted from `readyz`, so the watchdog and `/readyz` can't drift apart. It checks that a snapshot is loaded, the DB answers a ping within 500 ms, and the schema has no pending migrations.
 
 **Loop.** The watchdog samples `Ready` every minute. It reports every 5th sample, and also at once on the sample where readiness reaches 3 consecutive failures. That is at most one report a minute. A report sends:
 
 - **To `app`:**
   - `Fail` with one line per reason:
-    - `not ready: <catalog not loaded | database unavailable>` after 3 consecutive failed samples.
+    - `not ready: <catalog not loaded | database unavailable | database has pending migrations; run the migrate service (server -migrate-only)>` after 3 consecutive failed samples.
     - `5xx: <n> of <m> requests` when n ≥ 5 and n ≥ 5% of m.
     - `errors: <n> (<msg>; <msg>)` when n ≥ 1.
   - Otherwise `Success("ok requests=<m> 5xx=<n>")`.
@@ -231,7 +231,7 @@ A future metrics endpoint must use its own port. Caddy must never proxy that por
     - Core spec §11.4: 2xx probe lines are skipped.
     - Core spec §13.2: drift also reports to its heartbeat.
     - Core spec §14:
-      - Health: "Docker and Caddy probe `/healthz`, and Caddy routes on it. Nothing restarts an unhealthy container; alerts do. `/readyz` is for monitoring."
+      - Health: "Docker Compose probes `/readyz`. Caddy probes `/healthz` and routes on it. Nothing restarts an unhealthy container; alerts do."
       - Logs: retention.
       - New Monitoring bullet.
       - Backups: the monthly restore test, if §8 Q3 is yes.

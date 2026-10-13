@@ -100,7 +100,7 @@ Do these steps in the GitHub UI. Do not change repository settings from an agent
 1. Open the repository **Settings**, then **Branches**.
 2. Add a branch protection rule for `main`.
 3. Enable **Require a pull request before merging**, so nobody pushes to `main` directly.
-4. Enable **Require status checks to pass before merging**. Add the checks that run on every pull request: `go`, `python`, `deploy`, and `governance`. Do not require `e2e` or `backup` on pull requests. Those jobs run only on `main`.
+4. Enable **Require status checks to pass before merging**. Add the checks that run on every pull request: `go`, `python`, `deploy`, and `governance`. Do not require `backup` on pull requests. That job runs only on `main`. Once #86 merges, `e2e-result` becomes a required check. Wade decides when to turn it on.
 5. Enable **Do not allow bypassing the above settings**.
 6. Leave auto-merge disabled.
 7. After the first pull request that adds `pr-governance` is merged, confirm that the `governance` check appears on the next pull request before you add it to the required list.

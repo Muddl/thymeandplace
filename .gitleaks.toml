@@ -1,0 +1,8 @@
+title = "thymeandplace"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Throwaway e2e age test keys"
+paths = ['''(^|/)deploy/e2e/[^/]+\.agekey$''']

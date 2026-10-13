@@ -3,6 +3,7 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  merge_group:
 
 permissions:
   contents: read
@@ -12,6 +13,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gitleaks:
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          dest="$RUNNER_TEMP/gitleaks"
+          mkdir -p "$dest"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}" -o "$dest/$archive"
+          echo "${GITLEAKS_SHA256}  $dest/$archive" | sha256sum -c -
+          tar -xzf "$dest/$archive" -C "$dest" gitleaks
+          chmod 0755 "$dest/gitleaks"
+          echo "$dest" >> "$GITHUB_PATH"
+          "$dest/gitleaks" version
+      - name: Scan git history
+        run: gitleaks detect --source . --verbose --redact --no-banner
+
   go:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -125,7 +154,7 @@ jobs:
         run: node e2e/check-tags.mjs --self-test && node e2e/check-tags.mjs
 
   e2e-select:
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -150,7 +179,7 @@ jobs:
           echo "Selected browsers: $browsers" >> "$GITHUB_STEP_SUMMARY"
 
   e2e:
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main'
     needs: [go, python, e2e-select]
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -177,16 +206,16 @@ jobs:
           SHARD: ${{ matrix.shard }}/2
           CI: true
         run: ./e2e/run.sh
-      - if: always()
+      - if: ${{ !cancelled() && failure() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-blob-${{ matrix.browser }}-${{ matrix.shard }}
           path: e2e/blob-report
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
 
   e2e-report:
-    if: failure() && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+    if: failure() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main')
     needs: [e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -207,14 +236,15 @@ jobs:
         run: |
           npm ci
           npx playwright merge-reports --reporter html all-blob-reports
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report
           path: e2e/playwright-report
-          retention-days: 7
+          retention-days: 3
 
   e2e-result:
-    if: always() && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == 'refs/heads/main')
     needs: [e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -229,7 +229,7 @@ Merge one when CI is green, then deploy the release it produces as usual. That i
 
 ## CI end-to-end tests
 
-The `e2e` job in `.github/workflows/ci.yml` runs on every pull request and on every push to `main`. It does not run on a feature-branch push that has no pull request. Branch protection should require `e2e-result`, not the matrix cell names. That job `needs: e2e` with `if: always()` on pull requests and on `main`, and it fails if the matrix failed, was cancelled, or was skipped.
+The `e2e` job in `.github/workflows/ci.yml` runs on every pull request, on every push to `main`, and on `merge_group`. It does not run on a feature-branch push that has no pull request. Branch protection should require `e2e-result`, not the matrix cell names. That job `needs: e2e` with `if: always()` on those events, and it fails if the matrix failed, was cancelled, or was skipped.
 
 `e2e/select-browsers.sh` chooses the browser list. A push to `main`, or a pull request that touches `views/`, `static/` or `e2e/`, runs Chromium, Firefox and WebKit. Other pull requests run Chromium only. If `git diff` fails, the script prints all three engines rather than falling back to Chromium. The `deploy` job runs `./e2e/select-browsers.sh --self-test` and `node e2e/check-tags.mjs` on every push so a broken path or tag rule fails CI even when e2e itself is skipped. Each matrix cell installs only its browser and restores `~/.cache/ms-playwright` from `actions/cache`.
 
@@ -244,9 +244,11 @@ E2E_BASE_URL=https://thymeand.place GREP=@readonly BROWSER=chromium ./e2e/run.sh
 
 `GREP=@mutating` is `--grep-invert @readonly`, so untagged tests run in the mutating subset. `run.sh` exits 2 if the origin is not localhost unless `GREP=@readonly`. QA tags the specs. `check-tags.mjs` skips until at least one `@readonly` or `@mutating` appears in `e2e/tests`, then fails on any untagged test. See `e2e/README.md`.
 
-On failure, each shard uploads its blob report and `e2e-report` merges them into the `playwright-report` artifact.
+On failure, each shard uploads its blob report and `e2e-report` merges them into the `playwright-report` artifact. Both artifacts expire after 3 days. Green runs upload nothing. A remote or prod-target run (`E2E_BASE_URL` pointing off localhost) must not add an `upload-artifact` step.
 
-The suite still builds app and ingest from the current tree. It does not pull the GHCR images a production deploy runs. Release images exist only after `ci` on `main` succeeds, pull-request commits are never published, and `compose.e2e.yaml` injects calibration fixtures at build time. A follow-up would run `GREP=@readonly` against `compose.release.yaml` for the last green `main`. Until then, `E2E_BASE_URL` is how a `@readonly` smoke points at prod.
+The `gitleaks` job runs on the same events. It checks out the full history (`fetch-depth: 0`, `persist-credentials: false`), downloads a SHA256-pinned gitleaks binary, and scans every commit. `.gitleaks.toml` extends the default rules and allowlists `deploy/e2e/*.agekey`, which are throwaway e2e age test keys.
+
+The suite still builds app and ingest from the current tree. It does not pull the GHCR images a production deploy runs. Release images exist only after `ci` on `main` succeeds, pull-request commits are never published, and `compose.e2e.yaml` injects calibration fixtures at build time. A follow-up would run `GREP=@readonly` against `compose.release.yaml` for the last green `main`. Until then, `E2E_BASE_URL` is how a `@readonly` smoke points at prod. Do not upload Playwright artifacts from that remote run.
 
 **Compose digests.** Whether Dependabot bumps the digests in `deploy/compose.yaml` wasn't verified (spec §4.1). Check after its first weekly run. If it doesn't, bump them by hand every quarter. Check `deploy/compose.dev.yaml` either way: its name isn't a standard compose file name, so Dependabot may skip it. To bump a digest, take the top `Digest:` line (the multi-platform index) from
 
@@ -275,6 +277,7 @@ and replace the `@sha256:…` part. The PostGIS reference must be identical in t
 | `moby/buildkit:v<version>@sha256:…` | `.github/workflows/release.yml`, `driver-opts` of `setup-buildx-action` | The BuildKit that builds and pushes the release images. `imagetools inspect moby/buildkit:buildx-stable-1` shows the current stable digest; pin the `v…` tag with that digest. It's an action input, so the `github-actions` updates skip it |
 | `docker/buildkit-syft-scanner:<version>@sha256:…` | `.github/workflows/release.yml`, `sbom: generator=…` | The SBOM scanner that runs inside the release build. `imagetools inspect docker/buildkit-syft-scanner:stable-1`, then pin the matching version tag with that digest |
 | `rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` | Run by hand on workflow changes: `docker run --rm -v "$PWD:/repo" -w /repo <that reference> -color` | `imagetools inspect rhysd/actionlint:<version>` |
+| `gitleaks` `8.30.1` (`linux_x64` sha256 `551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb`) | `.github/workflows/ci.yml`, `gitleaks` job | Download `checksums.txt` from the [gitleaks release](https://github.com/gitleaks/gitleaks/releases) and copy the `linux_x64` line. Dependabot does not bump a `curl` pin |
 | MinIO client (`MC_VERSION`, `MC_SHA256_*`) | `deploy/backup/Dockerfile` | As its comment says |
 
 ## Rolling back reference data

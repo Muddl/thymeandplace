@@ -103,7 +103,7 @@ func (s *Service) Reopen(ctx context.Context, id int64) (Pending, Preview, error
 	// time (row.ScoreBefore/ScoreAfter), not a fresh recompute against
 	// possibly-changed calibration cases; keep the flag shown here consistent
 	// with what Apply will actually check.
-	pv.NeedsOverride = NeedsOverride(p.ScoreBefore, p.ScoreAfter)
+	pv.NeedsOverride = calibration.ScoreDropped(p.ScoreBefore, p.ScoreAfter)
 	return p, pv, nil
 }
 
@@ -186,7 +186,7 @@ func (s *Service) Apply(ctx context.Context, id int64, actor string, opts ApplyO
 		return &InvalidError{Problems: problems}
 	}
 
-	override := NeedsOverride(p.ScoreBefore, p.ScoreAfter)
+	override := calibration.ScoreDropped(p.ScoreBefore, p.ScoreAfter)
 	if override && !opts.Override {
 		return ErrOverrideRequired
 	}

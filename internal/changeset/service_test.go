@@ -76,7 +76,7 @@ func TestReopenUsesStoredScoresForOverride(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx,
 		`update pending_changeset set score_before = $1, score_after = $2 where id = $3`,
-		1.0, 1.0-OverrideThreshold-0.1, pending.ID,
+		1.0, 1.0-calibration.OverrideThreshold-0.1, pending.ID,
 	); err != nil {
 		t.Fatal(err)
 	}

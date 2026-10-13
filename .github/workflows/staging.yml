@@ -1,0 +1,88 @@
+name: staging
+# Deploys a GHCR image SHA to the shared staging VM after ci succeeds on main,
+# or when dispatched with a SHA. Inert until the staging secrets exist: the
+# job then skips and the workflow stays green.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full 40-character commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Skip when staging secrets are missing
+        id: gate
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_SSH_HOST_KEY: ${{ secrets.STAGING_SSH_HOST_KEY }}
+          STAGING_BASIC_AUTH: ${{ secrets.STAGING_BASIC_AUTH }}
+        run: ./deploy/staging-gate.sh
+      - name: Resolve SHA
+        if: steps.gate.outputs.ready == 'true'
+        id: sha
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.event.inputs.sha }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            sha=$DISPATCH_SHA
+          else
+            sha=$RUN_SHA
+          fi
+          [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "deploy: give the full 40-character commit SHA (got '${sha}')" >&2; exit 2; }
+          echo "sha=$sha" >>"$GITHUB_OUTPUT"
+      - name: Deploy
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_SSH_HOST_KEY: ${{ secrets.STAGING_SSH_HOST_KEY }}
+          STAGING_BASIC_AUTH: ${{ secrets.STAGING_BASIC_AUTH }}
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$STAGING_SSH_HOST_KEY" >"$HOME/.ssh/known_hosts"
+          chmod 644 "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$STAGING_SSH_KEY" >"$HOME/.ssh/id_deploy"
+          chmod 600 "$HOME/.ssh/id_deploy"
+          case "$STAGING_HOST" in
+            *@*) target=$STAGING_HOST ;;
+            *) target="root@$STAGING_HOST" ;;
+          esac
+          ssh -i "$HOME/.ssh/id_deploy" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            "$target" \
+            bash -s -- "$SHA" <<'EOS'
+          set -euo pipefail
+          sha=$1
+          cd /opt/thymeandplace
+          git fetch origin "$sha"
+          git checkout --detach "$sha"
+          ./deploy/staging-remote.sh "$sha"
+          EOS
+          curl -fsS -u "$STAGING_BASIC_AUTH" --max-time 30 \
+            https://staging.thymeand.place/readyz | grep -qx ready

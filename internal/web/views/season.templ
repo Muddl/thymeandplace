@@ -19,7 +19,7 @@ templ LoadError(label, retryURL string) {
 	if label != "" {
 		@Location(label)
 	}
-	<div class="panel warn" role="alert">
+	<div class="panel warn" data-announce={ CopyLoadError }>
 		<p>{ CopyLoadError }</p>
 		<p><a href={ templ.URL(retryURL) } hx-get={ retryURL } hx-target="#results">{ CopyTryAgain }</a></p>
 	</div>

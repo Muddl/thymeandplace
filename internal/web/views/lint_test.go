@@ -139,10 +139,10 @@ func TestLoadErrorSanitizesRetryURL(t *testing.T) {
 	if !strings.Contains(html, `href="about:invalid#TemplFailedSanitizationURL"`) {
 		t.Fatalf("retry href not sanitized:\n%s", html)
 	}
-	if !strings.Contains(html, `role="alert"`) {
-		t.Fatal("LoadError must be role=alert")
+	if !strings.Contains(html, `data-announce="`) || !strings.Contains(html, "seasonal picks") {
+		t.Fatalf("LoadError must use data-announce:\n%s", html)
 	}
-	if strings.Contains(html, "data-announce") {
-		t.Fatal("LoadError must not also data-announce")
+	if strings.Contains(html, `role="alert"`) {
+		t.Fatal("LoadError must not also be role=alert")
 	}
 }

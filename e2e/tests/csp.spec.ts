@@ -52,3 +52,18 @@ test("ignoreDuring drops screenshot hits and then records again", { tag: "@reado
     return hit ? { directive: hit.directive, blockedURI: hit.blockedURI } : null;
   }).toEqual({ directive: "style-src-attr", blockedURI: "inline" });
 });
+
+test("watchCSP still reports a real inline-script violation", { tag: "@readonly" }, async ({ page }) => {
+  const csp = await watchCSP(page);
+  await page.goto("/");
+  expect(csp.events).toEqual([]);
+  await page.evaluate(() => {
+    const s = document.createElement("script");
+    s.textContent = "void 0";
+    document.body.appendChild(s);
+  });
+  await expect.poll(() => {
+    const hit = csp.events.find((e) => e.directive === "script-src" || e.directive === "script-src-elem");
+    return hit ? hit.blockedURI : null;
+  }).toBe("inline");
+});

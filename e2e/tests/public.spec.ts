@@ -121,26 +121,26 @@ test("season page meets Almanac kickoff checks", { tag: "@readonly" }, async ({ 
     await emulateColorScheme(page, "light");
     expect(csp.events).toEqual([]);
     await csp.ignoreDuring(async () => {
-      await expect(kale).toHaveScreenshot("season-estimate-light.png");
+      await expect.soft(kale).toHaveScreenshot("season-estimate-light.png");
     });
     expect(csp.events).toEqual([]);
     await emulateColorScheme(page, "dark");
     expect(csp.events).toEqual([]);
     await csp.ignoreDuring(async () => {
-      await expect(kale).toHaveScreenshot("season-estimate-dark.png");
+      await expect.soft(kale).toHaveScreenshot("season-estimate-dark.png");
     });
     expect(csp.events).toEqual([]);
     await page.setViewportSize({ width: 390, height: 844 });
     await emulateColorScheme(page, "light");
     expect(csp.events).toEqual([]);
     await csp.ignoreDuring(async () => {
-      await expect(kale).toHaveScreenshot("season-estimate-light-390.png");
+      await expect.soft(kale).toHaveScreenshot("season-estimate-light-390.png");
     });
     expect(csp.events).toEqual([]);
     await emulateColorScheme(page, "dark");
     expect(csp.events).toEqual([]);
     await csp.ignoreDuring(async () => {
-      await expect(kale).toHaveScreenshot("season-estimate-dark-390.png");
+      await expect.soft(kale).toHaveScreenshot("season-estimate-dark-390.png");
     });
   }
   expect(csp.events).toEqual([]);

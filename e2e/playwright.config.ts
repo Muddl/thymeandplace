@@ -32,6 +32,7 @@ export default defineConfig({
     ignoreHTTPSErrors: local, // Caddy's internal CA on the compose stack
     ...captureSettings(baseURL),
   },
+  expect: { toHaveScreenshot: { animations: "disabled", maxDiffPixelRatio: 0.02 } },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     {

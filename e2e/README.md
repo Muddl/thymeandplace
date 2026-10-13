@@ -21,14 +21,14 @@ npm run test:mutating                 # --grep-invert @readonly
 
 ## Tags
 
-Every spec title includes `@readonly` or `@mutating`. `@mutating` is not a grep match. `GREP=@mutating` runs `--grep-invert @readonly`, so an untagged test still runs in the mutating subset.
+Every spec is tagged `@readonly` or `@mutating`. `@mutating` is not a grep match. `GREP=@mutating` runs `--grep-invert @readonly`, so an untagged test still runs in the mutating subset.
 
 | Tag | Meaning | Typical use |
 |---|---|---|
 | `@readonly` | GET-only. No catalog writes, no admin enrollment, no `compose stop`. Safe against a live site. | Smoke: `GREP=@readonly` |
-| untagged or `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | `GREP=@mutating` is `--grep-invert @readonly` |
+| `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | `GREP=@mutating` is `--grep-invert @readonly` |
 
-Public GET flows and the anonymous `/admin` sign-in check are `@readonly`. The Postgres-stop test and the four catalog admin tests are `@mutating`. CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags.
+Public GET flows and the anonymous `/admin` sign-in check are `@readonly`. The Postgres-stop test and the four catalog admin tests are `@mutating`. CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags. Home light/dark PNG snapshots are the Ubuntu CI actuals (`*-chromium-linux.png`, `*-firefox-linux.png`, `*-webkit-linux.png`). Season Estimate row snapshots are Chromium-only (Architect and UX agreed v1 is not cross-engine) and live next to the home shots. `watchCSP` records every `securitypolicyviolation` with no field filter. Home and Estimate baselines call `ignoreDuring` only around each `toHaveScreenshot`, not `emulateMedia`, and assert the event list is empty after the pause. After dark `emulateMedia`, tests assert `prefers-color-scheme: dark` and the dark `--bg` token. WebKit injects `<style>body {}</style>` on every screenshot. `e2e/tests/csp.spec.ts` serves a fixture with an inline `<style>` and a `style` attribute and asserts both still fail the watch.
 
 Specs find Lisbon by searching for its name. They pass today's UTC date, not a pinned May day. The 1 s warm `/season` test skips when `E2E_BASE_URL` is not localhost. The status-only warm check still runs.
 

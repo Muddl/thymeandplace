@@ -663,15 +663,18 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.9 End-to-end (Playwright against Compose)
 
-1. Search → select → results render.
-2. Geolocation denied → search fallback.
-3. Postgres stopped → retry panel → Postgres started → "Try again" succeeds.
-4. Admin: passkey login (virtual authenticator) → edit an ingredient → preview shows calibration change and bars → apply → the public page reflects the change without a restart.
-5. Admin: import a JSON file → preview → apply → export matches.
+Specs are tagged `@readonly` (safe against a live origin) or `@mutating` (local Compose only). Search finds Lisbon by name. Season URLs use today's UTC date. The 1 s warm `/season` test skips unless the origin is localhost.
+
+1. Search → select → results render. (`@readonly`)
+2. Geolocation denied → search fallback. (`@readonly`)
+3. Postgres stopped → retry panel → Postgres started → "Try again" succeeds. (`@mutating`)
+4. Admin: passkey login (virtual authenticator) → edit an ingredient → preview shows calibration change and bars → apply → the public page reflects the change without a restart. (`@mutating`; skips unless the origin is local and `TP_PUBLIC_TODAY` is set)
+5. Admin: import a JSON file → preview → apply → export matches. (`@mutating`)
+6. Anonymous `/admin` redirects to sign-in and sends the admin CSP. (`@readonly`)
 
 ### 13.10 CI
 
-Units, scoring, auth, store integration, and pipeline tests run on every push, under the race detector (`go test -race`). Every push also runs `go vet`, `staticcheck` and `govulncheck` (a reachable known vulnerability fails the build) and lints the shell scripts with `shellcheck`. End-to-end tests run on `main` and on pull requests: Chromium, Firefox and WebKit on `main` and on PRs that touch `views/`, `static/` or `e2e/`; Chromium only on other PRs. Admin specs stay on Chromium (`testIgnore` on the other projects) and run as a serial group so sharding does not split them. The suite is sharded `browser × shard`. `GREP=@readonly` selects the smoke subset; `GREP=@mutating` is `--grep-invert @readonly`. A non-local `E2E_BASE_URL` is refused unless `GREP=@readonly`. The required check is `e2e-result`. Release images are built only after CI passes on `main`, from that exact commit (§14). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
+Units, scoring, auth, store integration, and pipeline tests run on every push, under the race detector (`go test -race`). Every push also runs `go vet`, `staticcheck` and `govulncheck` (a reachable known vulnerability fails the build) and lints the shell scripts with `shellcheck`. End-to-end tests run on `main` and on pull requests: Chromium, Firefox and WebKit on `main` and on PRs that touch `views/`, `static/` or `e2e/`; Chromium only on other PRs. Admin specs stay on Chromium (`testIgnore` on the other projects) and run as a serial group so sharding does not split them. The suite is sharded `browser × shard`. `GREP=@readonly` selects the smoke subset; `GREP=@mutating` is `--grep-invert @readonly`. A non-local `E2E_BASE_URL` is refused unless `GREP=@readonly`. Playwright tracing, screenshots, and video are off for any non-local origin; `retain-on-failure` is local-only. A remote-origin job has no `upload-artifact` step. The required check is `e2e-result`. Release images are built only after CI passes on `main`, from that exact commit (§14). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)
 
 ## 14. Deployment and operations
 

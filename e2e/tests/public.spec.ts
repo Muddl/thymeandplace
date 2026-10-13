@@ -1,4 +1,4 @@
-import { compose, expect, test, waitReady, watchCSP } from "../helpers";
+import { compose, expect, isLocalOrigin, test, todayUTC, waitReady, watchCSP } from "../helpers";
 
 test("1. search → select → results render @readonly", async ({ page }) => {
   await page.goto("/");
@@ -8,7 +8,7 @@ test("1. search → select → results render @readonly", async ({ page }) => {
   const results = page.locator("#results");
   await expect(results).toContainText("Lisbon, PT");
   await expect(results.locator("h3").first()).toBeVisible();
-  await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
+  await expect(page).toHaveURL(/\/season\?lat=-?[\d.]+&lng=-?[\d.]+&place=\d+/);
 });
 
 test("a one-letter search asks for more @readonly", async ({ page }) => {
@@ -20,13 +20,15 @@ test("a one-letter search asks for more @readonly", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
 });
 
-// Spec §1 success criterion 1: warm-cache /season within about 1 s.
-// date=2026-05-15 matches TP_PUBLIC_TODAY (see deploy/e2e.env), the server's
-// pinned "today" for this stack, so the server accepts it verbatim rather
-// than falling back to its own date (parseDate rejects dates more than a day
-// from the server's UTC date).
+test("warm /season responds @readonly", async ({ request }) => {
+  const url = `/season?lat=38.7167&lng=-9.1333&date=${todayUTC()}`;
+  expect((await request.get(url)).ok()).toBeTruthy(); // warms the cache
+  expect((await request.get(url)).ok()).toBeTruthy();
+});
+
 test("warm /season responds within 1 s @readonly", async ({ request }) => {
-  const url = "/season?lat=38.7167&lng=-9.1333&date=2026-05-15";
+  test.skip(!isLocalOrigin(), "1 s bound is the local stack");
+  const url = `/season?lat=38.7167&lng=-9.1333&date=${todayUTC()}`;
   expect((await request.get(url)).ok()).toBeTruthy(); // warms the cache
   const start = Date.now();
   const res = await request.get(url);

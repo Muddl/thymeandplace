@@ -1,12 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
+import { captureSettings, isLocalOrigin } from "./capture.mjs";
 
 const baseURL = process.env.E2E_BASE_URL || "https://localhost";
-const localTLS = /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(baseURL);
+const local = isLocalOrigin(baseURL);
 const grep = process.env.GREP || "";
 const browser = process.env.BROWSER || "chromium";
 const shard = (process.env.SHARD || "1/1").replace("/", "-of-");
 
-if (!localTLS && grep !== "@readonly") {
+if (!local && grep !== "@readonly") {
   throw new Error(
     `Refusing ${baseURL} unless GREP=@readonly (got GREP=${grep || "unset"}). Mutating tests must not run against a remote origin.`,
   );
@@ -28,8 +29,8 @@ export default defineConfig({
     : [["list"], ["html", { open: "never" }]],
   use: {
     baseURL,
-    ignoreHTTPSErrors: localTLS, // Caddy's internal CA on the compose stack
-    trace: "retain-on-failure",
+    ignoreHTTPSErrors: local, // Caddy's internal CA on the compose stack
+    ...captureSettings(baseURL),
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },

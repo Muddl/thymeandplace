@@ -32,7 +32,7 @@ python -m pytest pipeline/tests -q   # when you touch pipeline/
 e2e/run.sh                        # when you change pages, scripts or the Compose stack
 ```
 
-`e2e/run.sh` defaults to Chromium against the local Compose stack. Tag and browser selection are in `e2e/README.md`: `GREP=@readonly` is the smoke subset, `GREP=@mutating` is `--grep-invert @readonly`, and `E2E_BASE_URL` points the runner at another origin only with `GREP=@readonly`.
+`e2e/run.sh` defaults to Chromium against the local Compose stack. Tag and browser selection are in `e2e/README.md`: `GREP=@readonly` is the smoke subset, `GREP=@mutating` is `--grep-invert @readonly`, and `E2E_BASE_URL` points the runner at another origin only with `GREP=@readonly`. Non-local origins turn Playwright tracing, screenshots, and video off.
 
 Commit the generated files. CI fails when they're stale.
 

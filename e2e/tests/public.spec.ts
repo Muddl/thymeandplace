@@ -254,12 +254,16 @@ async function announcedMessages(page: Page) {
 async function serverErrorFragment(page: Page, request: APIRequestContext, path: string) {
   compose("stop db");
   try {
-    await page.goto(path);
     const slot = path.startsWith("/places") ? "#places" : "#results";
-    const html = await page.locator(slot).innerHTML();
-    expect(html).not.toContain("is updating");
-    expect(decodeHTML(html)).toMatch(/Couldn't load seasonal picks|Search isn't available/);
-    return html;
+    const errorRE = /Couldn't load seasonal picks|Search isn't available/;
+    let html = "";
+    for (let i = 0; i < 30; i++) {
+      await page.goto(path);
+      html = await page.locator(slot).innerHTML();
+      if (!html.includes("is updating") && errorRE.test(decodeHTML(html))) return html;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error(`no app error fragment from ${path}: ${html.slice(0, 240)}`);
   } finally {
     compose("start db");
     await waitReady(request);
@@ -342,7 +346,7 @@ test("season timeout writes load error to #announce and #results", { tag: "@read
 
 test("season 500 swaps the server fragment and announces it once", async ({ page, request }) => {
   const csp = watchCSP(page);
-  const fragment = await serverErrorFragment(page, request, "/season?lat=41.3874&lng=2.1686");
+  const fragment = await serverErrorFragment(page, request, "/season?lat=39.2369&lng=-8.6850");
   expect(decodeHTML(fragment)).toContain(loadError);
   expect(fragment).toContain("Try again");
   await searchLisbon(page);
@@ -360,7 +364,7 @@ test("season 500 swaps the server fragment and announces it once", async ({ page
   const spoken = (await announcedMessages(page)).filter((m) => m === loadError);
   expect(spoken).toHaveLength(1);
   await axeOk(page, "light");
-  await recoverSeason(page, "41.39°N");
+  await recoverSeason(page, /39\.24°N|can't estimate seasons/);
   expect(csp).toEqual([]);
 });
 

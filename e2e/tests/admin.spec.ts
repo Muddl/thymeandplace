@@ -1,6 +1,8 @@
 import { promises as fs } from "node:fs";
 import { enrollAndSignIn, expect, test } from "../helpers";
 
+test.describe.configure({ mode: "serial" });
+
 // date=2026-05-15 matches TP_PUBLIC_TODAY (deploy/e2e.env), the server's
 // pinned "today" for this stack (Ruling F), so month-dependent checks below
 // are deterministic regardless of the real calendar date.

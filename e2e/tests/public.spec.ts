@@ -1,3 +1,4 @@
+import type { Page, Request } from "@playwright/test";
 import { axeOk, compose, expect, test, waitReady, watchCSP } from "../helpers";
 
 test("1. search → select → results render", { tag: "@readonly" }, async ({ page }) => {
@@ -155,4 +156,110 @@ test("3. Postgres stopped → retry panel → started → Try again succeeds", a
   await page.getByRole("link", { name: "Try again" }).click();
   await expect(page.locator("#results")).toContainText("Madrid");
   await expect(page.getByText("Couldn't load seasonal picks")).toHaveCount(0);
+});
+
+const searchUnavailable = "Search isn't available right now. Try again in a moment.";
+const loadError = "Couldn't load seasonal picks right now. Try again in a moment.";
+
+async function searchLisbon(page: Page) {
+  await page.goto("/");
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
+}
+
+function isHX(pathPrefix: string, request: Request) {
+  return request.method() === "GET" && request.url().includes(pathPrefix) && request.headers()["hx-request"] === "true";
+}
+
+async function htmxTimeoutMs(page: Page) {
+  const timeoutMs = await page.evaluate(() => (window as unknown as { htmx: { config: { timeout: number } } }).htmx.config.timeout);
+  expect(timeoutMs).toBeGreaterThan(0);
+  return timeoutMs;
+}
+
+test("places abort writes search unavailable to #announce and #places", { tag: "@readonly" }, async ({ page }) => {
+  await page.route("**/places*", async (route) => {
+    if (!isHX("/places", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.abort("connectionrefused");
+  });
+  await page.goto("/");
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await expect(page.locator("#announce")).toHaveText(searchUnavailable);
+  await expect(page.locator("#places")).toContainText(searchUnavailable);
+  await expect(page.locator("#places")).not.toHaveAttribute("aria-busy", "true");
+});
+
+test("season abort writes load error to #announce and #results", { tag: "@readonly" }, async ({ page }) => {
+  await searchLisbon(page);
+  await page.route("**/season*", async (route) => {
+    if (!isHX("/season", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.abort("connectionrefused");
+  });
+  await page.getByRole("link", { name: "Lisbon, PT" }).click();
+  await expect(page.locator("#announce")).toHaveText(loadError);
+  await expect(page.locator("#results")).toContainText(loadError);
+  await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toHaveCount(0);
+  await expect(page.locator("#results")).not.toHaveAttribute("aria-busy", "true");
+});
+
+test("places timeout writes search unavailable to #announce and #places", { tag: "@readonly" }, async ({ page }) => {
+  await page.goto("/");
+  const timeoutMs = await htmxTimeoutMs(page);
+  await page.route("**/places*", async (route) => {
+    if (!isHX("/places", route.request())) {
+      await route.continue();
+      return;
+    }
+    await new Promise((r) => setTimeout(r, timeoutMs + 1500));
+    await route.abort("timedout");
+  });
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await expect(page.locator("#announce")).toHaveText(searchUnavailable, { timeout: timeoutMs + 5000 });
+  await expect(page.locator("#places")).toContainText(searchUnavailable);
+  await expect(page.locator("#places")).not.toHaveAttribute("aria-busy", "true");
+});
+
+test("season timeout writes load error to #announce and #results", { tag: "@readonly" }, async ({ page }) => {
+  await searchLisbon(page);
+  const timeoutMs = await htmxTimeoutMs(page);
+  await page.route("**/season*", async (route) => {
+    if (!isHX("/season", route.request())) {
+      await route.continue();
+      return;
+    }
+    await new Promise((r) => setTimeout(r, timeoutMs + 1500));
+    await route.abort("timedout");
+  });
+  await page.getByRole("link", { name: "Lisbon, PT" }).click();
+  await expect(page.locator("#announce")).toHaveText(loadError, { timeout: timeoutMs + 5000 });
+  await expect(page.locator("#results")).toContainText(loadError);
+  await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toHaveCount(0);
+  await expect(page.locator("#results")).not.toHaveAttribute("aria-busy", "true");
+});
+
+test("season 500 swaps the server fragment and announces it", { tag: "@readonly" }, async ({ page }) => {
+  const fragment =
+    `<div class="panel warn" role="alert">` +
+    `<p>${loadError}</p>` +
+    `<p><a href="/season?lat=38.7167&lng=-9.1333&place=1" hx-get="/season?lat=38.7167&lng=-9.1333&place=1" hx-target="#results">Try again</a></p>` +
+    `</div>`;
+  await searchLisbon(page);
+  await page.route("**/season*", async (route) => {
+    if (!isHX("/season", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({ status: 500, contentType: "text/html; charset=utf-8", body: fragment });
+  });
+  await page.getByRole("link", { name: "Lisbon, PT" }).click();
+  await expect(page.locator("#results")).toContainText(loadError);
+  await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
+  await expect(page.locator("#announce")).toHaveText(loadError);
+  await expect(page.locator("#results")).not.toHaveAttribute("aria-busy", "true");
 });

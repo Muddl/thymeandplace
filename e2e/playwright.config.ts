@@ -14,9 +14,6 @@ if (!localTLS && grep !== "@readonly") {
 
 export default defineConfig({
   testDir: "./tests",
-  // public.spec.ts first so Estimate screenshots see the seeded catalog when
-  // they share a worker with admin mutations (Tomato harvest, Chard import).
-  testMatch: ["**/public.spec.ts", "**/admin.spec.ts"],
   // One worker per job: tests stop the database and edit the shared catalog.
   // fullyParallel lets `--shard` split individual tests across CI jobs
   // (each job has its own stack). With it false, Playwright assigns a whole

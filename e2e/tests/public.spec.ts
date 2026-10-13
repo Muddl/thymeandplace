@@ -106,16 +106,19 @@ test("season page meets Almanac kickoff checks", { tag: ["@readonly"] }, async (
   await page.goto(url);
   await assertAxe(page, "dark");
   if (test.info().project.name === "chromium") {
+    // Kale's row is not edited by admin.spec.ts (Tomato harvest / Chard
+    // import), so these stay stable when both files share a CI worker.
+    const kale = page.locator("#results .item").filter({ hasText: "Kale" });
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.emulateMedia({ colorScheme: "light" });
-    await expect(page.locator("#results")).toHaveScreenshot("season-estimate-light.png");
+    await expect(kale).toHaveScreenshot("season-estimate-light.png");
     await page.emulateMedia({ colorScheme: "dark" });
-    await expect(page.locator("#results")).toHaveScreenshot("season-estimate-dark.png");
+    await expect(kale).toHaveScreenshot("season-estimate-dark.png");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: "light" });
-    await expect(page.locator("#results")).toHaveScreenshot("season-estimate-light-390.png");
+    await expect(kale).toHaveScreenshot("season-estimate-light-390.png");
     await page.emulateMedia({ colorScheme: "dark" });
-    await expect(page.locator("#results")).toHaveScreenshot("season-estimate-dark-390.png");
+    await expect(kale).toHaveScreenshot("season-estimate-dark-390.png");
   }
   assertCSP(csp);
 });

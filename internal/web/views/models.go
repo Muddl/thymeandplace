@@ -31,6 +31,7 @@ const (
 	WildMushroomDisclaimer = "Look for wild mushrooms at markets and from sellers who can identify them. We don't give foraging advice: many edible mushrooms have deadly look-alikes."
 	CopyLandEstimate       = "Estimated from local climate normals."
 	CopyAboutAnnounce      = "About the data"
+	CopySiteHeading        = "What's in season"
 )
 
 func AnnounceSeason(n int, label string) string {

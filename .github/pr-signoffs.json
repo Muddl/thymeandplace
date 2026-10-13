@@ -1,0 +1,67 @@
+{
+  "roles": {
+    "arch-approved": "Architect",
+    "liveops-approved": "LiveOps",
+    "devops-approved": "DevOps",
+    "ux-approved": "UX Review",
+    "qa-approved": "QA"
+  },
+  "rules": [
+    {
+      "id": "arch",
+      "require": ["arch-approved"],
+      "paths": [
+        "migrations/**",
+        "internal/store/**",
+        "deploy/db/initdb/20-roles.sh",
+        "deploy/db/adopt-roles.sql",
+        "deploy/20-roles.sh",
+        "deploy/adopt-roles.sql",
+        "internal/httpx/**",
+        "internal/config/**",
+        "internal/archtest/**",
+        "cmd/*/app.go",
+        "go.mod",
+        "**/views/lint_test.go",
+        "internal/web/middleware.go",
+        "internal/admin/admin.go"
+      ]
+    },
+    {
+      "id": "liveops-or-arch",
+      "require": ["liveops-approved", "arch-approved"],
+      "paths": [
+        "deploy/**",
+        "**/compose*.yaml",
+        "**/Caddyfile",
+        "**/Caddyfile.*"
+      ],
+      "exclude": [
+        "**/Dockerfile",
+        "**/Dockerfile.*"
+      ]
+    },
+    {
+      "id": "devops",
+      "require": ["devops-approved"],
+      "paths": [
+        ".github/workflows/**",
+        "**/Dockerfile",
+        "**/Dockerfile.*"
+      ]
+    },
+    {
+      "id": "ux",
+      "require": ["ux-approved"],
+      "paths": [
+        "**/views/**",
+        "static/**"
+      ]
+    },
+    {
+      "id": "qa-launch",
+      "require": ["qa-approved"],
+      "whenLabel": "launch-scope"
+    }
+  ]
+}

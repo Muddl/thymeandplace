@@ -2,8 +2,6 @@ package web
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -139,8 +137,6 @@ func New(d Deps) http.Handler {
 		}
 		s.inputs.Ocean = d.Ocean
 	}
-	assetVersionOnce.Do(func() { views.AssetVersion = hashFS(static.FS) })
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.home)
 	mux.HandleFunc("GET /places", s.places)
@@ -179,33 +175,9 @@ func Common(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-var assetVersionOnce sync.Once
-
-// hashFS returns a short hash of every file's path and content in fsys.
-func hashFS(fsys fs.FS) string {
-	h := sha256.New()
-	err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		b, err := fs.ReadFile(fsys, path)
-		if err != nil {
-			return err
-		}
-		h.Write([]byte(path))
-		h.Write([]byte{0})
-		h.Write(b)
-		return nil
-	})
-	if err != nil { // embedded files can't fail to read; don't version on the impossible
-		return ""
-	}
-	return hex.EncodeToString(h.Sum(nil))[:10]
-}
-
 // staticFiles serves the embedded assets. Directory paths get the 404 page
 // rather than a listing. A URL carrying the current asset version (as
-// views.Asset builds them) names these exact bytes, so browsers may keep it
+// static.Asset builds them) names these exact bytes, so browsers may keep it
 // for a year; any other URL is cached for a day.
 func (s *Server) staticFiles() http.Handler {
 	files := http.FileServerFS(static.FS)
@@ -215,7 +187,7 @@ func (s *Server) staticFiles() http.Handler {
 			s.render(w, r, http.StatusNotFound, "Not found", "", nil, views.NotFound())
 			return
 		}
-		if v := r.URL.Query().Get("v"); v != "" && v == views.AssetVersion {
+		if v := r.URL.Query().Get("v"); v != "" && v == static.Version() {
 			versioned.ServeHTTP(w, r)
 			return
 		}

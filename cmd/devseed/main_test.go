@@ -120,3 +120,55 @@ func TestSeedRemovesIngredientsNotInSmallCatalog(t *testing.T) {
 		}
 	}
 }
+
+func TestSeedRemovesExtraSlugReferencedByKeptPairing(t *testing.T) {
+	ctx := context.Background()
+	admin := dbtest.New(t)
+	url := dbtest.URLAs(admin, dbtest.Owner)
+	if err := seed(ctx, url); err != nil {
+		t.Fatalf("first seed: %v", err)
+	}
+
+	owner := dbtest.As(t, admin, dbtest.Owner)
+	tx, err := owner.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.actor', 'devseed', true)`); err != nil {
+		t.Fatal(err)
+	}
+	chard := catalog.Ingredient{
+		Slug: "chard", Name: "Chard", Category: catalog.CategoryVegetable, Kind: catalog.KindYearRound,
+		TipChoose: "Glossy leaves.", TipStore: "Fridge, wrapped.",
+	}
+	kale := catalogtest.Hardy()
+	kale.Pairings = []string{"chard"}
+	if err := catalog.Write(ctx, store.New(tx), []catalog.Ingredient{chard, kale}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := seed(ctx, url); err != nil {
+		t.Fatalf("second seed: %v", err)
+	}
+
+	snap, err := catalog.Load(ctx, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snap.Get("chard"); ok {
+		t.Fatal("chard still present after second seed")
+	}
+	got, ok := snap.Get("kale")
+	if !ok {
+		t.Fatal("kale missing after second seed")
+	}
+	for _, p := range got.Pairings {
+		if p == "chard" {
+			t.Fatal("kale still pairs with chard")
+		}
+	}
+}

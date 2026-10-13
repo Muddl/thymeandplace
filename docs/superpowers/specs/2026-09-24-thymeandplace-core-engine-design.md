@@ -664,7 +664,7 @@ Specs are tagged `@readonly` (safe against a live origin) or `@mutating` (local 
 5. Admin: import a JSON file → preview → apply → export matches. (`@mutating`)
 6. Anonymous `/admin` redirects to sign-in and sends the admin CSP. (`@readonly`)
 
-`e2e/run.sh` wipes the `thymeandplace-e2e` volumes before it starts. After the suite it reseeds and runs scenario 5 again on the same stack. `devseed` upserts the sample catalog and deletes any other ingredient slugs, so the second import still sees an add.
+When `e2e/run.sh` starts a local stack it wipes the `thymeandplace-e2e` volumes before `up`. After the suite, on Chromium and not `GREP=@readonly`, it reseeds and runs scenario 5 again with `--project="$BROWSER"`. `devseed` upserts the sample catalog and deletes any other ingredient slugs, so the second import still sees an add. A `GREP=@readonly` prod smoke does not wipe, reseed, or run a `@mutating` test.
 
 ### 13.10 CI
 

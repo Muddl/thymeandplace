@@ -115,7 +115,8 @@ func TestScoreDropped(t *testing.T) {
 		before, after float64
 		want          bool
 	}{
-		{0.50, 0.48, false},
+		{0.50, 0.48, false},   // drop of exactly 0.02 is allowed
+		{0.50, 0.47999, true}, // just above 0.02: catches > vs >=
 		{0.50, 0.4799, true},
 		{0.671, 0.651, false}, // 0.02 in decimal, 0.020000000000000018 in float64
 		{0.5, 0.5, false},

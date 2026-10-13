@@ -41,6 +41,22 @@ func TestSeasonEveryRowLabeledEstimate(t *testing.T) {
 	} else if strings.Contains(body[i:i+120], views.CopyEstimateMark) {
 		t.Fatal("how-we-estimate link must not include ≈")
 	}
+
+	sea := newHarness(t)
+	_, seaBody, _ := sea.get(lisbonQ+"&date=2026-08-15", true)
+	var mackerel string
+	for _, item := range itemBlockRE.FindAllString(seaBody, -1) {
+		if strings.Contains(item, "Mackerel") {
+			mackerel = item
+			break
+		}
+	}
+	if mackerel == "" {
+		t.Fatalf("no Mackerel row:\n%s", seaBody)
+	}
+	if strings.Contains(mackerel, wantBadge) || strings.Contains(mackerel, wantMark) {
+		t.Fatalf("seafood row must not show Estimate:\n%s", mackerel)
+	}
 }
 
 var itemBlockRE = regexp.MustCompile(`(?s)<li class="item[^"]*">.*?</li>`)

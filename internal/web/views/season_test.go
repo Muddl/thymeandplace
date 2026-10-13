@@ -34,13 +34,14 @@ func TestSeasonRowsLabelEstimate(t *testing.T) {
 	}
 	wantBadge := `<span class="badge">` + CopyEstimate + `</span>`
 	wantMark := `<span class="approx" aria-hidden="true">` + CopyEstimateMark + `</span>`
-	for _, item := range items {
-		if !strings.Contains(item, wantBadge) {
-			t.Fatalf("missing %s in\n%s", wantBadge, item)
-		}
-		if !strings.Contains(item, wantMark) {
-			t.Fatalf("missing %s in\n%s", wantMark, item)
-		}
+	if !strings.Contains(items[0], "Tomato") || !strings.Contains(items[0], wantBadge) || !strings.Contains(items[0], wantMark) {
+		t.Fatalf("Tomato must show Estimate and ≈:\n%s", items[0])
+	}
+	if !strings.Contains(items[1], "Mango") {
+		t.Fatalf("second row should be Mango:\n%s", items[1])
+	}
+	if strings.Contains(items[1], wantBadge) || strings.Contains(items[1], CopyEstimate) || strings.Contains(items[1], CopyEstimateMark) {
+		t.Fatalf("Mango (Estimate:false) must not show Estimate or ≈:\n%s", items[1])
 	}
 	if i := strings.Index(html, `href="/about/data#estimates"`); i < 0 {
 		t.Fatal("missing how-we-estimate link")

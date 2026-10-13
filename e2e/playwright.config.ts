@@ -8,7 +8,7 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || "https://localhost",
+    baseURL: process.env.E2E_BASE_URL || "https://localhost",
     ignoreHTTPSErrors: true, // Caddy's internal CA
     trace: "retain-on-failure",
   },

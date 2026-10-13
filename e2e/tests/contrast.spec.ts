@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, isLocalOrigin, test } from "../helpers";
 
@@ -10,6 +11,21 @@ const pages = [
   `/ingredient/banana?cell=295883&date=${pinnedToday}`,
   "/about/data",
 ];
+
+const schemeBg = { light: "#fbfaf6", dark: "#141814" } as const;
+
+async function open(page: Page, path: string, scheme: "light" | "dark") {
+  await page.goto(path);
+  await page.emulateMedia({ colorScheme: scheme });
+  const applied = await page.evaluate((want) => {
+    return {
+      media: matchMedia(`(prefers-color-scheme: ${want})`).matches,
+      bg: getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(),
+    };
+  }, scheme);
+  expect(applied.media, `prefers-color-scheme: ${scheme} after ${path}`).toBe(true);
+  expect(applied.bg, `--bg after ${path}`).toBe(schemeBg[scheme]);
+}
 
 function parseColor(color: string): { r: number; g: number; b: number } {
   const rgb = color.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
@@ -45,38 +61,41 @@ function contrastFailures(violations: { id: string; nodes: { html: string; targe
 }
 
 for (const scheme of ["light", "dark"] as const) {
-  test(`public pages pass axe color-contrast in ${scheme} scheme @mutating`, async ({ page }) => {
-    test.skip(!isLocalOrigin() || !process.env.TP_PUBLIC_TODAY, "needs a local target with TP_PUBLIC_TODAY");
-    await page.emulateMedia({ colorScheme: scheme });
-    for (const path of pages) {
-      await page.goto(path);
+  test.describe(`${scheme} scheme`, () => {
+    test.use({ colorScheme: scheme });
+
+    test(`public pages pass axe color-contrast in ${scheme} scheme @mutating`, async ({ page }) => {
+      test.skip(!isLocalOrigin() || !process.env.TP_PUBLIC_TODAY, "needs a local target with TP_PUBLIC_TODAY");
+      for (const path of pages) {
+        await open(page, path, scheme);
+        const results = await new AxeBuilder({ page }).withRules(["color-contrast"]).analyze();
+        expect(contrastFailures(results.violations), `${scheme} ${path}`).toEqual([]);
+      }
+
+      await open(page, "/", scheme);
+      await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+      await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
       const results = await new AxeBuilder({ page }).withRules(["color-contrast"]).analyze();
-      expect(contrastFailures(results.violations), `${scheme} ${path}`).toEqual([]);
-    }
+      expect(contrastFailures(results.violations), `${scheme} search results`).toEqual([]);
 
-    await page.goto("/");
-    await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
-    await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
-    const results = await new AxeBuilder({ page }).withRules(["color-contrast"]).analyze();
-    expect(contrastFailures(results.violations), `${scheme} search results`).toEqual([]);
+      const controls = await page.evaluate(() => {
+        const style = (sel: string) => {
+          const cs = getComputedStyle(document.querySelector(sel)!);
+          return { bg: cs.backgroundColor, border: cs.borderTopColor };
+        };
+        return { input: style(".finder input"), button: style(".finder button") };
+      });
+      expect(contrastRatio(controls.input.border, controls.input.bg), `${scheme} input border`).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(controls.button.border, controls.button.bg), `${scheme} button border`).toBeGreaterThanOrEqual(3);
 
-    const controls = await page.evaluate(() => {
-      const style = (sel: string) => {
-        const cs = getComputedStyle(document.querySelector(sel)!);
-        return { bg: cs.backgroundColor, border: cs.borderTopColor };
-      };
-      return { input: style(".finder input"), button: style(".finder button") };
+      await open(page, `/ingredient/banana?cell=295883&date=${pinnedToday}`, scheme);
+      const year = page.locator(".s-year").first();
+      await expect(year).toBeVisible();
+      const yearColors = await year.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { color: cs.color, bg: cs.backgroundColor };
+      });
+      expect(contrastRatio(yearColors.color, yearColors.bg), `${scheme} year-round bar`).toBeGreaterThanOrEqual(4.5);
     });
-    expect(contrastRatio(controls.input.border, controls.input.bg), `${scheme} input border`).toBeGreaterThanOrEqual(3);
-    expect(contrastRatio(controls.button.border, controls.button.bg), `${scheme} button border`).toBeGreaterThanOrEqual(3);
-
-    await page.goto(`/ingredient/banana?cell=295883&date=${pinnedToday}`);
-    const year = page.locator(".s-year").first();
-    await expect(year).toBeVisible();
-    const yearColors = await year.evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return { color: cs.color, bg: cs.backgroundColor };
-    });
-    expect(contrastRatio(yearColors.color, yearColors.bg), `${scheme} year-round bar`).toBeGreaterThanOrEqual(4.5);
   });
 }

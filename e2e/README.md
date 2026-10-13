@@ -38,7 +38,7 @@ A prod smoke is:
 E2E_BASE_URL=https://thymeand.place GREP=@readonly BROWSER=chromium ./e2e/run.sh
 ```
 
-`run.sh` and the Playwright config refuse a non-local origin unless `GREP=@readonly`. Compose is skipped when the origin is not localhost (or when `E2E_SKIP_STACK=1`).
+`run.sh` and the Playwright config refuse a non-local origin unless `GREP=@readonly`. Compose is skipped when the origin is not localhost (or when `E2E_SKIP_STACK=1`). Capture (`trace`, `screenshot`, `video`) is off whenever `E2E_BASE_URL` is not localhost or `127.0.0.1`, including when `GREP=@readonly`. Local runs keep `trace: retain-on-failure`. `e2e/capture.mjs` owns that decision. `node e2e/check-capture.mjs` checks it.
 
 ## Browsers
 
@@ -50,7 +50,7 @@ CI picks the matrix with `e2e/select-browsers.sh`:
 - Pull request that touches `views/`, `static/`, or `e2e/`: all three.
 - Any other pull request: chromium only.
 
-Each job installs only its browser and caches `~/.cache/ms-playwright`. `./e2e/select-browsers.sh --self-test` checks the path rules.
+Each job installs only its browser and caches `~/.cache/ms-playwright`. `./e2e/select-browsers.sh --self-test` checks the path rules. The `e2e-remote-config` workflow loads the Playwright config against `https://example.com` with `GREP=@readonly` and has no `upload-artifact` step.
 
 ## Shards
 

@@ -21,7 +21,8 @@ func TestHomeAndAbout(t *testing.T) {
 	code, body, _ := hs.get("/", false)
 	if code != 200 || !strings.Contains(body, "<!doctype html>") || !strings.Contains(body, views.CopyGeoOff) ||
 		!strings.Contains(body, `hx-trigger="keyup changed delay:250ms, search"`) || !strings.Contains(body, "Use my location") ||
-		!strings.Contains(body, "autofocus") || strings.Count(body, `id="announce"`) != 1 || strings.Count(body, "aria-live") != 1 {
+		!strings.Contains(body, "autofocus") || strings.Count(body, `id="announce"`) != 1 || strings.Count(body, "aria-live") != 1 ||
+		!strings.Contains(body, `role="status"`) || !strings.Contains(body, "<h1>What's in season</h1>") {
 		t.Fatalf("home: %d\n%s", code, body)
 	}
 	code, body, _ = hs.get("/about/data", false)

@@ -206,6 +206,9 @@ func TestSeasonFullPage(t *testing.T) {
 	if strings.Count(body, `id="announce"`) != 1 || strings.Count(body, "aria-live") != 1 {
 		t.Fatal("season page must keep exactly one #announce live region")
 	}
+	if !strings.Contains(body, `data-announce="`) || !strings.Contains(body, "ingredients in season near Lisbon, PT") {
+		t.Fatalf("season page must carry short data-announce:\n%s", body)
+	}
 }
 
 func TestSeasonItemLinksCarryCellAndDate(t *testing.T) {
@@ -300,7 +303,9 @@ var sameCellRows = []struct {
 	}},
 }
 
-var headingRE = regexp.MustCompile(`<h2>[^<]*</h2>`)
+// headingRE strips per-request place copy (the h2 and data-announce) so
+// same-cell responses can be compared for identical results.
+var headingRE = regexp.MustCompile(`<h2>[^<]*</h2>|data-announce="[^"]*"`)
 
 // Spec §6: two points in one cell get identical results in either order.
 func TestSeasonSameCellSameResults(t *testing.T) {

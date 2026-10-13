@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import path from "node:path";
+import AxeBuilder from "@axe-core/playwright";
 import { APIRequestContext, Page, expect, test as base } from "@playwright/test";
 
 const deploy = path.resolve(__dirname, "..", "deploy");
@@ -30,6 +31,11 @@ export const test = base.extend<{ cspGuard: void }>({
 });
 
 export { expect };
+
+export async function axeOk(page: Page) {
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([]);
+}
 
 export function compose(args: string): string {
   return execSync(`docker compose -p thymeandplace-e2e -f compose.yaml -f compose.e2e.yaml ${args}`, {

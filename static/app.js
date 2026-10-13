@@ -31,13 +31,23 @@
     var search = searchBox();
     if (search && location.hash === "#q") search.focus();
   }
+  function swapTarget(el) {
+    return el && (el.id === "places" || el.id === "results") ? el : null;
+  }
+  function setBusy(t, on) {
+    if (!t) return;
+    if (on) t.setAttribute("aria-busy", "true");
+    else t.removeAttribute("aria-busy");
+  }
   function announceSwap(e) {
     var announce = document.getElementById("announce");
-    var t = e.detail && e.detail.target;
+    var t = swapTarget(e.detail && e.detail.target);
     if (!announce || !t) return;
-    if (t.id !== "places" && t.id !== "results") return;
-    announce.textContent = (t.innerText || "").replace(/\s+/g, " ").trim();
+    var src = t.querySelector("[data-announce]");
+    announce.textContent = src ? src.getAttribute("data-announce") || "" : "";
   }
+  document.addEventListener("htmx:beforeRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), true); });
+  document.addEventListener("htmx:afterRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), false); });
   document.addEventListener("htmx:afterSwap", announceSwap);
   window.addEventListener("hashchange", focusSearch);
   document.addEventListener("click", function (e) {

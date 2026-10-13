@@ -1,7 +1,7 @@
 package views
 
 templ PlaceList(items []PlaceItem) {
-	<ul class="places">
+	<ul class="places" data-announce={ AnnouncePlaces(len(items)) }>
 		for _, it := range items {
 			<li>
 				<a href={ templ.URL(it.URL) } hx-get={ it.URL } hx-target="#results" hx-push-url="true">{ it.Label }</a>
@@ -11,17 +11,17 @@ templ PlaceList(items []PlaceItem) {
 }
 
 templ PlacesNoMatch(q string) {
-	<p class="hint">No places match '{ q }'. { CopyNoMatchSuffix }</p>
+	<p class="hint" data-announce={ AnnounceNoMatch(q) }>No places match '{ q }'. { CopyNoMatchSuffix }</p>
 }
 
 templ PlacesPaused() {
-	<p class="hint">{ CopyPaused }</p>
+	<p class="hint" data-announce={ CopyPaused }>{ CopyPaused }</p>
 }
 
 templ PlacesKeepTyping() {
-	<p class="hint">{ CopyKeepTyping }</p>
+	<p class="hint" data-announce={ CopyKeepTyping }>{ CopyKeepTyping }</p>
 }
 
 templ PlacesUnavailable() {
-	<p class="hint">{ CopySearchUnavailable }</p>
+	<p class="hint" data-announce={ CopySearchUnavailable }>{ CopySearchUnavailable }</p>
 }

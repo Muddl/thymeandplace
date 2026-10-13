@@ -5,7 +5,7 @@ templ Location(label string) {
 }
 
 templ Unsupported(seafood bool) {
-	<div class="panel">
+	<div class="panel" data-announce={ AnnounceUnsupported(seafood) }>
 		if seafood {
 			<p>{ CopyUnsupported }</p>
 		} else {
@@ -16,28 +16,30 @@ templ Unsupported(seafood bool) {
 }
 
 templ LoadError(label, retryURL string) {
-	if label != "" {
-		@Location(label)
-	}
-	<div class="panel warn" role="alert">
-		<p>{ CopyLoadError }</p>
-		<p><a href={ templ.URL(retryURL) } hx-get={ retryURL } hx-target="#results">{ CopyTryAgain }</a></p>
+	<div data-announce={ CopyLoadError }>
+		if label != "" {
+			@Location(label)
+		}
+		<div class="panel warn" role="alert">
+			<p>{ CopyLoadError }</p>
+			<p><a href={ templ.URL(retryURL) } hx-get={ retryURL } hx-target="#results">{ CopyTryAgain }</a></p>
+		</div>
 	</div>
 }
 
 templ NotFound() {
-	<div class="panel">
+	<div class="panel" data-announce={ CopyNotFound }>
 		<p>{ CopyNotFound }</p>
 		<p><a href="/">Back to the start</a></p>
 	</div>
 }
 
 templ TooMany() {
-	<div class="panel"><p>{ CopyPaused }</p></div>
+	<div class="panel" data-announce={ CopyPaused }><p>{ CopyPaused }</p></div>
 }
 
 templ Season(vm SeasonVM) {
-	<article class="season">
+	<article class="season" data-announce={ AnnounceSeason(vm.ItemCount(), vm.Label) }>
 		<header class="where">
 			<h2>{ vm.Label }</h2>
 			<p class="when">{ vm.MonthName } · <a href="/about/data#estimates">Estimates from local climate: how we estimate</a></p>

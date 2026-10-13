@@ -1,11 +1,15 @@
-import { compose, expect, test, waitReady, watchCSP } from "../helpers";
+import { axeOk, compose, expect, test, waitReady, watchCSP } from "../helpers";
 
-test("1. search → select → results render", async ({ page }) => {
+test("1. search → select → results render", { tag: "@readonly" }, async ({ page }) => {
+  const csp = watchCSP(page);
   await page.goto("/");
   const box = page.getByLabel("Find your town");
   await expect(box).toBeFocused();
   await expect(page.locator("#announce")).toHaveCount(1);
   await expect(page.locator("[aria-live]")).toHaveCount(1);
+  await expect(page.locator("#announce")).toHaveAttribute("role", "status");
+  await expect(page.locator("main h1")).toBeVisible();
+  const headerBefore = await page.locator("header.site").boundingBox();
   // Type key by key: the search input triggers on keyup, which fill() doesn't fire.
   await box.pressSequentially("lisb", { delay: 50 });
   await expect(box).toBeFocused();
@@ -16,31 +20,72 @@ test("1. search → select → results render", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Thyme & Place" })).toBeVisible();
   await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
   await expect(box).not.toBeFocused();
+  const announced = (await page.locator("#announce").textContent()) ?? "";
+  expect(announced).toMatch(/^\d+ ingredients? in season near Lisbon/);
+  expect(announced.length).toBeLessThan(80);
+  expect(announced).not.toMatch(/Tomato|Peak|Estimate/);
+  const headerAfter = await page.locator("header.site").boundingBox();
+  expect(headerAfter).toEqual(headerBefore);
+  expect(csp).toEqual([]);
 });
 
-test("/#q focuses the town search", async ({ page }) => {
+test("/#q focuses the town search", { tag: "@readonly" }, async ({ page }) => {
+  const csp = watchCSP(page);
   await page.goto("/season?lat=38.7167&lng=-9.1333&place=1");
   await expect(page.getByLabel("Find your town")).not.toBeFocused();
   await page.goto("/#q");
   await expect(page.getByLabel("Find your town")).toBeFocused();
+  expect(csp).toEqual([]);
 });
 
-test("place links work without JavaScript", async ({ browser }) => {
+test("keyboard focus shows a ring on the town search", { tag: "@readonly" }, async ({ page }) => {
+  const csp = watchCSP(page);
+  await page.goto("/season?lat=38.7167&lng=-9.1333&place=1");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  const box = page.getByLabel("Find your town");
+  await expect(box).toBeFocused();
+  const outline = await box.evaluate((el) => getComputedStyle(el).outlineStyle);
+  expect(outline).not.toBe("none");
+  expect(csp).toEqual([]);
+});
+
+test("place links work without JavaScript", { tag: "@readonly" }, async ({ browser }) => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, javaScriptEnabled: false });
   const page = await context.newPage();
+  const csp = watchCSP(page);
   await page.goto("/places?q=lisb");
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
   await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
   await expect(page.locator("#results")).toContainText("Lisbon, PT");
   await expect(page.getByRole("link", { name: "Thyme & Place" })).toBeVisible();
+  expect(csp).toEqual([]);
   await context.close();
+});
+
+test("axe scan of home and season", { tag: "@readonly" }, async ({ page }) => {
+  const csp = watchCSP(page);
+  await page.goto("/");
+  await axeOk(page);
+  await page.goto("/season?lat=38.7167&lng=-9.1333&place=1");
+  await axeOk(page);
+  expect(csp).toEqual([]);
+});
+
+test("home light and dark baselines", { tag: "@readonly" }, async ({ page }) => {
+  const csp = watchCSP(page);
+  await page.goto("/");
+  await expect(page).toHaveScreenshot("home-light.png", { caret: "hide", animations: "disabled" });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page).toHaveScreenshot("home-dark.png", { caret: "hide", animations: "disabled" });
+  expect(csp).toEqual([]);
 });
 
 test("a one-letter search asks for more", async ({ page }) => {
   await page.goto("/");
   const box = page.getByLabel("Find your town");
   await box.pressSequentially("l", { delay: 50 });
-  await expect(page.getByText("Keep typing: enter at least 2 letters of your town's name.")).toBeVisible();
+  await expect(page.locator("#places").getByText("Keep typing: enter at least 2 letters of your town's name.")).toBeVisible();
   await box.pressSequentially("isb", { delay: 50 });
   await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
 });

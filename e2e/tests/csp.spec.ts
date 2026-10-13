@@ -40,6 +40,8 @@ test("ignoreDuring drops screenshot hits and then records again", { tag: "@reado
     await page.screenshot({ caret: "hide", animations: "disabled" });
   });
   expect(csp.events).toEqual([]);
+  await page.emulateMedia({ colorScheme: "dark" });
+  expect(csp.events).toEqual([]);
   await page.evaluate(() => {
     const el = document.createElement("p");
     el.setAttribute("style", "color: red");

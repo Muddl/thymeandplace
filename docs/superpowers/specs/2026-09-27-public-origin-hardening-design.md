@@ -131,7 +131,7 @@ Recommended: after launch, once §4.1 is in place (§8 question 1).
 3. `internal/web/views/season.templ`: the `LoadError` retry link through `templ.URL`. Replace `templ.SafeURL` in the other public views. Regenerate templ.
 4. `internal/web/season.go`, `ingredient.go` and `server.go`: build retry URLs as in §4.3.
 5. Template lint tests (§4.4) and header tests (§6).
-6. `e2e/helpers.ts`: `watchCSP` records `securitypolicyviolation` events (listener installed with `page.addInitScript`) and CSP console text as a backup. There is no console-text filter and no field-based exemption. The auto `cspGuard` fails a test that fired a page event. Home baselines call `ignoreDuring` around `toHaveScreenshot` because WebKit still injects `<style>body {}</style>` on every screenshot, including with `caret: 'initial'` and `animations: 'allow'`. `e2e/tests/csp.spec.ts` serves a fixture with an inline `<style>` and a `style` attribute under the public CSP and asserts the watch still reports both on every engine.
+6. `e2e/helpers.ts`: `watchCSP` records `securitypolicyviolation` events (listener installed with `page.addInitScript`) and CSP console text as a backup. There is no console-text filter and no field-based exemption. The auto `cspGuard` fails a test that fired a page event. Home baselines call `ignoreDuring` only around each `toHaveScreenshot`, not `emulateMedia`, and assert the event list is empty after the pause. WebKit still injects `<style>body {}</style>` on every screenshot, including with `caret: 'initial'` and `animations: 'allow'`. `e2e/tests/csp.spec.ts` serves a fixture with an inline `<style>` and a `style` attribute under the public CSP and asserts the watch still reports both on every engine.
 7. Core spec amendments: §10.4 "Headers" becomes "Headers on every response: …; `/admin` adds `no-store`, `noindex` and `no-referrer`"; §11.5 notes the HTMX settings.
 
 ## 6. Testing
@@ -144,7 +144,7 @@ Recommended: after launch, once §4.1 is in place (§8 question 1).
   - A `/season` request with extra junk parameters and a DB outage renders a retry link with exactly `lat`, `lng`, `place` and `date` from validated values.
   - A panic on `/ingredient/x?cell=javascript:alert(1)` renders a retry link of `/ingredient/x`.
 - **Template lint:** as in §4.4, one test per views package.
-- **E2E (Playwright):** the existing public flows run under the CSP with `watchCSP` / `cspGuard`: search, geolocation allowed and denied, ingredient, back. So do the admin flows: passkey login with the virtual authenticator, edit, preview, apply, import and export. A `securitypolicyviolation` event fails the run. Screenshot tests pause the watch for the `toHaveScreenshot` call instead of filtering events by field. A fixture page with its own `<style>` and `style` attribute still fails the watch on Chromium, Firefox and WebKit.
+- **E2E (Playwright):** the existing public flows run under the CSP with `watchCSP` / `cspGuard`: search, geolocation allowed and denied, ingredient, back. So do the admin flows: passkey login with the virtual authenticator, edit, preview, apply, import and export. A `securitypolicyviolation` event fails the run. Screenshot tests pause the watch for the `toHaveScreenshot` call instead of filtering events by field, then assert an empty event list. `emulateMedia` stays outside that pause. A fixture page with its own `<style>` and `style` attribute still fails the watch on Chromium, Firefox and WebKit.
 
 ## 7. Rollout, operations and rollback
 

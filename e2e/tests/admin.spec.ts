@@ -1,15 +1,26 @@
 import { promises as fs } from "node:fs";
-import { enrollAndSignIn, expect, test } from "../helpers";
+import { enrollAndSignIn, expect, findLisbonHref, isLocalOrigin, test, withDate } from "../helpers";
 
 test.describe.configure({ mode: "serial" });
 
-// date=2026-05-15 matches TP_PUBLIC_TODAY (deploy/e2e.env), the server's
-// pinned "today" for this stack (Ruling F), so month-dependent checks below
-// are deterministic regardless of the real calendar date.
-const maySeason = "/season?lat=38.7167&lng=-9.1333&place=1&date=2026-05-15";
+const adminCSP =
+  "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+
+test("anonymous /admin redirects to sign-in and sends the admin CSP", { tag: "@readonly" }, async ({ page, request }) => {
+  const res = await request.get("/admin");
+  expect(res.status()).toBe(200);
+  expect(res.url()).toMatch(/\/admin\/login$/);
+  expect(res.headers()["content-security-policy"]).toBe(adminCSP);
+
+  await page.goto("/admin");
+  await expect(page).toHaveURL(/\/admin\/login$/);
+  await expect(page.getByRole("button", { name: "Sign in with a passkey" })).toBeVisible();
+});
 
 test("4. passkey login → edit → preview → apply → public page reflects change", { tag: "@mutating" }, async ({ page }) => {
-  await page.goto(maySeason);
+  test.skip(!isLocalOrigin() || !process.env.TP_PUBLIC_TODAY, "Tomato season check needs a local origin and TP_PUBLIC_TODAY");
+  const lisbonSeason = withDate(await findLisbonHref(page));
+  await page.goto(lisbonSeason);
   await expect(page.locator("#results")).not.toContainText("Tomato"); // May: not yet in season
 
   await enrollAndSignIn(page);
@@ -29,7 +40,7 @@ test("4. passkey login → edit → preview → apply → public page reflects c
   await expect(page.getByText("Changes applied.")).toBeVisible();
 
   await expect(async () => {
-    await page.goto(maySeason);
+    await page.goto(lisbonSeason);
     await expect(page.locator("#results")).toContainText("Tomato", { timeout: 1000 });
   }).toPass({ timeout: 10_000 }); // live reload via NOTIFY, no restart
 });

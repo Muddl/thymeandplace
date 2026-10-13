@@ -69,7 +69,7 @@ Non-goals:
   - The step `Unit, scoring, auth, store integration and ingestion tests` runs `go test -race -count=1 ./...`.
   - Add `go tool staticcheck ./...` and `go tool govulncheck ./...` after `go vet`.
   - `go.mod` gains `tool honnef.co/go/tools/cmd/staticcheck` and `tool golang.org/x/vuln/cmd/govulncheck`, next to the existing templ tool.
-- `deploy` job: add `shellcheck` for `deploy/*.sh`, `deploy/backup/*.sh` and `e2e/run.sh`. It is preinstalled on GitHub's Ubuntu runners; verify on the pinned image when implementing.
+- `deploy-checks` job: add `shellcheck` for `deploy/*.sh`, `deploy/backup/*.sh` and `e2e/run.sh`. It is preinstalled on GitHub's Ubuntu runners; verify on the pinned image when implementing.
 - `.github/dependabot.yml`: weekly, grouped:
   - `gomod` at `/`
   - `github-actions` at `/`
@@ -165,7 +165,7 @@ We don't build zero-downtime deploys now. `deploy.sh` records the window on ever
 
 - **CI itself:** the PR that adds the steps must pass them. A deliberately racy test, added in a scratch commit and not merged, confirms `-race` fails the job.
 - **Release workflow:** the first `main` run after merge pushes four images. Check each in the GHCR UI, and run `docker buildx imagetools inspect ghcr.io/muddl/thymeandplace-app:<sha>` to show the platform and attestations.
-- **Compose overlay:** the CI `deploy` job adds `docker compose -f deploy/compose.yaml -f deploy/compose.release.yaml config -q` with `TP_IMAGE_TAG=0000000000000000000000000000000000000000`, and a negative check that it fails without `TP_IMAGE_TAG`.
+- **Compose overlay:** the CI `deploy-checks` job adds `docker compose -f deploy/compose.yaml -f deploy/compose.release.yaml config -q` with `TP_IMAGE_TAG=0000000000000000000000000000000000000000`, and a negative check that it fails without `TP_IMAGE_TAG`.
 - **Deploy script:** `shellcheck`, plus one real run each on the VPS: a deploy, a rollback to the previous SHA, and a roll forward again. Record the three windows in `deploys.log`.
 - **Pinned images:** the existing e2e job builds from the pinned `Dockerfile`s and runs the whole Playwright suite, and `deploy/smoke.sh` still passes.
 

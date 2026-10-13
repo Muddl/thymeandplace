@@ -146,3 +146,26 @@ func TestLoadErrorSanitizesRetryURL(t *testing.T) {
 		t.Fatal("LoadError must not also be role=alert")
 	}
 }
+
+func TestAppJSSurfacesNetworkErrors(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "static", "app.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(b)
+	if strings.Contains(js, "hx-on") {
+		t.Fatal("app.js must not use hx-on")
+	}
+	for _, want := range []string{
+		CopyLoadError,
+		CopySearchUnavailable,
+		"htmx:sendError",
+		"htmx:timeout",
+		"htmx:responseError",
+		"htmx.config.timeout = 8000",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+}

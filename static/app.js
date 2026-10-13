@@ -39,18 +39,56 @@
     if (on) t.setAttribute("aria-busy", "true");
     else t.removeAttribute("aria-busy");
   }
-  function announceSwap(e) {
-    var announce = document.getElementById("announce");
-    var t = swapTarget(e.detail && e.detail.target);
-    if (!announce || !t) return;
-    var src = t.querySelector("[data-announce]");
-    var msg = src ? src.getAttribute("data-announce") || "" : "";
-    announce.textContent = "";
-    announce.textContent = msg;
+  function writeAnnounce(msg) {
+    var el = document.getElementById("announce");
+    if (!el) return;
+    el.textContent = "";
+    el.textContent = msg;
   }
+  function networkCopy(t) {
+    return t && t.id === "places"
+      ? "Search isn't available right now. Try again in a moment."
+      : "Couldn't load seasonal picks right now. Try again in a moment.";
+  }
+  function writeInline(t, msg) {
+    if (!t) return;
+    if (t.id === "places") {
+      t.innerHTML = '<p class="hint">' + msg + "</p>";
+    } else {
+      t.innerHTML = '<div class="panel warn" role="alert"><p>' + msg + "</p></div>";
+    }
+  }
+  function announceSwap(e) {
+    var t = swapTarget(e.detail && e.detail.target);
+    if (!t) return;
+    var src = t.querySelector("[data-announce]");
+    if (!src) return;
+    writeAnnounce(src.getAttribute("data-announce") || "");
+  }
+  function onTransportError(e) {
+    var t = swapTarget(e.detail && e.detail.target);
+    setBusy(t, false);
+    var msg = networkCopy(t);
+    writeInline(t, msg);
+    writeAnnounce(msg);
+  }
+  function onResponseError(e) {
+    var t = swapTarget(e.detail && e.detail.target);
+    setBusy(t, false);
+    var xhr = e.detail && e.detail.xhr;
+    var body = xhr && xhr.responseText;
+    var msg = networkCopy(t);
+    if (!body || !String(body).replace(/\s/g, "")) writeInline(t, msg);
+    writeAnnounce(msg);
+  }
+  htmx.config.timeout = 8000;
   document.addEventListener("htmx:beforeRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), true); });
   document.addEventListener("htmx:afterRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), false); });
   document.addEventListener("htmx:afterSwap", announceSwap);
+  document.addEventListener("htmx:sendError", onTransportError);
+  document.addEventListener("htmx:sendAbort", onTransportError);
+  document.addEventListener("htmx:timeout", onTransportError);
+  document.addEventListener("htmx:responseError", onResponseError);
   window.addEventListener("hashchange", focusSearch);
   document.addEventListener("click", function (e) {
     var a = e.target.closest("a");

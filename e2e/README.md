@@ -21,14 +21,16 @@ npm run test:mutating                 # --grep-invert @readonly
 
 ## Tags
 
-QA tags each spec `@readonly`. `@mutating` is not a grep match. `GREP=@mutating` runs `--grep-invert @readonly`, so untagged tests are in the mutating subset.
+Every spec title includes `@readonly` or `@mutating`. `@mutating` is not a grep match. `GREP=@mutating` runs `--grep-invert @readonly`, so an untagged test still runs in the mutating subset.
 
 | Tag | Meaning | Typical use |
 |---|---|---|
 | `@readonly` | GET-only. No catalog writes, no admin enrollment, no `compose stop`. Safe against a live site. | Smoke: `GREP=@readonly` |
 | untagged or `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | `GREP=@mutating` is `--grep-invert @readonly` |
 
-CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags, once at least one `@readonly` or `@mutating` exists in `e2e/tests`. Until QA tags the specs, that check skips (it must not go red only because tags are not in yet).
+The five public flows and the anonymous `/admin` sign-in check are `@readonly`. The Postgres-stop test and the four catalog admin tests are `@mutating`. CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags.
+
+Specs find Lisbon by searching for its name. They pass today's UTC date, not a pinned May day. The 1 s warm `/season` timing assertion runs only when `E2E_BASE_URL` is localhost.
 
 A prod smoke is:
 
@@ -52,7 +54,7 @@ Each job installs only its browser and caches `~/.cache/ms-playwright`. `./e2e/s
 
 ## Shards
 
-CI is `browser × shard` (`SHARD=1/2` and `SHARD=2/2`). Each shard brings up its own compose project because the suite stops the database and edits the catalog (`workers: 1`). `admin.spec.ts` uses `test.describe.configure({ mode: "serial" })` so those four tests stay in one shard and run in file order. Public specs shard individually. Blob reports are merged and uploaded when a shard fails. The required check is the aggregate job `e2e-result`.
+CI is `browser × shard` (`SHARD=1/2` and `SHARD=2/2`). Each shard brings up its own compose project because the suite stops the database and edits the catalog (`workers: 1`). `admin.spec.ts` uses `test.describe.configure({ mode: "serial" })` so those five tests stay in one shard and run in file order. Public specs shard individually. Blob reports are merged and uploaded when a shard fails. The required check is the aggregate job `e2e-result`.
 
 ## Environment
 

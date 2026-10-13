@@ -123,7 +123,7 @@ func (s *Server) label(ctx context.Context, placeParam string, lat, lng float64)
 }
 ```
 
-The shared budget caps the label at 300 ms even when `ByID` hangs. The explicit `pctx.Err()` check keeps that independent of the driver and of test fakes. Context7's pgx docs say a cancelled context returns at once, but the design doesn't depend on it. `NearestPlace` (`handwritten.go:122-139`) orders by `geom <-> point` on the GiST-indexed geography column (core spec §6.3). PostGIS docs (via Context7) confirm that `<->` in `ORDER BY` is an index-assisted nearest-neighbour search that uses spherical distance for geography. The query already runs on every miss today. It isn't benchmarked on production data. The Playwright check "warm /season responds within 1 s" (`e2e/tests/public.spec.ts:20-27`) covers it on the e2e stack, because that request has no `?place=`.
+The shared budget caps the label at 300 ms even when `ByID` hangs. The explicit `pctx.Err()` check keeps that independent of the driver and of test fakes. Context7's pgx docs say a cancelled context returns at once, but the design doesn't depend on it. `NearestPlace` (`handwritten.go:122-139`) orders by `geom <-> point` on the GiST-indexed geography column (core spec §6.3). PostGIS docs (via Context7) confirm that `<->` in `ORDER BY` is an index-assisted nearest-neighbour search that uses spherical distance for geography. The query already runs on every miss today. It isn't benchmarked on production data. The Playwright check "warm /season responds within 1 s" (`e2e/tests/public.spec.ts`) covers it on the e2e stack, because that request has no `?place=`. The 1 s timing assertion runs only when `E2E_BASE_URL` is localhost.
 
 ### 4.4 `/ingredient`
 

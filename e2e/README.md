@@ -21,14 +21,16 @@ npm run test:mutating                 # --grep-invert @readonly
 
 ## Tags
 
-QA tags each spec `@readonly`. `@mutating` is not a grep match. `GREP=@mutating` runs `--grep-invert @readonly`, so untagged tests are in the mutating subset.
+Every spec title includes `@readonly` or `@mutating`. `@mutating` is not a grep match. `GREP=@mutating` runs `--grep-invert @readonly`, so an untagged test still runs in the mutating subset.
 
 | Tag | Meaning | Typical use |
 |---|---|---|
 | `@readonly` | GET-only. No catalog writes, no admin enrollment, no `compose stop`. Safe against a live site. | Smoke: `GREP=@readonly` |
 | untagged or `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | `GREP=@mutating` is `--grep-invert @readonly` |
 
-CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags, once at least one `@readonly` or `@mutating` exists in `e2e/tests`. Until QA tags the specs, that check skips (it must not go red only because tags are not in yet).
+Public GET flows and the anonymous `/admin` sign-in check are `@readonly`. The Postgres-stop test and the four catalog admin tests are `@mutating`. CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags.
+
+Specs find Lisbon by searching for its name. They pass today's UTC date, not a pinned May day. The 1 s warm `/season` test skips when `E2E_BASE_URL` is not localhost. The status-only warm check still runs.
 
 A prod smoke is:
 
@@ -36,7 +38,7 @@ A prod smoke is:
 E2E_BASE_URL=https://thymeand.place GREP=@readonly BROWSER=chromium ./e2e/run.sh
 ```
 
-`run.sh` and the Playwright config refuse a non-local origin unless `GREP=@readonly`. Compose is skipped when the origin is not localhost (or when `E2E_SKIP_STACK=1`).
+`run.sh` and the Playwright config refuse a non-local origin unless `GREP=@readonly`. Compose is skipped when the origin is not localhost (or when `E2E_SKIP_STACK=1`). Capture (`trace`, `screenshot`, `video`) is off whenever `E2E_BASE_URL` is not localhost or `127.0.0.1`, including when `GREP=@readonly`. Local runs keep `trace: retain-on-failure`. `e2e/capture.mjs` owns that decision. `node e2e/check-capture.mjs` checks it.
 
 ## Browsers
 
@@ -48,11 +50,11 @@ CI picks the matrix with `e2e/select-browsers.sh`:
 - Pull request that touches `views/`, `static/`, or `e2e/`: all three.
 - Any other pull request: chromium only.
 
-Each job installs only its browser and caches `~/.cache/ms-playwright`. `./e2e/select-browsers.sh --self-test` checks the path rules.
+Each job installs only its browser and caches `~/.cache/ms-playwright`. `./e2e/select-browsers.sh --self-test` checks the path rules. The `e2e-remote-config` workflow loads the Playwright config against `https://example.com` with `GREP=@readonly` and has no `upload-artifact` step.
 
 ## Shards
 
-CI is `browser × shard` (`SHARD=1/2` and `SHARD=2/2`). Each shard brings up its own compose project because the suite stops the database and edits the catalog (`workers: 1`). `admin.spec.ts` uses `test.describe.configure({ mode: "serial" })` so those four tests stay in one shard and run in file order. Public specs shard individually. Blob reports are merged and uploaded when a shard fails. The required check is the aggregate job `e2e-result`.
+CI is `browser × shard` (`SHARD=1/2` and `SHARD=2/2`). Each shard brings up its own compose project because the suite stops the database and edits the catalog (`workers: 1`). `admin.spec.ts` uses `test.describe.configure({ mode: "serial" })` so those five tests stay in one shard and run in file order. Public specs shard individually. Blob reports are merged and uploaded when a shard fails. The required check is the aggregate job `e2e-result`.
 
 ## Environment
 
@@ -63,6 +65,7 @@ CI is `browser × shard` (`SHARD=1/2` and `SHARD=2/2`). Each shard brings up its
 | `SHARD` | unset | Playwright `--shard`, for example `1/2`. |
 | `GREP` | unset | Playwright `--grep`, for example `@readonly`. |
 | `E2E_SKIP_STACK` | unset | Set to `1` to skip Compose even on localhost. |
+| `TP_PUBLIC_TODAY` | from `deploy/e2e/app.env` via `run.sh` | Pin the Tomato flow needs. That `@mutating` spec skips unless the origin is local and this is set. |
 | `CI` | unset | Switches the reporter to blob (for the merge job). |
 
 ## TODO: full suite against release images

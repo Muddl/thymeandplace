@@ -5,38 +5,60 @@ import { APIRequestContext, Page, expect, test as base } from "@playwright/test"
 
 const deploy = path.resolve(__dirname, "..", "deploy");
 
-// Exact console text WebKit logs on the 390px dark cases (#107). A real
-// page <style> prints the same words, so this string is ignored only in
-// those two tests, and only on WebKit.
-export const webkitDarkUACSP =
-  "Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline' does not appear in the style-src directive of the Content Security Policy.";
+export type CSPEvent = { directive: string; blockedURI: string };
+export type CSPWatch = { console: string[]; events: CSPEvent[]; stop(): void };
 
-// watchCSP collects the page's browser console messages about Content
-// Security Policy. The site sends a strict CSP (internal/web/middleware.go),
-// so any such message means a page uses something the policy blocks.
-export function watchCSP(page: Page, ignore: (msg: string) => boolean = () => false): string[] {
-  const seen: string[] = [];
+// watchCSP records Content-Security-Policy hits. The primary signal is
+// securitypolicyviolation (registered in addInitScript so it is in place
+// before page script). Console text is a backup and matches both
+// "Content-Security-Policy" and "Content Security Policy". A clean page
+// fires no violation events. There is no console-text filter (#107).
+// stop() ends recording so a later Playwright screenshot (WebKit injects
+// an inline <style>) is not counted as a page violation.
+export async function watchCSP(page: Page): Promise<CSPWatch> {
+  const tagged = page as Page & { __cspWatch?: CSPWatch };
+  if (tagged.__cspWatch) return tagged.__cspWatch;
+  let live = true;
+  const watch: CSPWatch = {
+    console: [],
+    events: [],
+    stop() {
+      live = false;
+    },
+  };
   page.on("console", (m) => {
+    if (!live) return;
     const t = m.text();
-    if (!t.includes("Content Security Policy")) return;
-    if (ignore(t)) return;
-    seen.push(t);
+    if (t.includes("Content-Security-Policy") || t.includes("Content Security Policy")) {
+      watch.console.push(t);
+    }
   });
-  return seen;
+  try {
+    await page.exposeFunction("__tpCspPush", (hit: CSPEvent) => {
+      if (live) watch.events.push(hit);
+    });
+    await page.addInitScript(() => {
+      document.addEventListener("securitypolicyviolation", (e) => {
+        const w = window as unknown as { __tpCspPush?: (h: { directive: string; blockedURI: string }) => void };
+        if (w.__tpCspPush) w.__tpCspPush({ directive: e.effectiveDirective, blockedURI: e.blockedURI });
+      });
+    });
+  } catch {
+    // javaScriptEnabled: false pages cannot install the event bridge.
+  }
+  tagged.__cspWatch = watch;
+  return watch;
 }
 
 // test is Playwright's test with a guard that fails any test whose page
-// logged a CSP message. Pages from a context a test makes itself need their
-// own watchCSP. cspIgnoreWebKitDarkUA is off except in the two 390px dark
-// tests (#107).
-export const test = base.extend<{ cspGuard: void; cspIgnoreWebKitDarkUA: boolean }>({
-  cspIgnoreWebKitDarkUA: [false, { option: true }],
+// fired a securitypolicyviolation. Pages from a context a test makes
+// itself need their own watchCSP.
+export const test = base.extend<{ cspGuard: void }>({
   cspGuard: [
-    async ({ page, browserName, cspIgnoreWebKitDarkUA }, use) => {
-      const ignore = (msg: string) => cspIgnoreWebKitDarkUA && browserName === "webkit" && msg === webkitDarkUACSP;
-      const seen = watchCSP(page, ignore);
+    async ({ page }, use) => {
+      const seen = await watchCSP(page);
       await use();
-      expect(seen, "Content Security Policy messages in the browser console").toEqual([]);
+      expect(seen.events, "securitypolicyviolation events").toEqual([]);
     },
     { auto: true },
   ],

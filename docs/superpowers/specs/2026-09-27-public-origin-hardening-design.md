@@ -131,7 +131,7 @@ Recommended: after launch, once §4.1 is in place (§8 question 1).
 3. `internal/web/views/season.templ`: the `LoadError` retry link through `templ.URL`. Replace `templ.SafeURL` in the other public views. Regenerate templ.
 4. `internal/web/season.go`, `ingredient.go` and `server.go`: build retry URLs as in §4.3.
 5. Template lint tests (§4.4) and header tests (§6).
-6. `e2e/helpers.ts`: fail on CSP console messages.
+6. `e2e/helpers.ts`: `watchCSP` records `securitypolicyviolation` events (listener installed with `page.addInitScript`) and CSP console text as a backup. The auto `cspGuard` fails a test that fired an event. There is no console-text filter. `e2e/tests/csp.spec.ts` injects an inline script, a `<style>` element, and a `style=` attribute and asserts the matching directives via the same helper. Those cases do not run on pull-request CI until #86 (multi-browser e2e on PRs).
 7. Core spec amendments: §10.4 "Headers" becomes "Headers on every response: …; `/admin` adds `no-store`, `noindex` and `no-referrer`"; §11.5 notes the HTMX settings.
 
 ## 6. Testing
@@ -144,7 +144,7 @@ Recommended: after launch, once §4.1 is in place (§8 question 1).
   - A `/season` request with extra junk parameters and a DB outage renders a retry link with exactly `lat`, `lng`, `place` and `date` from validated values.
   - A panic on `/ingredient/x?cell=javascript:alert(1)` renders a retry link of `/ingredient/x`.
 - **Template lint:** as in §4.4, one test per views package.
-- **E2E (Playwright):** the existing public flows run under the CSP with the console guard: search, geolocation allowed and denied, ingredient, back. So do the admin flows: passkey login with the virtual authenticator, edit, preview, apply, import and export. Any CSP console error fails the run.
+- **E2E (Playwright):** the existing public flows run under the CSP with `watchCSP` / `cspGuard`: search, geolocation allowed and denied, ingredient, back. So do the admin flows: passkey login with the virtual authenticator, edit, preview, apply, import and export. A `securitypolicyviolation` event fails the run. A clean page, including the 390px dark error states, fires none. Those two cases stop the watcher before `page.screenshot`, because WebKit's screenshot injects an inline `<style>`. Injected `<style>` reports `style-src-elem` (or `style-src`); injected `style=` reports `style-src-attr` (or `style-src`); injected `<script>` reports `script-src` / `script-src-elem`. Multi-browser e2e on pull requests waits on #86.
 
 ## 7. Rollout, operations and rollback
 
@@ -156,5 +156,5 @@ Recommended: after launch, once §4.1 is in place (§8 question 1).
 ## 8. Open questions for the owner
 
 1. **Admin on its own origin (§4.5).** Recommended: yes, after launch, as its own issue.
-2. **CSP violation reports.** Collecting them needs an endpoint that stores browser-sent data, which touches the privacy promises in core spec §15. Recommended: no reporting. Rely on the e2e console guard.
+2. **CSP violation reports.** Collecting them needs an endpoint that stores browser-sent data, which touches the privacy promises in core spec §15. Recommended: no reporting. Rely on the e2e `securitypolicyviolation` guard.
 3. **HSTS preload.** `includeSubDomains` is already set in `deploy/Caddyfile:8`. Recommended: don't submit to the preload list until the domain and any subdomains (including a future admin host) are settled, because leaving the list is slow.

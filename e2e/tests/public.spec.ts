@@ -1,8 +1,8 @@
 import type { APIRequestContext, Page, Request } from "@playwright/test";
-import { axeOk, compose, expect, test, waitReady, watchCSP, webkitDarkUACSP } from "../helpers";
+import { axeOk, compose, expect, test, waitReady, watchCSP } from "../helpers";
 
 test("1. search → select → results render", { tag: "@readonly" }, async ({ page }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await page.goto("/");
   const box = page.getByLabel("Find your town");
   await expect(box).toBeFocused();
@@ -27,20 +27,20 @@ test("1. search → select → results render", { tag: "@readonly" }, async ({ p
   expect(announced).not.toMatch(/Tomato|Peak|Estimate/);
   const headerAfter = await page.locator("header.site").boundingBox();
   expect(headerAfter).toEqual(headerBefore);
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("/#q focuses the town search", { tag: "@readonly" }, async ({ page }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await page.goto("/season?lat=38.7167&lng=-9.1333&place=1");
   await expect(page.getByLabel("Find your town")).not.toBeFocused();
   await page.goto("/#q");
   await expect(page.getByLabel("Find your town")).toBeFocused();
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("keyboard focus shows a ring on the town search", { tag: "@readonly" }, async ({ page }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await page.goto("/season?lat=38.7167&lng=-9.1333&place=1");
   await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
@@ -48,41 +48,41 @@ test("keyboard focus shows a ring on the town search", { tag: "@readonly" }, asy
   await expect(box).toBeFocused();
   const outline = await box.evaluate((el) => getComputedStyle(el).outlineStyle);
   expect(outline).not.toBe("none");
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("place links work without JavaScript", { tag: "@readonly" }, async ({ browser }) => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, javaScriptEnabled: false });
   const page = await context.newPage();
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await page.goto("/places?q=lisb");
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
   await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
   await expect(page.locator("#results")).toContainText("Lisbon, PT");
   await expect(page.getByRole("link", { name: "Thyme & Place" })).toBeVisible();
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
   await context.close();
 });
 
 test("axe scan of home and season", { tag: "@readonly" }, async ({ page }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await page.goto("/");
   await axeOk(page, "light");
   await axeOk(page, "dark");
   await page.goto("/season?lat=38.7167&lng=-9.1333&place=1");
   await axeOk(page, "light");
   await axeOk(page, "dark");
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("home light and dark baselines", { tag: "@readonly" }, async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "PNG baselines are chromium-linux");
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await page.goto("/");
   await expect(page).toHaveScreenshot("home-light.png", { caret: "hide", animations: "disabled" });
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page).toHaveScreenshot("home-dark.png", { caret: "hide", animations: "disabled" });
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("a one-letter search asks for more", { tag: "@readonly" }, async ({ page }) => {
@@ -111,12 +111,12 @@ test("warm /season responds within 1 s", { tag: "@readonly" }, async ({ request 
 test("2. geolocation denied → search fallback", { tag: "@readonly" }, async ({ browser }) => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, permissions: [] });
   const page = await context.newPage();
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Use my location" }).click();
   await expect(page.getByText("Location access is off, so search for your town instead.")).toBeVisible();
   await expect(page.getByLabel("Find your town")).toBeFocused();
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
   await context.close();
 });
 
@@ -127,12 +127,12 @@ test("geolocation allowed → results for the position", { tag: "@readonly" }, a
     ignoreHTTPSErrors: true, permissions: ["geolocation"], geolocation: { latitude: 38.7167, longitude: -9.1333 },
   });
   const page = await context.newPage();
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Use my location" }).click();
   await expect(page).toHaveURL(/\/season\?lat=38\.72&lng=-9\.13$/);
   await expect(page.locator("#results h3").first()).toBeVisible();
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
   await context.close();
 });
 
@@ -271,7 +271,7 @@ async function serverErrorFragment(page: Page, request: APIRequestContext, path:
 }
 
 test("places abort writes search unavailable to #announce and #places", { tag: "@readonly" }, async ({ page }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await page.route("**/places*", async (route) => {
     if (!isHX("/places", route.request())) {
       await route.continue();
@@ -285,11 +285,11 @@ test("places abort writes search unavailable to #announce and #places", { tag: "
   await expect(page.locator("#places").getByRole("link", { name: "Try again" })).toBeVisible();
   await axeOk(page, "light");
   await recoverPlaces(page);
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("season abort writes load error to #announce and #results", { tag: "@readonly" }, async ({ page }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await searchLisbon(page);
   await page.route("**/season*", async (route) => {
     if (!isHX("/season", route.request())) {
@@ -302,11 +302,11 @@ test("season abort writes load error to #announce and #results", { tag: "@readon
   await expectAnnounced(page, "#results", loadError);
   await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
   await recoverSeason(page);
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("places timeout writes search unavailable to #announce and #places", { tag: "@readonly", timeout: 90_000 }, async ({ page }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await page.goto("/");
   const timeoutMs = await htmxTimeoutMs(page);
   await page.route("**/places*", async (route) => {
@@ -321,11 +321,11 @@ test("places timeout writes search unavailable to #announce and #places", { tag:
   await expect(page.locator("#announce")).toHaveText(searchUnavailable, { timeout: timeoutMs + 5000 });
   await expectAnnounced(page, "#places", searchUnavailable);
   await recoverPlaces(page);
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("season timeout writes load error to #announce and #results", { tag: "@readonly", timeout: 90_000 }, async ({ page }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await searchLisbon(page);
   const timeoutMs = await htmxTimeoutMs(page);
   await page.route("**/season*", async (route) => {
@@ -341,11 +341,11 @@ test("season timeout writes load error to #announce and #results", { tag: "@read
   await expectAnnounced(page, "#results", loadError);
   await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
   await recoverSeason(page);
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("season 500 swaps the server fragment and announces it once", { tag: "@mutating" }, async ({ page, request }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   const fragment = await serverErrorFragment(page, request, "/season?lat=39.2369&lng=-8.6850");
   expect(decodeHTML(fragment)).toContain(loadError);
   expect(fragment).toContain("Try again");
@@ -365,11 +365,11 @@ test("season 500 swaps the server fragment and announces it once", { tag: "@muta
   expect(spoken).toHaveLength(1);
   await axeOk(page, "light");
   await recoverSeason(page, /39\.24°N|can't estimate seasons/);
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("places 500 swaps the server fragment and announces it once", { tag: "@mutating" }, async ({ page, request }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   const fragment = await serverErrorFragment(page, request, lisbonPlaces);
   expect(decodeHTML(fragment)).toContain(searchUnavailable);
   await page.goto("/");
@@ -386,11 +386,11 @@ test("places 500 swaps the server fragment and announces it once", { tag: "@muta
   const spoken = (await announcedMessages(page)).filter((m) => m === searchUnavailable);
   expect(spoken).toHaveLength(1);
   await recoverPlaces(page);
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 test("selecting a place or ingredient leaves focus where the cook put it", { tag: "@readonly" }, async ({ page }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   await searchLisbon(page);
   const lisbon = page.getByRole("link", { name: "Lisbon, PT" });
   await lisbon.click();
@@ -403,13 +403,13 @@ test("selecting a place or ingredient leaves focus where the cook put it", { tag
   await expect(page.locator("#results")).toContainText(name);
   await expect(lisbon).not.toBeFocused();
   await expect(page.locator("#places a").first()).not.toBeFocused();
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
 // A later keyup with hx-sync=replace aborts the in-flight /places XHR
 // (htmx:sendAbort). That is not a network failure.
 test("an intentional places abort does not show a network error", { tag: "@readonly" }, async ({ page }) => {
-  const csp = watchCSP(page);
+  const csp = await watchCSP(page);
   let n = 0;
   let releaseFirst!: () => void;
   let releaseSecond!: () => void;
@@ -454,52 +454,50 @@ test("an intentional places abort does not show a network error", { tag: "@reado
   await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
   await expect(page.locator("#places")).not.toContainText(searchUnavailable);
   releaseFirst();
-  expect(csp).toEqual([]);
+  expect(csp.events).toEqual([]);
 });
 
-test.describe("390px dark error states", () => {
-  test.use({ cspIgnoreWebKitDarkUA: true });
-
-  test("error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
-    const csp = watchCSP(page, (msg) => browserName === "webkit" && msg === webkitDarkUACSP);
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.emulateMedia({ colorScheme: "dark" });
-    await page.route("**/places*", async (route) => {
-      if (!isHX("/places", route.request())) {
-        await route.continue();
-        return;
-      }
-      await route.abort("connectionrefused");
-    });
-    await page.goto("/");
-    await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
-    await expectAnnounced(page, "#places", searchUnavailable);
-    await expect(page.locator("#places").getByRole("link", { name: "Try again" })).toBeVisible();
-    await axeOk(page, "dark");
-    const dir = process.env.E2E_SHOTS || "test-results";
-    await page.screenshot({ path: `${dir}/places-abort-390-dark-${browserName}.png`, animations: "disabled" });
-    expect(csp).toEqual([]);
+test("error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
+  const csp = await watchCSP(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.route("**/places*", async (route) => {
+    if (!isHX("/places", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.abort("connectionrefused");
   });
+  await page.goto("/");
+  await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
+  await expectAnnounced(page, "#places", searchUnavailable);
+  await expect(page.locator("#places").getByRole("link", { name: "Try again" })).toBeVisible();
+  await axeOk(page, "dark");
+  expect(csp.events).toEqual([]);
+  csp.stop(); // WebKit page.screenshot injects an inline <style>
+  const dir = process.env.E2E_SHOTS || "test-results";
+  await page.screenshot({ path: `${dir}/places-abort-390-dark-${browserName}.png`, animations: "disabled" });
+});
 
-  test("season error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
-    const csp = watchCSP(page, (msg) => browserName === "webkit" && msg === webkitDarkUACSP);
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.emulateMedia({ colorScheme: "dark" });
-    await searchLisbon(page);
-    await page.route("**/season*", async (route) => {
-      if (!isHX("/season", route.request())) {
-        await route.continue();
-        return;
-      }
-      await route.abort("connectionrefused");
-    });
-    await page.getByRole("link", { name: "Lisbon, PT" }).click();
-    await expectAnnounced(page, "#results", loadError);
-    await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
-    // Dark axe filters only #48 unstyled-link contrast (see defaultLinkContrastOnly).
-    await axeOk(page, "dark");
-    const dir = process.env.E2E_SHOTS || "test-results";
-    await page.screenshot({ path: `${dir}/season-abort-390-dark-${browserName}.png`, animations: "disabled" });
-    expect(csp).toEqual([]);
+test("season error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
+  const csp = await watchCSP(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await searchLisbon(page);
+  await page.route("**/season*", async (route) => {
+    if (!isHX("/season", route.request())) {
+      await route.continue();
+      return;
+    }
+    await route.abort("connectionrefused");
   });
+  await page.getByRole("link", { name: "Lisbon, PT" }).click();
+  await expectAnnounced(page, "#results", loadError);
+  await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
+  // Dark axe filters only #48 unstyled-link contrast (see defaultLinkContrastOnly).
+  await axeOk(page, "dark");
+  expect(csp.events).toEqual([]);
+  csp.stop(); // WebKit page.screenshot injects an inline <style>
+  const dir = process.env.E2E_SHOTS || "test-results";
+  await page.screenshot({ path: `${dir}/season-abort-390-dark-${browserName}.png`, animations: "disabled" });
 });

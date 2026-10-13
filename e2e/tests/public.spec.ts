@@ -511,7 +511,6 @@ test("season error state is usable at 390px in dark mode", { tag: "@readonly" },
   await page.getByRole("link", { name: "Lisbon, PT" }).click();
   await expectAnnounced(page, "#results", loadError);
   await expect(page.locator("#results").getByRole("link", { name: "Try again" })).toBeVisible();
-  // Dark axe filters only #48 unstyled-link contrast (see defaultLinkContrastOnly).
   await axeOk(page, "dark");
   expect(csp.events).toEqual([]);
   const dir = process.env.E2E_SHOTS || "test-results";

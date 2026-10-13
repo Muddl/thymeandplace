@@ -7,8 +7,30 @@ const pages = [
   "/",
   `/season?lat=38.7167&lng=-9.1333&date=${pinnedToday}`,
   `/ingredient/tomato?cell=295883&date=${pinnedToday}`,
+  `/ingredient/banana?cell=295883&date=${pinnedToday}`,
   "/about/data",
 ];
+
+function parseColor(color: string): { r: number; g: number; b: number } {
+  const rgb = color.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if (rgb) return { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) };
+  const srgb = color.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+  if (srgb) return { r: Number(srgb[1]) * 255, g: Number(srgb[2]) * 255, b: Number(srgb[3]) * 255 };
+  throw new Error(`unparsed color: ${color}`);
+}
+
+function contrastRatio(a: string, b: string): number {
+  const lin = (c: number) => {
+    const x = c / 255;
+    return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (color: string) => {
+    const { r, g, b } = parseColor(color);
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
 
 function contrastFailures(violations: { id: string; nodes: { html: string; target: unknown[]; failureSummary?: string }[] }[]) {
   return violations
@@ -37,5 +59,24 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
     const results = await new AxeBuilder({ page }).withRules(["color-contrast"]).analyze();
     expect(contrastFailures(results.violations), `${scheme} search results`).toEqual([]);
+
+    const controls = await page.evaluate(() => {
+      const style = (sel: string) => {
+        const cs = getComputedStyle(document.querySelector(sel)!);
+        return { bg: cs.backgroundColor, border: cs.borderTopColor };
+      };
+      return { input: style(".finder input"), button: style(".finder button") };
+    });
+    expect(contrastRatio(controls.input.border, controls.input.bg), `${scheme} input border`).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(controls.button.border, controls.button.bg), `${scheme} button border`).toBeGreaterThanOrEqual(3);
+
+    await page.goto(`/ingredient/banana?cell=295883&date=${pinnedToday}`);
+    const year = page.locator(".s-year").first();
+    await expect(year).toBeVisible();
+    const yearColors = await year.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { color: cs.color, bg: cs.backgroundColor };
+    });
+    expect(contrastRatio(yearColors.color, yearColors.bg), `${scheme} year-round bar`).toBeGreaterThanOrEqual(4.5);
   });
 }

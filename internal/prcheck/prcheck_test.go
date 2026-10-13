@@ -3,6 +3,7 @@ package prcheck
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -30,6 +31,10 @@ func linkedInput() Input {
 		HeadSHA: head,
 		Issues:  map[int]string{12: "## Acceptance criteria\n\n- [ ] done\n"},
 	}
+}
+
+func muddl(body string) Comment {
+	return Comment{Author: "Muddl", Body: body}
 }
 
 func TestMissingIssueLink(t *testing.T) {
@@ -61,7 +66,7 @@ func TestStaleApprovalSHA(t *testing.T) {
 	in := linkedInput()
 	in.Files = []string{"migrations/00099_x.sql"}
 	in.Labels = []string{"arch-approved"}
-	in.Comments = []string{"Architect Farmer: approved 0000000"}
+	in.Comments = []Comment{muddl("Architect Farmer: approved 0000000")}
 	got := Check(in, cfg)
 	if len(got) != 1 {
 		t.Fatalf("Check() = %#v, want one failure", got)
@@ -76,10 +81,49 @@ func TestValidApproval(t *testing.T) {
 	in := linkedInput()
 	in.Files = []string{"migrations/00099_x.sql"}
 	in.Labels = []string{"arch-approved"}
-	in.Comments = []string{"Architect Farmer: approved abcdef1"}
+	in.Comments = []Comment{muddl("Architect Farmer: approved abcdef1")}
 	got := Check(in, cfg)
 	if len(got) != 0 {
 		t.Fatalf("Check() = %#v, want no failures", got)
+	}
+}
+
+func TestLastApprovalCommentWins(t *testing.T) {
+	cfg := testConfig(t)
+	in := linkedInput()
+	in.Files = []string{"migrations/00099_x.sql"}
+	in.Labels = []string{"arch-approved"}
+	in.Comments = []Comment{
+		muddl("Architect Farmer: approved abcdef1"),
+		muddl("Architect Farmer: approved 0000000"),
+	}
+	got := Check(in, cfg)
+	if len(got) != 1 || !strings.Contains(got[0], "stale") {
+		t.Fatalf("Check() = %#v, want stale because the last comment wins", got)
+	}
+}
+
+func TestUntrustedAuthorIgnored(t *testing.T) {
+	cfg := testConfig(t)
+	in := linkedInput()
+	in.Files = []string{"migrations/00099_x.sql"}
+	in.Labels = []string{"arch-approved"}
+	in.Comments = []Comment{{Author: "outsider", Body: "Architect Farmer: approved abcdef1"}}
+	got := Check(in, cfg)
+	if len(got) != 1 || !strings.Contains(got[0], "arch-approved") {
+		t.Fatalf("Check() = %#v, want arch-approved still required", got)
+	}
+}
+
+func TestQuotedApprovalIgnored(t *testing.T) {
+	cfg := testConfig(t)
+	in := linkedInput()
+	in.Files = []string{"migrations/00099_x.sql"}
+	in.Labels = []string{"arch-approved"}
+	in.Comments = []Comment{muddl("> Architect Farmer: approved 0000000\nArchitect Farmer: approved abcdef1")}
+	got := Check(in, cfg)
+	if len(got) != 0 {
+		t.Fatalf("Check() = %#v, want quoted stale line ignored", got)
 	}
 }
 
@@ -147,14 +191,28 @@ func TestMatchPath(t *testing.T) {
 		want          bool
 	}{
 		{"migrations/**", "migrations/00001.sql", true},
+		{"migrations/**", "migrations/nested/a.sql", true},
 		{"migrations/**", "internal/store/db.go", false},
 		{"cmd/*/app.go", "cmd/server/app.go", true},
+		{"cmd/*/app.go", "cmd/a/b/app.go", false},
 		{"cmd/*/app.go", "cmd/server/main.go", false},
 		{"**/views/lint_test.go", "internal/web/views/lint_test.go", true},
+		{"**/views/lint_test.go", "internal/admin/views/lint_test.go", true},
 		{"**/Dockerfile.*", "deploy/Dockerfile.app", true},
 		{"**/Dockerfile", "deploy/backup/Dockerfile", true},
 		{"**/Dockerfile", "deploy/Dockerfile.app", false},
 		{"deploy/**", "deploy/compose.yaml", true},
+		{"deploy/db/**", "deploy/db/initdb/20-roles.sh", true},
+		{"deploy/db/**", "deploy/db/adopt-roles.sql", true},
+		{"deploy/Caddyfile.*", "deploy/Caddyfile.local", true},
+		{"deploy/Caddyfile", "deploy/Caddyfile", true},
+		{"go.sum", "go.sum", true},
+		{".github/pr-signoffs.json", ".github/pr-signoffs.json", true},
+		{"cmd/prcheck/**", "cmd/prcheck/main.go", true},
+		{"internal/prcheck/**", "internal/prcheck/path.go", true},
+		{"internal/admin/security*.go", "internal/admin/security.go", true},
+		{"internal/admin/security*.go", "internal/admin/security_test.go", true},
+		{"internal/admin/security*.go", "internal/admin/admin.go", false},
 		{"static/**", "static/app.css", true},
 	}
 	for _, tc := range cases {
@@ -162,4 +220,50 @@ func TestMatchPath(t *testing.T) {
 			t.Errorf("MatchPath(%q, %q) = %v, want %v", tc.pattern, tc.file, got, tc.want)
 		}
 	}
+}
+
+func TestPathPatterns(t *testing.T) {
+	cfg := testConfig(t)
+	cases := []struct {
+		file string
+		want []string
+	}{
+		{"README.md", nil},
+		{"cmd/server/app.go", []string{"arch-approved"}},
+		{"cmd/a/b/app.go", nil},
+		{"go.mod", []string{"arch-approved"}},
+		{"go.sum", []string{"arch-approved"}},
+		{"migrations/nested/a.sql", []string{"arch-approved"}},
+		{"deploy/db/initdb/20-roles.sh", []string{"arch-approved", "liveops-approved|arch-approved"}},
+		{"deploy/Caddyfile", []string{"arch-approved"}},
+		{"deploy/Caddyfile.local", []string{"arch-approved"}},
+		{"deploy/compose.yaml", []string{"liveops-approved|arch-approved"}},
+		{"internal/web/middleware.go", []string{"arch-approved"}},
+		{"internal/web/headers_test.go", []string{"arch-approved"}},
+		{"internal/admin/security.go", []string{"arch-approved"}},
+		{"internal/admin/security_test.go", []string{"arch-approved"}},
+		{".github/pr-signoffs.json", []string{"arch-approved|manager-approved"}},
+		{"cmd/prcheck/main.go", []string{"arch-approved|manager-approved"}},
+		{"internal/prcheck/prcheck.go", []string{"arch-approved|manager-approved"}},
+		{".github/workflows/pr-governance.yml", []string{"devops-approved"}},
+		{"deploy/Dockerfile.app", []string{"devops-approved"}},
+	}
+	for _, tc := range cases {
+		got := requiredGroups(cfg, tc.file)
+		if !sameStrings(got, tc.want) {
+			t.Errorf("%s: groups = %#v, want %#v", tc.file, got, tc.want)
+		}
+	}
+}
+
+func requiredGroups(cfg Config, file string) []string {
+	in := linkedInput()
+	in.Files = []string{file}
+	needed := requiredLabels(in, cfg)
+	var keys []string
+	for k := range needed {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

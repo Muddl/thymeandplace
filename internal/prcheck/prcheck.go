@@ -24,8 +24,9 @@ var (
 
 // Config is the path-to-sign-off map loaded from pr-signoffs.json.
 type Config struct {
-	Roles map[string]string `json:"roles"`
-	Rules []Rule            `json:"rules"`
+	TrustedAuthors []string          `json:"trustedAuthors"`
+	Roles          map[string]string `json:"roles"`
+	Rules          []Rule            `json:"rules"`
 }
 
 // Rule is one path or label trigger and the labels that satisfy it.
@@ -37,13 +38,19 @@ type Rule struct {
 	WhenLabel string   `json:"whenLabel"`
 }
 
+// Comment is one pull request issue comment.
+type Comment struct {
+	Body   string
+	Author string
+}
+
 // Input is one pull request snapshot. Issues maps a linked number to its body.
 type Input struct {
 	Body     string
 	HeadSHA  string
 	Labels   []string
 	Files    []string
-	Comments []string
+	Comments []Comment
 	Author   string
 	Issues   map[int]string
 }
@@ -58,6 +65,9 @@ func LoadConfig(r io.Reader) (Config, error) {
 	}
 	if len(cfg.Roles) == 0 {
 		return Config{}, fmt.Errorf("pr-signoffs: roles is empty")
+	}
+	if len(cfg.TrustedAuthors) == 0 {
+		cfg.TrustedAuthors = []string{"Muddl"}
 	}
 	for i, rule := range cfg.Rules {
 		if rule.ID == "" {
@@ -140,7 +150,7 @@ func hasAcceptanceHeading(body string) bool {
 }
 
 func checkSignoffs(in Input, cfg Config) []string {
-	approvals := parseApprovals(in.Comments)
+	approvals := parseApprovals(in.Comments, cfg.TrustedAuthors)
 	labels := map[string]bool{}
 	for _, l := range in.Labels {
 		labels[l] = true
@@ -273,11 +283,18 @@ func quoted(ss []string) []string {
 	return out
 }
 
-func parseApprovals(comments []string) map[string]string {
+func parseApprovals(comments []Comment, trusted []string) map[string]string {
 	out := map[string]string{}
-	for _, raw := range comments {
-		for _, line := range strings.Split(raw, "\n") {
-			m := approvalRE.FindStringSubmatch(strings.TrimSpace(line))
+	for _, c := range comments {
+		if !trustedAuthor(c.Author, trusted) {
+			continue
+		}
+		for _, line := range strings.Split(c.Body, "\n") {
+			trim := strings.TrimSpace(line)
+			if strings.HasPrefix(trim, ">") {
+				continue
+			}
+			m := approvalRE.FindStringSubmatch(trim)
 			if m == nil {
 				continue
 			}
@@ -286,6 +303,16 @@ func parseApprovals(comments []string) map[string]string {
 		}
 	}
 	return out
+}
+
+func trustedAuthor(login string, trusted []string) bool {
+	login = strings.TrimSpace(login)
+	for _, want := range trusted {
+		if strings.EqualFold(login, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func shaPrefixMatch(commentSHA, head string) bool {

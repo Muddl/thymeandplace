@@ -214,7 +214,7 @@ Everything the builds and CI pull is pinned:
 - The release build's BuildKit and SBOM scanner images by digest (`.github/workflows/release.yml`).
 - The Go tools (`templ`, `staticcheck`, `govulncheck`) by `go.mod` `tool` lines.
 
-Pull request process lives in `docs/WAYS-OF-WORKING.md`. The `pr-governance` workflow runs `cmd/prcheck` on every pull request. It requires a `Closes #N`, `Fixes #N`, or `Refs #N` link to an issue with a `## Acceptance criteria` heading, plus path sign-offs from `.github/pr-signoffs.json`. Dependabot pull requests skip the issue link. Only PM Farmer applies the `no-issue` label.
+Pull request process lives in `docs/WAYS-OF-WORKING.md`. The `pr-governance` workflow runs on `pull_request` events only. It checks out the base SHA, runs that `cmd/prcheck`, and reads the pull request through the API. A sign-off comment is not a trigger. Apply a required label, or push, so the check re-runs on the head SHA. The checker requires a `Closes #N`, `Fixes #N`, or `Refs #N` link to an issue with a `## Acceptance criteria` heading, plus path sign-offs from `.github/pr-signoffs.json`. Dependabot pull requests skip the issue link. Only PM Farmer applies the `no-issue` label. Until the shared GitHub App lands, only comments by `Muddl` count.
 
 Dependabot (`.github/dependabot.yml`) opens weekly grouped pull requests, one per ecosystem:
 

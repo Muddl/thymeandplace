@@ -16,7 +16,7 @@ A blocking review keeps a pull request from going to Wade until the reviewer res
 | PM Farmer | Scope only. No linked ready issue, or a diff that goes past the issue's acceptance criteria | How the work is built |
 | Feature farmer | Their area on that epic | Other epics |
 
-Architect Farmer and LiveOps Farmer share `deploy/`. Either may veto a change there. The role files `deploy/db/initdb/20-roles.sh` and `deploy/db/adopt-roles.sql` stay with Architect Farmer.
+Architect Farmer and LiveOps Farmer share `deploy/`. Either may veto a change there. `deploy/db/**` and Caddyfiles stay with Architect Farmer. Caddyfiles set TLS and headers, so LiveOps approval is not enough.
 
 A required sign-off label is valid only with a pull request comment of the form `<Role> Farmer: approved <head-sha-prefix>` that matches the current head SHA. A push makes an old comment stale. See [Path sign-offs](#path-sign-offs).
 
@@ -60,16 +60,21 @@ A farmer may have at most two open pull requests by default. Count one per issue
 
 ## Path sign-offs
 
-CI reads [`.github/pr-signoffs.json`](../.github/pr-signoffs.json) and the pull request's files, labels, and comments.
+The `pr-governance` workflow runs only on `pull_request` events (`opened`, `edited`, `synchronize`, `reopened`, `labeled`, `unlabeled`). It checks out the pull request's base SHA and runs that `cmd/prcheck`. The pull request is input through the GitHub API. The workflow never runs on `issue_comment`, so a comment cannot attach a check to `main` or execute head code in the default-branch context.
+
+If the base commit has no `cmd/prcheck` yet, the introducing pull request checks out the head for that first merge only.
+
+A sign-off comment does not re-run CI. Apply or re-apply the required label after the comment, or push, so the `governance` check runs on the head SHA and reads the comments.
 
 The pull request body must contain `Closes #N`, `Fixes #N`, or `Refs #N`. The linked issue must contain a `## Acceptance criteria` heading. Dependabot pull requests skip the issue link. The `no-issue` label also skips the issue link. Only PM Farmer applies `no-issue`, and only for dependency bumps, docs-only changes, and typo fixes.
 
-A path match requires its label and a matching approval comment on the current head SHA.
+A path match requires its label and a matching approval comment on the current head SHA. The last matching approval line per role wins. Lines that start with `>` are ignored. Until the shared GitHub App (issue or PR #79) lands, only comments authored by `Muddl` count. That list lives in `trustedAuthors` in the map.
 
 | Label | Role in the comment | Paths |
 |---|---|---|
-| `arch-approved` | Architect | `migrations/**`, `internal/store/**`, `deploy/db/initdb/20-roles.sh`, `deploy/db/adopt-roles.sql`, `internal/httpx/**`, `internal/config/**`, `internal/archtest/**`, `cmd/*/app.go`, `go.mod`, `**/views/lint_test.go`, and the files that define CSP or security headers |
-| `liveops-approved` or `arch-approved` | LiveOps or Architect | Other `deploy/**` files, Compose files, and Caddyfiles. Dockerfiles are excluded |
+| `arch-approved` | Architect | `migrations/**`, `internal/store/**`, `deploy/db/**`, `deploy/Caddyfile*`, `internal/httpx/**`, `internal/config/**`, `internal/archtest/**`, `cmd/*/app.go`, `go.mod`, `go.sum`, `**/views/lint_test.go`, `internal/web/middleware.go`, `internal/web/headers_test.go`, `internal/admin/admin.go`, and `internal/admin/security*.go` |
+| `arch-approved` or `manager-approved` | Architect or Manager | `.github/pr-signoffs.json`, `cmd/prcheck/**`, `internal/prcheck/**` |
+| `liveops-approved` or `arch-approved` | LiveOps or Architect | Other `deploy/**` files and Compose files. Dockerfiles and Caddyfiles are excluded |
 | `devops-approved` | DevOps | `.github/workflows/**` and Dockerfiles |
 | `ux-approved` | UX Review | `**/views/**` and `static/**` |
 | `qa-approved` | QA | Any pull request labeled `launch-scope` |
@@ -79,6 +84,8 @@ Example comment:
 ```
 Architect Farmer: approved 7bf2a16
 ```
+
+Manager sign-off uses `Manager Farmer: approved 7bf2a16`.
 
 The SHA prefix must be at least seven hex characters and must match the current head commit.
 

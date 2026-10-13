@@ -1,6 +1,8 @@
 {
+  "trustedAuthors": ["Muddl"],
   "roles": {
     "arch-approved": "Architect",
+    "manager-approved": "Manager",
     "liveops-approved": "LiveOps",
     "devops-approved": "DevOps",
     "ux-approved": "UX Review",
@@ -13,18 +15,29 @@
       "paths": [
         "migrations/**",
         "internal/store/**",
-        "deploy/db/initdb/20-roles.sh",
-        "deploy/db/adopt-roles.sql",
-        "deploy/20-roles.sh",
-        "deploy/adopt-roles.sql",
+        "deploy/db/**",
+        "deploy/Caddyfile",
+        "deploy/Caddyfile.*",
         "internal/httpx/**",
         "internal/config/**",
         "internal/archtest/**",
         "cmd/*/app.go",
         "go.mod",
+        "go.sum",
         "**/views/lint_test.go",
         "internal/web/middleware.go",
-        "internal/admin/admin.go"
+        "internal/web/headers_test.go",
+        "internal/admin/admin.go",
+        "internal/admin/security*.go"
+      ]
+    },
+    {
+      "id": "arch-or-manager-checker",
+      "require": ["arch-approved", "manager-approved"],
+      "paths": [
+        ".github/pr-signoffs.json",
+        "cmd/prcheck/**",
+        "internal/prcheck/**"
       ]
     },
     {
@@ -32,13 +45,13 @@
       "require": ["liveops-approved", "arch-approved"],
       "paths": [
         "deploy/**",
-        "**/compose*.yaml",
-        "**/Caddyfile",
-        "**/Caddyfile.*"
+        "**/compose*.yaml"
       ],
       "exclude": [
         "**/Dockerfile",
-        "**/Dockerfile.*"
+        "**/Dockerfile.*",
+        "deploy/Caddyfile",
+        "deploy/Caddyfile.*"
       ]
     },
     {

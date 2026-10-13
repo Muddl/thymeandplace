@@ -139,6 +139,9 @@ func (g gitHub) load(n int) (prcheck.Input, error) {
 	}
 	var comments []struct {
 		Body string `json:"body"`
+		User struct {
+			Login string `json:"login"`
+		} `json:"user"`
 	}
 	if err := g.getList("/repos/"+g.repo+"/issues/"+strconv.Itoa(n)+"/comments?per_page=100", &comments); err != nil {
 		return prcheck.Input{}, err
@@ -157,35 +160,61 @@ func (g gitHub) load(n int) (prcheck.Input, error) {
 		in.Files = append(in.Files, f.Filename)
 	}
 	for _, c := range comments {
-		in.Comments = append(in.Comments, c.Body)
+		in.Comments = append(in.Comments, prcheck.Comment{Body: c.Body, Author: c.User.Login})
 	}
 	for _, num := range prcheck.ParseIssueLinks(in.Body) {
-		var issue struct {
-			Body string `json:"body"`
-		}
-		if err := g.get("/repos/"+g.repo+"/issues/"+strconv.Itoa(num), &issue); err != nil {
+		body, ok, err := g.getIssue(num)
+		if err != nil {
 			return prcheck.Input{}, err
 		}
-		in.Issues[num] = issue.Body
+		if ok {
+			in.Issues[num] = body
+		}
 	}
 	return in, nil
 }
 
 func (g gitHub) get(path string, dest any) error {
-	body, _, err := g.do("GET", g.base+path)
+	body, code, _, err := g.do("GET", g.base+path)
 	if err != nil {
 		return err
 	}
+	if code >= 300 {
+		return fmt.Errorf("GET %s: HTTP %d: %s", path, code, truncate(body, 200))
+	}
 	return json.Unmarshal(body, dest)
+}
+
+func (g gitHub) getIssue(num int) (string, bool, error) {
+	raw, code, _, err := g.do("GET", g.base+"/repos/"+g.repo+"/issues/"+strconv.Itoa(num))
+	if err != nil {
+		return "", false, err
+	}
+	if code == 404 || code == 403 {
+		return "", false, nil
+	}
+	if code >= 300 {
+		return "", false, fmt.Errorf("GET issue #%d: HTTP %d: %s", num, code, truncate(raw, 200))
+	}
+	var issue struct {
+		Body string `json:"body"`
+	}
+	if err := json.Unmarshal(raw, &issue); err != nil {
+		return "", false, err
+	}
+	return issue.Body, true, nil
 }
 
 func (g gitHub) getList(path string, dest any) error {
 	url := g.base + path
 	var raw []json.RawMessage
 	for url != "" {
-		body, next, err := g.do("GET", url)
+		body, code, next, err := g.do("GET", url)
 		if err != nil {
 			return err
+		}
+		if code >= 300 {
+			return fmt.Errorf("GET %s: HTTP %d: %s", url, code, truncate(body, 200))
 		}
 		var page []json.RawMessage
 		if err := json.Unmarshal(body, &page); err != nil {
@@ -201,10 +230,10 @@ func (g gitHub) getList(path string, dest any) error {
 	return json.Unmarshal(joined, dest)
 }
 
-func (g gitHub) do(method, url string) ([]byte, string, error) {
+func (g gitHub) do(method, url string) ([]byte, int, string, error) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+g.token)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -212,17 +241,14 @@ func (g gitHub) do(method, url string) ([]byte, string, error) {
 	req.Header.Set("User-Agent", "thymeandplace-prcheck")
 	res, err := g.client.Do(req)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, "", err
 	}
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, "", err
 	}
-	if res.StatusCode >= 300 {
-		return nil, "", fmt.Errorf("%s %s: %s: %s", method, url, res.Status, truncate(body, 200))
-	}
-	return body, nextLink(res.Header.Get("Link")), nil
+	return body, res.StatusCode, nextLink(res.Header.Get("Link")), nil
 }
 
 func nextLink(link string) string {

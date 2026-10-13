@@ -24,10 +24,11 @@ A mutation check counts only when this pull request shows the failing output.
 
 ## Sign-offs
 
-Required labels are listed in `.github/pr-signoffs.json`. A label counts only with a comment `<Role> Farmer: approved <head-sha-prefix>` that matches this head SHA.
+Required labels are listed in `.github/pr-signoffs.json`. A label counts only with a comment `<Role> Farmer: approved <head-sha-prefix>` that matches this head SHA. The last matching line per role wins. Until #79, only `Muddl` comments count. Apply the label after the comment so `governance` re-runs on this head SHA.
 
-- [ ] `arch-approved` (migrations, store, role SQL, httpx, config, archtest, `cmd/*/app.go`, `go.mod`, CSP and security headers)
-- [ ] `liveops-approved` or `arch-approved` (other `deploy/`, Compose, Caddyfile)
+- [ ] `arch-approved` (migrations, store, `deploy/db/**`, Caddyfile, httpx, config, archtest, `cmd/*/app.go`, `go.mod`, `go.sum`, CSP and security headers)
+- [ ] `arch-approved` or `manager-approved` (`.github/pr-signoffs.json`, `cmd/prcheck/**`, `internal/prcheck/**`)
+- [ ] `liveops-approved` or `arch-approved` (other `deploy/`, Compose)
 - [ ] `devops-approved` (workflows, Dockerfiles)
 - [ ] `ux-approved` (`views/`, `static/`)
 - [ ] `qa-approved` (required when this pull request has `launch-scope`)

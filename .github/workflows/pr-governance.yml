@@ -2,8 +2,6 @@ name: pr-governance
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened, labeled, unlabeled]
-  issue_comment:
-    types: [created, edited]
 
 permissions:
   contents: read
@@ -11,24 +9,29 @@ permissions:
   issues: read
 
 concurrency:
-  group: pr-governance-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: pr-governance-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   governance:
-    if: github.event_name == 'pull_request' || github.event.issue.pull_request
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout pull request
+      - name: Checkout base (trusted checker)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.issue.number) }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Checkout PR head (base has no cmd/prcheck yet)
+        if: hashFiles('cmd/prcheck/main.go') == ''
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
-      - name: Unit tests
-        run: go test -count=1 ./internal/prcheck ./cmd/prcheck
+          cache: false
       - name: Check issue link and sign-offs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

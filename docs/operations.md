@@ -242,7 +242,7 @@ GREP=@readonly ./e2e/run.sh
 E2E_BASE_URL=https://thymeand.place GREP=@readonly BROWSER=chromium ./e2e/run.sh
 ```
 
-`GREP=@mutating` is `--grep-invert @readonly`, so untagged tests run in the mutating subset. `run.sh` exits 2 if the origin is not localhost unless `GREP=@readonly`. QA tags the specs. `check-tags.mjs` skips until at least one `@readonly` or `@mutating` appears in `e2e/tests`, then fails on any untagged test. See `e2e/README.md`.
+`GREP=@mutating` is `--grep-invert @readonly`. `run.sh` exits 2 if the origin is not localhost unless `GREP=@readonly`. Every spec is tagged `@readonly` or `@mutating`; `check-tags.mjs` fails on any untagged test. See `e2e/README.md`.
 
 On failure, each shard uploads its blob report and `e2e-report` merges them into the `playwright-report` artifact.
 

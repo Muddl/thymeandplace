@@ -11,7 +11,11 @@ const deploy = path.resolve(__dirname, "..", "deploy");
 export function watchCSP(page: Page): string[] {
   const seen: string[] = [];
   page.on("console", (m) => {
-    if (m.text().includes("Content Security Policy")) seen.push(m.text());
+    const t = m.text();
+    if (!t.includes("Content Security Policy")) return;
+    // Playwright's caret/animation screenshot helpers inject a <style>; WebKit logs it.
+    if (t.includes("Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline'")) return;
+    seen.push(t);
   });
   return seen;
 }

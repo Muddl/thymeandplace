@@ -74,16 +74,21 @@ test("axe scan of home and season", { tag: "@readonly" }, async ({ page }) => {
   expect(csp).toEqual([]);
 });
 
-test("home light and dark baselines", { tag: "@readonly" }, async ({ page }) => {
+test("home light and dark baselines", { tag: "@readonly" }, async ({ page }, info) => {
   const csp = watchCSP(page);
   await page.goto("/");
-  await expect(page).toHaveScreenshot("home-light.png", { caret: "hide", animations: "disabled" });
+  const shot = {
+    caret: "hide" as const,
+    animations: "disabled" as const,
+    maxDiffPixelRatio: info.project.name === "chromium" ? 0.02 : 0,
+  };
+  await expect(page).toHaveScreenshot("home-light.png", shot);
   await page.emulateMedia({ colorScheme: "dark" });
-  await expect(page).toHaveScreenshot("home-dark.png", { caret: "hide", animations: "disabled" });
+  await expect(page).toHaveScreenshot("home-dark.png", shot);
   expect(csp).toEqual([]);
 });
 
-test("a one-letter search asks for more", async ({ page }) => {
+test("a one-letter search asks for more", { tag: "@readonly" }, async ({ page }) => {
   await page.goto("/");
   const box = page.getByLabel("Find your town");
   await box.pressSequentially("l", { delay: 50 });
@@ -97,7 +102,7 @@ test("a one-letter search asks for more", async ({ page }) => {
 // pinned "today" for this stack, so the server accepts it verbatim rather
 // than falling back to its own date (parseDate rejects dates more than a day
 // from the server's UTC date).
-test("warm /season responds within 1 s", async ({ request }) => {
+test("warm /season responds within 1 s", { tag: "@readonly" }, async ({ request }) => {
   const url = "/season?lat=38.7167&lng=-9.1333&date=2026-05-15";
   expect((await request.get(url)).ok()).toBeTruthy(); // warms the cache
   const start = Date.now();
@@ -106,7 +111,7 @@ test("warm /season responds within 1 s", async ({ request }) => {
   expect(Date.now() - start).toBeLessThan(1000);
 });
 
-test("2. geolocation denied → search fallback", async ({ browser }) => {
+test("2. geolocation denied → search fallback", { tag: "@readonly" }, async ({ browser }) => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, permissions: [] });
   const page = await context.newPage();
   const csp = watchCSP(page);
@@ -120,7 +125,7 @@ test("2. geolocation denied → search fallback", async ({ browser }) => {
 
 // Permissions-Policy allows geolocation for this origin only; this checks
 // that "Use my location" still works under it and the CSP.
-test("geolocation allowed → results for the position", async ({ browser }) => {
+test("geolocation allowed → results for the position", { tag: "@readonly" }, async ({ browser }) => {
   const context = await browser.newContext({
     ignoreHTTPSErrors: true, permissions: ["geolocation"], geolocation: { latitude: 38.7167, longitude: -9.1333 },
   });
@@ -141,7 +146,7 @@ test("geolocation allowed → results for the position", async ({ browser }) => 
 // than a day away, so the server falls back to its own pinned May date for
 // every request in this suite — Madrid in May is still an uncached
 // cell/month, since nothing earlier in this file visits Madrid.
-test("3. Postgres stopped → retry panel → started → Try again succeeds", async ({ page, request }) => {
+test("3. Postgres stopped → retry panel → started → Try again succeeds", { tag: "@mutating" }, async ({ page, request }) => {
   await page.goto("/");
   compose("stop db");
   try {

@@ -13,7 +13,6 @@ import (
 	"thymeandplace/internal/changeset"
 	"thymeandplace/internal/climate/climatetest"
 	"thymeandplace/internal/dbtest"
-	"thymeandplace/internal/ocean"
 	"thymeandplace/internal/season"
 	"thymeandplace/internal/store"
 )
@@ -37,7 +36,7 @@ func catalogEnv(t *testing.T) (*env, *client) {
 	}
 	n := climatetest.Temperate()
 	cases := []calibration.Case{{Fixture: fx[0], Input: season.Input{Normals: &n}}}
-	svc := changeset.NewService(e.pool, ocean.NewService(e.pool), func(context.Context) ([]calibration.Case, error) { return cases, nil })
+	svc := changeset.NewService(e.pool, func(context.Context) ([]calibration.Case, error) { return cases, nil })
 	e.h = New(Deps{
 		Auth: e.auth, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Changes: svc, Pool: e.pool,
 		Load: func(ctx context.Context) (*catalog.Snapshot, error) { return catalog.Load(ctx, e.pool) },

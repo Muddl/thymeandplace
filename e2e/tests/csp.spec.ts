@@ -1,17 +1,59 @@
-import { expect, test } from "@playwright/test";
-import { watchCSP } from "../helpers";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { test } from "@playwright/test";
+import { expect, watchCSP } from "../helpers";
 
-// These cases do not run on pull-request CI until #86 lands (e2e is
-// main-only and Chromium-only in the config on this branch).
+const fixture = readFileSync(path.join(__dirname, "..", "fixtures", "inline-style.html"), "utf8");
 
-function hasDirective(events: { directive: string }[], want: "style-src-elem" | "style-src-attr" | "script-src") {
-  const dirs = events.map((e) => e.directive);
-  if (want === "script-src") return dirs.some((d) => d === "script-src" || d === "script-src-elem");
-  return dirs.includes(want) || dirs.includes("style-src");
-}
+// Playwright's test, not the helpers fixture: the auto cspGuard would fail
+// these cases for the violations we load on purpose.
 
-// Uses Playwright's test, not the helpers fixture, so the auto cspGuard
-// does not fail the case for the violation we inject on purpose.
+test("an inline style fixture still fails the CSP watch", { tag: "@readonly" }, async ({ page, request }) => {
+  const header = (await request.get("/")).headers()["content-security-policy"] ?? "";
+  expect(header).toContain("style-src 'self'");
+  const csp = await watchCSP(page);
+  await page.route("**/__e2e/inline-style", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      headers: { "Content-Security-Policy": header },
+      body: fixture,
+    });
+  });
+  await page.goto("/__e2e/inline-style");
+  await expect.poll(() => {
+    const elem = csp.events.find((e) => e.directive === "style-src-elem" || e.directive === "style-src");
+    const attr = csp.events.find((e) => e.directive === "style-src-attr");
+    if (!elem || !attr) return null;
+    return {
+      elem: { directive: elem.directive, blockedURI: elem.blockedURI },
+      attr: { directive: attr.directive, blockedURI: attr.blockedURI },
+    };
+  }).toEqual({
+    elem: { directive: "style-src-elem", blockedURI: "inline" },
+    attr: { directive: "style-src-attr", blockedURI: "inline" },
+  });
+});
+
+test("ignoreDuring drops screenshot hits and then records again", { tag: "@readonly" }, async ({ page }) => {
+  const csp = await watchCSP(page);
+  await page.goto("/");
+  expect(csp.events).toEqual([]);
+  await csp.ignoreDuring(async () => {
+    await page.screenshot({ caret: "hide", animations: "disabled" });
+  });
+  expect(csp.events).toEqual([]);
+  await page.evaluate(() => {
+    const el = document.createElement("p");
+    el.setAttribute("style", "color: red");
+    document.body.appendChild(el);
+  });
+  await expect.poll(() => {
+    const hit = csp.events.find((e) => e.directive === "style-src-attr");
+    return hit ? { directive: hit.directive, blockedURI: hit.blockedURI } : null;
+  }).toEqual({ directive: "style-src-attr", blockedURI: "inline" });
+});
+
 test("watchCSP still reports a real inline-script violation", { tag: "@readonly" }, async ({ page }) => {
   const csp = await watchCSP(page);
   await page.goto("/");
@@ -21,24 +63,8 @@ test("watchCSP still reports a real inline-script violation", { tag: "@readonly"
     s.textContent = "void 0";
     document.body.appendChild(s);
   });
-  await expect.poll(() => hasDirective(csp.events, "script-src")).toBe(true);
-});
-
-test("watchCSP still reports a real inline style element and attribute", { tag: "@readonly" }, async ({ page }) => {
-  const csp = await watchCSP(page);
-  await page.goto("/");
-  expect(csp.events).toEqual([]);
-  await page.evaluate(() => {
-    const s = document.createElement("style");
-    s.textContent = "body { color: red }";
-    document.head.appendChild(s);
-  });
-  await expect.poll(() => hasDirective(csp.events, "style-src-elem")).toBe(true);
-  const afterElem = csp.events.length;
-  await page.evaluate(() => {
-    const el = document.createElement("div");
-    el.setAttribute("style", "color: red");
-    document.body.appendChild(el);
-  });
-  await expect.poll(() => hasDirective(csp.events.slice(afterElem), "style-src-attr")).toBe(true);
+  await expect.poll(() => {
+    const hit = csp.events.find((e) => e.directive === "script-src" || e.directive === "script-src-elem");
+    return hit ? hit.blockedURI : null;
+  }).toBe("inline");
 });

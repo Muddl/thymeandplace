@@ -75,14 +75,21 @@ test("axe scan of home and season", { tag: "@readonly" }, async ({ page }) => {
   expect(csp.events).toEqual([]);
 });
 
-test("home light and dark baselines", { tag: "@readonly" }, async ({ page, browserName }) => {
-  test.skip(browserName !== "chromium", "PNG baselines are chromium-linux");
+test("home light and dark baselines", { tag: "@readonly" }, async ({ page }, info) => {
   const csp = await watchCSP(page);
   await page.goto("/");
-  await expect(page).toHaveScreenshot("home-light.png", { caret: "hide", animations: "disabled" });
-  await page.emulateMedia({ colorScheme: "dark" });
-  await expect(page).toHaveScreenshot("home-dark.png", { caret: "hide", animations: "disabled" });
+  // WebKit injects <style>body {}</style> on every screenshot.
+  const shot = {
+    caret: "hide" as const,
+    animations: "disabled" as const,
+    maxDiffPixelRatio: info.project.name === "chromium" ? 0.02 : 0,
+  };
   expect(csp.events).toEqual([]);
+  await csp.ignoreDuring(async () => {
+    await expect(page).toHaveScreenshot("home-light.png", shot);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page).toHaveScreenshot("home-dark.png", shot);
+  });
 });
 
 test("a one-letter search asks for more", { tag: "@readonly" }, async ({ page }) => {
@@ -474,9 +481,10 @@ test("error state is usable at 390px in dark mode", { tag: "@readonly" }, async 
   await expect(page.locator("#places").getByRole("link", { name: "Try again" })).toBeVisible();
   await axeOk(page, "dark");
   expect(csp.events).toEqual([]);
-  csp.stop(); // WebKit page.screenshot injects an inline <style>
   const dir = process.env.E2E_SHOTS || "test-results";
-  await page.screenshot({ path: `${dir}/places-abort-390-dark-${browserName}.png`, animations: "disabled" });
+  await csp.ignoreDuring(async () => {
+    await page.screenshot({ path: `${dir}/places-abort-390-dark-${browserName}.png`, animations: "disabled" });
+  });
 });
 
 test("season error state is usable at 390px in dark mode", { tag: "@readonly" }, async ({ page, browserName }) => {
@@ -497,7 +505,8 @@ test("season error state is usable at 390px in dark mode", { tag: "@readonly" },
   // Dark axe filters only #48 unstyled-link contrast (see defaultLinkContrastOnly).
   await axeOk(page, "dark");
   expect(csp.events).toEqual([]);
-  csp.stop(); // WebKit page.screenshot injects an inline <style>
   const dir = process.env.E2E_SHOTS || "test-results";
-  await page.screenshot({ path: `${dir}/season-abort-390-dark-${browserName}.png`, animations: "disabled" });
+  await csp.ignoreDuring(async () => {
+    await page.screenshot({ path: `${dir}/season-abort-390-dark-${browserName}.png`, animations: "disabled" });
+  });
 });

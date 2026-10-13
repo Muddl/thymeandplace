@@ -5,29 +5,44 @@ import { APIRequestContext, Page, expect, test as base } from "@playwright/test"
 
 const deploy = path.resolve(__dirname, "..", "deploy");
 
-export type CSPEvent = { directive: string; blockedURI: string };
-export type CSPWatch = { console: string[]; events: CSPEvent[]; stop(): void };
+export type CSPEvent = {
+  directive: string;
+  blockedURI: string;
+  sourceFile: string;
+  sample: string;
+  lineNumber: number;
+};
 
-// watchCSP records Content-Security-Policy hits. The primary signal is
-// securitypolicyviolation (registered in addInitScript so it is in place
-// before page script). Console text is a backup and matches both
-// "Content-Security-Policy" and "Content Security Policy". A clean page
-// fires no violation events. There is no console-text filter (#107).
-// stop() ends recording so a later Playwright screenshot (WebKit injects
-// an inline <style>) is not counted as a page violation.
+export type CSPWatch = {
+  console: string[];
+  events: CSPEvent[];
+  ignoreDuring<T>(fn: () => Promise<T>): Promise<T>;
+};
+
+const watches = new WeakMap<Page, CSPWatch>();
+
+// watchCSP records securitypolicyviolation (addInitScript, before page JS)
+// and CSP console text as a backup. No console-text filter, no field exemption.
+// WebKit injects <style>body {}</style> on every screenshot, so wrap
+// toHaveScreenshot in ignoreDuring.
 export async function watchCSP(page: Page): Promise<CSPWatch> {
-  const tagged = page as Page & { __cspWatch?: CSPWatch };
-  if (tagged.__cspWatch) return tagged.__cspWatch;
-  let live = true;
+  const existing = watches.get(page);
+  if (existing) return existing;
+  let recording = true;
   const watch: CSPWatch = {
     console: [],
     events: [],
-    stop() {
-      live = false;
+    async ignoreDuring(fn) {
+      recording = false;
+      try {
+        return await fn();
+      } finally {
+        recording = true;
+      }
     },
   };
   page.on("console", (m) => {
-    if (!live) return;
+    if (!recording) return;
     const t = m.text();
     if (t.includes("Content-Security-Policy") || t.includes("Content Security Policy")) {
       watch.console.push(t);
@@ -35,24 +50,31 @@ export async function watchCSP(page: Page): Promise<CSPWatch> {
   });
   try {
     await page.exposeFunction("__tpCspPush", (hit: CSPEvent) => {
-      if (live) watch.events.push(hit);
+      if (recording) watch.events.push(hit);
     });
     await page.addInitScript(() => {
       document.addEventListener("securitypolicyviolation", (e) => {
-        const w = window as unknown as { __tpCspPush?: (h: { directive: string; blockedURI: string }) => void };
-        if (w.__tpCspPush) w.__tpCspPush({ directive: e.effectiveDirective, blockedURI: e.blockedURI });
+        const w = window as unknown as { __tpCspPush?: (h: CSPEvent) => void };
+        w.__tpCspPush?.({
+          directive: e.effectiveDirective,
+          blockedURI: e.blockedURI,
+          sourceFile: e.sourceFile,
+          sample: e.sample,
+          lineNumber: e.lineNumber,
+        });
       });
     });
-  } catch {
-    // javaScriptEnabled: false pages cannot install the event bridge.
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/JavaScript is disabled|javaScriptEnabled/i.test(msg)) throw err;
   }
-  tagged.__cspWatch = watch;
+  watches.set(page, watch);
   return watch;
 }
 
 // test is Playwright's test with a guard that fails any test whose page
-// fired a securitypolicyviolation. Pages from a context a test makes
-// itself need their own watchCSP.
+// fired a page CSP violation. Pages from a context a test makes itself
+// need their own watchCSP.
 export const test = base.extend<{ cspGuard: void }>({
   cspGuard: [
     async ({ page }, use) => {

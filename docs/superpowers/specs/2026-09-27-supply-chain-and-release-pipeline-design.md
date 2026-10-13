@@ -65,6 +65,8 @@ Non-goals:
 ### 4.1 CI hardening (`.github/workflows/ci.yml`)
 
 - Pin every `uses:` to a SHA, with the version in a comment.
+- `gitleaks` job: `contents: read`, SHA-pinned `actions/checkout` with `fetch-depth: 0` and `persist-credentials: false`, a SHA256-pinned gitleaks binary (no third-party gitleaks action), config from `.gitleaks.toml` (`useDefault = true`, allowlist `deploy/e2e/*.agekey`). Runs on `pull_request`, push to `main`, and `merge_group`.
+- Playwright `upload-artifact` steps run on failure (`if: ${{ !cancelled() && failure() }}` on shard blobs; the merged report job already runs only on e2e failure). `retention-days: 3`. No artifacts from a remote or prod-target run.
 - `go` job:
   - The step `Unit, scoring, auth, store integration and ingestion tests` runs `go test -race -count=1 ./...`.
   - Add `go tool staticcheck ./...` and `go tool govulncheck ./...` after `go vet`.

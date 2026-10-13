@@ -13,7 +13,6 @@ import (
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/catalog/catalogtest"
 	"thymeandplace/internal/dbtest"
-	"thymeandplace/internal/ocean"
 	"thymeandplace/internal/store"
 )
 
@@ -32,7 +31,7 @@ func newTestService(t *testing.T, seed bool) (*Service, *pgxpool.Pool) {
 		_ = tx.Commit(ctx)
 	}
 	cases := testCases(t)
-	svc := NewService(pool, ocean.NewService(pool), func(context.Context) ([]calibration.Case, error) { return cases, nil })
+	svc := NewService(pool, func(context.Context) ([]calibration.Case, error) { return cases, nil })
 	return svc, pool
 }
 

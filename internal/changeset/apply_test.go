@@ -5,6 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/catalog/catalogtest"
@@ -190,5 +193,40 @@ func TestImportUpsertOnlyAndListReplacement(t *testing.T) {
 	}
 	if tm, _ := s.Get("tomato"); len(tm.Pairings) != 0 {
 		t.Fatalf("pairings not replaced: %v", tm.Pairings)
+	}
+}
+
+// Apply uses one pool connection for the whole write, including the catalog
+// reload and ecoregion check. A second Acquire on a one-connection pool
+// would wait on the open transaction until the deadline.
+func TestApplyUsesOneConnection(t *testing.T) {
+	ctx := context.Background()
+	svc, pool := newTestService(t, true)
+	cfg := pool.Config().Copy()
+	cfg.MaxConns = 1
+	one, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(one.Close)
+	svc.pool = one
+
+	mackerel := catalogtest.Seafood()
+	mackerel.Note = "one connection"
+	p, _, err := svc.Preview(ctx, FormChangeset(mackerel))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	applyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := svc.Apply(applyCtx, p.ID, "owner", ApplyOptions{}); err != nil {
+		t.Fatalf("apply on a one-connection pool: %v", err)
+	}
+	if n := one.Stat().AcquiredConns(); n != 0 {
+		t.Fatalf("%d connections still held after Apply", n)
+	}
+	if got, _ := loadSnap(t, svc).Get(mackerel.Slug); got.Note != "one connection" {
+		t.Fatalf("note = %q", got.Note)
 	}
 }

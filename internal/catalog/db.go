@@ -68,8 +68,13 @@ func Load(ctx context.Context, db TxBeginner) (*Snapshot, error) {
 		return nil, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // read-only
-	q := store.New(tx)
+	return LoadFrom(ctx, store.New(tx))
+}
 
+// LoadFrom reads the whole catalog through q. Load wraps it in a
+// read-only repeatable-read transaction. Apply already holds one, so it
+// calls LoadFrom with that transaction's queries.
+func LoadFrom(ctx context.Context, q *store.Queries) (*Snapshot, error) {
 	version, err := q.GetCatalogVersion(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("catalog version: %w", err)

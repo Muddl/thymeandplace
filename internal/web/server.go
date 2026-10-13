@@ -76,7 +76,7 @@ type Deps struct {
 const (
 	defaultTimeout = 2 * time.Second
 	// DefaultDBSlots leaves 4 of the server's 16 pooled connections for
-	// admin, the drift check, catalog reloads and Apply's second connection.
+	// admin, the drift check, catalog reloads and Apply.
 	DefaultDBSlots = 12
 	// gateWait is how long a public request waits for a DB slot before it
 	// is shed with a 503; it smooths small bursts.

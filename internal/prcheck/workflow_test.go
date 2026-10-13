@@ -72,6 +72,9 @@ func TestCIWorkflowMergeGroup(t *testing.T) {
 	if !strings.Contains(s, "github.event.merge_group.base_sha") {
 		t.Fatal("ci.yml must diff e2e browsers against merge_group.base_sha")
 	}
+	if strings.Contains(s, "git fetch --no-tags origin") {
+		t.Fatal("ci.yml must not git fetch origin after persist-credentials: false")
+	}
 	backupIf := jobIf(t, s, "backup")
 	if strings.Contains(backupIf, "merge_group") {
 		t.Fatalf("backup if = %q, must not include merge_group", backupIf)

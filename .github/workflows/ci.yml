@@ -142,9 +142,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Fetch pull request base
-        if: github.event_name == 'pull_request'
-        run: git fetch --no-tags origin "${{ github.base_ref }}"
       - id: select
         env:
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}

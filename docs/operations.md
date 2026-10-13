@@ -56,7 +56,7 @@
 - [ ] The recovery key is in your password manager and on paper, and not on the VPS ("Backup encryption").
 - [ ] Every check in "Monitoring and alerts" is green, and a test notification reached you.
 - [ ] Seafood is off: `FEATURE_SEAFOOD` is unset or `off` in `app.env`, `docker compose logs app | grep 'seafood feature'` shows `enabled=false`, and `/about/data` doesn't mention seafood or marine data. (Only once the MEOW row in `docs/reference-data-licenses.md` is confirmed and an ocean version is live may it be `on`; see "Turning seafood on".)
-- [ ] Dark scheme: home, season, ingredient and About pass the e2e color-contrast check (`e2e/tests/contrast.spec.ts`).)
+- [ ] Dark scheme: home, season, ingredient and About pass the e2e color-contrast check (`e2e/tests/contrast.spec.ts`).
 - [ ] `SELECT id, license, license_reviewed, is_live, promoted_at FROM dataset_versions WHERE dataset = 'ocean'` shows no approved or promoted row whose license starts with `UNRESOLVED:`. If one exists, withdraw it ("Withdrawing a dataset").
 
 ### Ocean dataset: two sources, two licenses

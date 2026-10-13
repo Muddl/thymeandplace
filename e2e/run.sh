@@ -7,7 +7,6 @@ export TP_ENV_DIR=./e2e
 # Unix path (e.g. "/app/devseed" in --entrypoint /app/devseed) into a Windows
 # path before docker ever sees it. This opts out; it's a no-op on Linux CI.
 export MSYS_NO_PATHCONV=1
-export TP_PUBLIC_TODAY="$(sed -n 's/^TP_PUBLIC_TODAY=//p' ../deploy/e2e/app.env)"
 C="docker compose -p thymeandplace-e2e -f ../deploy/compose.yaml -f ../deploy/compose.e2e.yaml"
 
 BROWSER="${BROWSER:-chromium}"

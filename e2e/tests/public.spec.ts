@@ -90,9 +90,14 @@ test("home light and dark baselines", { tag: "@readonly" }, async ({ page }, inf
   expect(csp.events).toEqual([]);
   await csp.ignoreDuring(async () => {
     await expect(page).toHaveScreenshot("home-light.png", shot);
-    await page.emulateMedia({ colorScheme: "dark" });
+  });
+  expect(csp.events).toEqual([]);
+  await page.emulateMedia({ colorScheme: "dark" });
+  expect(csp.events).toEqual([]);
+  await csp.ignoreDuring(async () => {
     await expect(page).toHaveScreenshot("home-dark.png", shot);
   });
+  expect(csp.events).toEqual([]);
 });
 
 test("a one-letter search asks for more", { tag: "@readonly" }, async ({ page }) => {

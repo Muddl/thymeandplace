@@ -14,7 +14,6 @@ import (
 	"thymeandplace/internal/catalog/catalogtest"
 	"thymeandplace/internal/changeset"
 	"thymeandplace/internal/dbtest"
-	"thymeandplace/internal/ocean"
 	"thymeandplace/internal/store"
 )
 
@@ -40,7 +39,7 @@ func TestAppRolePrivileges(t *testing.T) {
 		if _, err := catalog.Load(ctx, app); err != nil {
 			t.Fatalf("catalog.Load: %v", err)
 		}
-		svc := changeset.NewService(app, ocean.NewService(app), func(context.Context) ([]calibration.Case, error) { return nil, nil })
+		svc := changeset.NewService(app, func(context.Context) ([]calibration.Case, error) { return nil, nil })
 		k := catalogtest.Hardy()
 		k.Name = "Curly kale"
 		pending, _, err := svc.Preview(ctx, changeset.FormChangeset(k))

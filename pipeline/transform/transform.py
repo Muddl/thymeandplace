@@ -63,7 +63,7 @@ def coarsen(da: xr.DataArray) -> xr.DataArray:
     for edge in ((90 - top) / GRID, (left + 180) / GRID):
         if abs(edge - round(edge)) > 1e-6:
             raise ValueError("fine grid is not aligned to 0.25° cell edges")
-    return da.coarsen(lat=factor, lon=factor, boundary="trim").mean(skipna=True)
+    return da.coarsen(lat=factor, lon=factor, boundary="trim").mean()
 
 
 def run(version_dir) -> Path:

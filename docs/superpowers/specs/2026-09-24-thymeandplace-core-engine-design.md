@@ -655,7 +655,7 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.9 End-to-end (Playwright against Compose)
 
-Specs are tagged `@readonly` (safe against a live origin) or `@mutating` (local Compose only). Search finds Lisbon by name. Season URLs use today's UTC date. The 1 s warm `/season` timing assertion runs only against localhost.
+Specs are tagged `@readonly` (safe against a live origin) or `@mutating` (local Compose only). Search finds Lisbon by name. Season URLs use today's UTC date. The 1 s warm `/season` test skips unless the origin is localhost.
 
 1. Search → select → results render. (`@readonly`)
 2. Geolocation denied → search fallback. (`@readonly`)

@@ -20,18 +20,20 @@ test("a one-letter search asks for more @readonly", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Lisbon, PT" })).toBeVisible();
 });
 
-// Spec §1 success criterion 1: warm-cache /season within about 1 s on the
-// local stack. A remote origin (prod smoke) is not bound by that SLA, so the
-// timing assertion is skipped when E2E_BASE_URL is not localhost.
+test("warm /season responds @readonly", async ({ request }) => {
+  const url = `/season?lat=38.7167&lng=-9.1333&date=${todayUTC()}`;
+  expect((await request.get(url)).ok()).toBeTruthy(); // warms the cache
+  expect((await request.get(url)).ok()).toBeTruthy();
+});
+
 test("warm /season responds within 1 s @readonly", async ({ request }) => {
+  test.skip(!isLocalOrigin(), "1 s bound is the local stack");
   const url = `/season?lat=38.7167&lng=-9.1333&date=${todayUTC()}`;
   expect((await request.get(url)).ok()).toBeTruthy(); // warms the cache
   const start = Date.now();
   const res = await request.get(url);
   expect(res.ok()).toBeTruthy();
-  if (isLocalOrigin()) {
-    expect(Date.now() - start).toBeLessThan(1000);
-  }
+  expect(Date.now() - start).toBeLessThan(1000);
 });
 
 test("2. geolocation denied → search fallback @readonly", async ({ browser }) => {

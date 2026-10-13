@@ -28,9 +28,9 @@ Every spec title includes `@readonly` or `@mutating`. `@mutating` is not a grep 
 | `@readonly` | GET-only. No catalog writes, no admin enrollment, no `compose stop`. Safe against a live site. | Smoke: `GREP=@readonly` |
 | untagged or `@mutating` | Stops Postgres, enrolls a passkey, or applies a catalog change. Local compose stack only. | `GREP=@mutating` is `--grep-invert @readonly` |
 
-The five public flows and the anonymous `/admin` sign-in check are `@readonly`. The Postgres-stop test and the four catalog admin tests are `@mutating`. CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags.
+Public GET flows and the anonymous `/admin` sign-in check are `@readonly`. The Postgres-stop test and the four catalog admin tests are `@mutating`. CI does not pass `GREP`, so it runs the whole suite. `node e2e/check-tags.mjs` fails if any test lacks both tags.
 
-Specs find Lisbon by searching for its name. They pass today's UTC date, not a pinned May day. The 1 s warm `/season` timing assertion runs only when `E2E_BASE_URL` is localhost.
+Specs find Lisbon by searching for its name. They pass today's UTC date, not a pinned May day. The 1 s warm `/season` test skips when `E2E_BASE_URL` is not localhost. The status-only warm check still runs.
 
 A prod smoke is:
 

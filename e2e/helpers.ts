@@ -31,19 +31,14 @@ export const test = base.extend<{ cspGuard: void }>({
 
 export { expect };
 
-// todayUTC is the YYYY-MM-DD the public site stamps onto /season. parseDate
-// accepts it only when it is within one calendar day of the server's UTC date.
 export function todayUTC(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Same origin rule as e2e/playwright.config.ts and e2e/run.sh.
 export function isLocalOrigin(url = process.env.E2E_BASE_URL || "https://localhost"): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(url);
 }
 
-// findLisbonHref types the town search and returns the Lisbon result's /season
-// path. Prod GeoNames IDs are not 1, so callers must not hardcode place=.
 export async function findLisbonHref(page: Page): Promise<string> {
   await page.goto("/");
   await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });

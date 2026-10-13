@@ -17,9 +17,6 @@ test("anonymous /admin redirects to sign-in and sends the admin CSP @readonly", 
   await expect(page.getByRole("button", { name: "Sign in with a passkey" })).toBeVisible();
 });
 
-// The e2e stack pins today to 2026-05-15 (TP_PUBLIC_TODAY). parseDate rejects
-// a date more than a day from that, so ?date=<today> still yields May
-// results. Tomato is not yet in season in May.
 test("4. passkey login → edit → preview → apply → public page reflects change @mutating", async ({ page }) => {
   const lisbonSeason = withDate(await findLisbonHref(page));
   await page.goto(lisbonSeason);

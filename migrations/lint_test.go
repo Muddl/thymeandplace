@@ -108,6 +108,101 @@ func TestContractViolations(t *testing.T) {
 			src:  "-- +goose Up\n-- contract: leftover is unused\nSELECT 1;\nDROP TABLE leftover;\n",
 			want: 1,
 		},
+		{
+			name: "alter column type with COLUMN",
+			src:  "-- +goose Up\nALTER TABLE place ALTER COLUMN name TYPE text;\n",
+			want: 1,
+		},
+		{
+			name: "alter column type without COLUMN",
+			src:  "-- +goose Up\nALTER TABLE place ALTER name TYPE text;\n",
+			want: 1,
+		},
+		{
+			name: "alter column type mixed case",
+			src:  "-- +goose Up\nAlter Table place Alter Column name Type text;\n",
+			want: 1,
+		},
+		{
+			name: "alter column type multi-line with COLUMN",
+			src:  "-- +goose Up\nALTER TABLE place\n  ALTER COLUMN name TYPE text;\n",
+			want: 1,
+		},
+		{
+			name: "alter column type multi-line without COLUMN",
+			src:  "-- +goose Up\nALTER TABLE place\n  ALTER name TYPE text;\n",
+			want: 1,
+		},
+		{
+			name: "alter column set not null with COLUMN",
+			src:  "-- +goose Up\nALTER TABLE place ALTER COLUMN name SET NOT NULL;\n",
+			want: 1,
+		},
+		{
+			name: "alter column set not null without COLUMN",
+			src:  "-- +goose Up\nALTER TABLE place ALTER name SET NOT NULL;\n",
+			want: 1,
+		},
+		{
+			name: "alter column set not null mixed case",
+			src:  "-- +goose Up\nalter table place alter column name set not null;\n",
+			want: 1,
+		},
+		{
+			name: "alter column set not null multi-line with COLUMN",
+			src:  "-- +goose Up\nALTER TABLE place\n  ALTER COLUMN name SET NOT NULL;\n",
+			want: 1,
+		},
+		{
+			name: "alter column set not null multi-line without COLUMN",
+			src:  "-- +goose Up\nALTER TABLE place\n  ALTER name SET NOT NULL;\n",
+			want: 1,
+		},
+		{
+			name: "rename column without COLUMN keyword",
+			src:  "-- +goose Up\nALTER TABLE place RENAME name TO title;\n",
+			want: 1,
+		},
+		{
+			name: "rename column without COLUMN mixed case",
+			src:  "-- +goose Up\nalter table place rename name to title;\n",
+			want: 1,
+		},
+		{
+			name: "rename column without COLUMN multi-line",
+			src:  "-- +goose Up\nALTER TABLE place\n  RENAME name TO title;\n",
+			want: 1,
+		},
+		{
+			name: "add nullable column",
+			src:  "-- +goose Up\nALTER TABLE place ADD COLUMN extra text;\n",
+			want: 0,
+		},
+		{
+			name: "add nullable column multi-line",
+			src:  "-- +goose Up\nALTER TABLE place\n  ADD COLUMN extra text;\n",
+			want: 0,
+		},
+		{
+			name: "drop not null with COLUMN",
+			src:  "-- +goose Up\nALTER TABLE place ALTER COLUMN name DROP NOT NULL;\n",
+			want: 0,
+		},
+		{
+			name: "drop not null without COLUMN",
+			src:  "-- +goose Up\nALTER TABLE place ALTER name DROP NOT NULL;\n",
+			want: 0,
+		},
+		{
+			name: "drop not null multi-line",
+			src:  "-- +goose Up\nALTER TABLE place\n  ALTER COLUMN name DROP NOT NULL;\n",
+			want: 0,
+		},
+		{
+			name: "marked type change",
+			src:  "-- +goose Up\n-- contract: previous release does not read name\nALTER TABLE place ALTER COLUMN name TYPE text;\n",
+			want: 0,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

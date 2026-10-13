@@ -57,7 +57,23 @@ func seed(ctx context.Context, url string) error {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.actor', 'devseed', true)`); err != nil {
 		return err
 	}
-	if err := catalog.Write(ctx, store.New(tx), catalogtest.SmallCatalog(), nil); err != nil {
+	want := catalogtest.SmallCatalog()
+	q := store.New(tx)
+	have, err := q.ListIngredients(ctx)
+	if err != nil {
+		return err
+	}
+	keep := make(map[string]struct{}, len(want))
+	for _, ing := range want {
+		keep[ing.Slug] = struct{}{}
+	}
+	var extras []string
+	for _, row := range have {
+		if _, ok := keep[row.Slug]; !ok {
+			extras = append(extras, row.Slug)
+		}
+	}
+	if err := catalog.Write(ctx, q, want, extras); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

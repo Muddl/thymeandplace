@@ -664,6 +664,8 @@ Specs are tagged `@readonly` (safe against a live origin) or `@mutating` (local 
 5. Admin: import a JSON file → preview → apply → export matches. (`@mutating`)
 6. Anonymous `/admin` redirects to sign-in and sends the admin CSP. (`@readonly`)
 
+`e2e/run.sh` wipes the `thymeandplace-e2e` volumes before it starts. After the suite it reseeds and runs scenario 5 again on the same stack. `devseed` upserts the sample catalog and deletes any other ingredient slugs, so the second import still sees an add.
+
 ### 13.10 CI
 
 Units, scoring, auth, store integration, and pipeline tests run on every push, under the race detector (`go test -race`). Every push also runs `go vet`, `staticcheck` and `govulncheck` (a reachable known vulnerability fails the build) and lints the shell scripts with `shellcheck`. End-to-end tests run on `main` and on pull requests: Chromium, Firefox and WebKit on `main` and on PRs that touch `views/`, `static/` or `e2e/`; Chromium only on other PRs. Admin specs stay on Chromium (`testIgnore` on the other projects) and run as a serial group so sharding does not split them. The suite is sharded `browser × shard`. `GREP=@readonly` selects the smoke subset; `GREP=@mutating` is `--grep-invert @readonly`. A non-local `E2E_BASE_URL` is refused unless `GREP=@readonly`. The required check is `e2e-result`. Release images are built only after CI passes on `main`, from that exact commit (§14). (Amended by `2026-09-27-supply-chain-and-release-pipeline-design.md`.)

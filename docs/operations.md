@@ -384,7 +384,7 @@ $C start app
 docker rm -f tp-minio; $C --profile tools down -v
 ```
 
-`compose.e2e.yaml` sets the project name `thymeandplace-e2e`, so this stack's containers and volumes (`thymeandplace-e2e_*`) are separate from production's (`thymeandplace_*`) and the final `down -v` (like the ones in `deploy/smoke.sh` and `e2e/run.sh`) cannot touch production data, even on the VPS. Always pass both `-f compose.yaml -f compose.e2e.yaml` for test stacks.
+`compose.e2e.yaml` sets the project name `thymeandplace-e2e`, so this stack's containers and volumes (`thymeandplace-e2e_*`) are separate from production's (`thymeandplace_*`) and the `down -v` calls in `deploy/smoke.sh` and `e2e/run.sh` cannot touch production data, even on the VPS. `e2e/run.sh` runs `down -v` before it starts as well as on exit, so a leftover volume from a killed run cannot leak catalog rows into the next run. Always pass both `-f compose.yaml -f compose.e2e.yaml` for test stacks.
 
 As in production, the dumps are encrypted to two recipients, both test-only, listed in `deploy/e2e/backup.env` with extra spaces and a tab between them. `restore` decrypts with the restore-test identity, `deploy/e2e/restore-test.agekey`, mounted the same way as production's key; `deploy/e2e/recovery-test.agekey` stands in for the recovery key. Both key pairs are committed, so they protect nothing: never use them outside the e2e stack.
 
@@ -597,7 +597,7 @@ A database created before the roles existed (everything owned by the bootstrap s
 ## Test-only settings — never set in production
 
 - `TP_PUBLIC_TODAY` pins the public site's "today" to a fixed calendar date (keeping the time of day). It exists for e2e scenarios that need a specific month (e.g. a season boundary crossing in May). The server refuses to start with it unless `ADMIN_RP_ID=localhost` (the e2e stack's value; `cmd/server/app.go`, `loadConfig`), and logs a `WARN` when it is accepted. If the production app exits at startup with `TP_PUBLIC_TODAY is test-only and requires ADMIN_RP_ID=localhost`, the env file has leaked a test setting; remove `TP_PUBLIC_TODAY` and start the app again. It is not present in `deploy/env/app.env.example`.
-- `DEVSEED_ALLOW=1` is required for `devseed` (the seed-data command shipped in the `ingest` image) to run at all; without it, `devseed` refuses and exits 2. It's set in `deploy/e2e/ingest.env` for end-to-end tests and local dev only — never set it in `/etc/thymeandplace/ingest.env`. `devseed` resets the sample catalog, so running it against a real database would destroy real data.
+- `DEVSEED_ALLOW=1` is required for `devseed` (the seed-data command shipped in the `ingest` image) to run at all; without it, `devseed` refuses and exits 2. It's set in `deploy/e2e/ingest.env` for end-to-end tests and local dev only — never set it in `/etc/thymeandplace/ingest.env`. `devseed` upserts the sample catalog and deletes any other ingredient slugs, so running it against a real database would destroy real data. After the Playwright suite, `e2e/run.sh` reseeds and runs admin scenario 5 again on the same stack.
 
 ## Admin access management
 

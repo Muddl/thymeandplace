@@ -65,6 +65,7 @@ CI is `browser × shard` (`SHARD=1/2` and `SHARD=2/2`). Each shard brings up its
 | `SHARD` | unset | Playwright `--shard`, for example `1/2`. |
 | `GREP` | unset | Playwright `--grep`, for example `@readonly`. |
 | `E2E_SKIP_STACK` | unset | Set to `1` to skip Compose even on localhost. |
+| `TP_PUBLIC_TODAY` | from `deploy/e2e/app.env` via `run.sh` | Pin the Tomato flow needs. That `@mutating` spec skips unless the origin is local and this is set. |
 | `CI` | unset | Switches the reporter to blob (for the merge job). |
 
 ## TODO: full suite against release images

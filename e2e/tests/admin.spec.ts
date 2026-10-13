@@ -1,5 +1,5 @@
 import { promises as fs } from "node:fs";
-import { enrollAndSignIn, expect, findLisbonHref, test, withDate } from "../helpers";
+import { enrollAndSignIn, expect, findLisbonHref, isLocalOrigin, test, withDate } from "../helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -18,6 +18,7 @@ test("anonymous /admin redirects to sign-in and sends the admin CSP @readonly", 
 });
 
 test("4. passkey login → edit → preview → apply → public page reflects change @mutating", async ({ page }) => {
+  test.skip(!isLocalOrigin() || !process.env.TP_PUBLIC_TODAY, "Tomato season check needs a local origin and TP_PUBLIC_TODAY");
   const lisbonSeason = withDate(await findLisbonHref(page));
   await page.goto(lisbonSeason);
   await expect(page.locator("#results")).not.toContainText("Tomato"); // May: not yet in season

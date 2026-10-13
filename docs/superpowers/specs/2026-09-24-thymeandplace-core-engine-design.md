@@ -660,7 +660,7 @@ Specs are tagged `@readonly` (safe against a live origin) or `@mutating` (local 
 1. Search → select → results render. (`@readonly`)
 2. Geolocation denied → search fallback. (`@readonly`)
 3. Postgres stopped → retry panel → Postgres started → "Try again" succeeds. (`@mutating`)
-4. Admin: passkey login (virtual authenticator) → edit an ingredient → preview shows calibration change and bars → apply → the public page reflects the change without a restart. (`@mutating`)
+4. Admin: passkey login (virtual authenticator) → edit an ingredient → preview shows calibration change and bars → apply → the public page reflects the change without a restart. (`@mutating`; skips unless the origin is local and `TP_PUBLIC_TODAY` is set)
 5. Admin: import a JSON file → preview → apply → export matches. (`@mutating`)
 6. Anonymous `/admin` redirects to sign-in and sends the admin CSP. (`@readonly`)
 

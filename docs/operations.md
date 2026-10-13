@@ -240,7 +240,7 @@ GREP=@readonly ./e2e/run.sh
 E2E_BASE_URL=https://thymeand.place GREP=@readonly BROWSER=chromium ./e2e/run.sh
 ```
 
-`GREP=@mutating` is `--grep-invert @readonly`, so untagged tests run in the mutating subset. `run.sh` exits 2 if the origin is not localhost unless `GREP=@readonly`. Every spec title carries `@readonly` or `@mutating`. `check-tags.mjs` fails on any untagged test. Specs search for Lisbon by name and pass today's UTC date. The 1 s warm `/season` test skips when `E2E_BASE_URL` is not localhost. See `e2e/README.md`.
+`GREP=@mutating` is `--grep-invert @readonly`, so untagged tests run in the mutating subset. `run.sh` exits 2 if the origin is not localhost unless `GREP=@readonly`. Every spec title carries `@readonly` or `@mutating`. `check-tags.mjs` fails on any untagged test. Specs search for Lisbon by name and pass today's UTC date. The 1 s warm `/season` test skips when `E2E_BASE_URL` is not localhost. The Tomato flow is `@mutating` and skips unless the origin is local and `TP_PUBLIC_TODAY` is set. See `e2e/README.md`.
 
 On failure, each shard uploads its blob report and `e2e-report` merges them into the `playwright-report` artifact.
 

@@ -225,6 +225,27 @@ Dependabot (`.github/dependabot.yml`) opens weekly grouped pull requests, one pe
 
 Merge one when CI is green, then deploy the release it produces as usual. That includes `docker-compose` updates: `deploy.sh` pulls and applies the `db` and `caddy` images too. Read the release notes first for a new major version. The actions are pinned to the majors CI already used, so the first `github-actions` pull request is likely to propose majors.
 
+## CI end-to-end tests
+
+The `e2e` job in `.github/workflows/ci.yml` runs on every pull request and on every push to `main`. It does not run on a feature-branch push that has no pull request. Branch protection should require `e2e-result`, not the matrix cell names. That job `needs: e2e` with `if: always()` on pull requests and on `main`, and it fails if the matrix failed, was cancelled, or was skipped.
+
+`e2e/select-browsers.sh` chooses the browser list. A push to `main`, or a pull request that touches `views/`, `static/` or `e2e/`, runs Chromium, Firefox and WebKit. Other pull requests run Chromium only. If `git diff` fails, the script prints all three engines rather than falling back to Chromium. The `deploy` job runs `./e2e/select-browsers.sh --self-test` and `node e2e/check-tags.mjs` on every push so a broken path or tag rule fails CI even when e2e itself is skipped. Each matrix cell installs only its browser and restores `~/.cache/ms-playwright` from `actions/cache`.
+
+The matrix is `browser × shard` (`1/2` and `2/2`). Each cell starts its own Compose stack, because the suite stops Postgres and edits the catalog (`workers: 1` in `e2e/playwright.config.ts`). Admin specs (`e2e/tests/admin.spec.ts`) use CDP WebAuthn, which is Chromium-only; the Firefox and WebKit projects set `testIgnore` on that file.
+
+CI runs the full suite (no `GREP`). To run only the smoke subset locally, or against production:
+
+```bash
+GREP=@readonly ./e2e/run.sh
+E2E_BASE_URL=https://thymeand.place GREP=@readonly BROWSER=chromium ./e2e/run.sh
+```
+
+`GREP=@mutating` is `--grep-invert @readonly`, so untagged tests run in the mutating subset. `run.sh` exits 2 if the origin is not localhost unless `GREP=@readonly`. QA tags the specs. `check-tags.mjs` skips until at least one `@readonly` or `@mutating` appears in `e2e/tests`, then fails on any untagged test. See `e2e/README.md`.
+
+On failure, each shard uploads its blob report and `e2e-report` merges them into the `playwright-report` artifact.
+
+The suite still builds app and ingest from the current tree. It does not pull the GHCR images a production deploy runs. Release images exist only after `ci` on `main` succeeds, pull-request commits are never published, and `compose.e2e.yaml` injects calibration fixtures at build time. A follow-up would run `GREP=@readonly` against `compose.release.yaml` for the last green `main`. Until then, `E2E_BASE_URL` is how a `@readonly` smoke points at prod.
+
 **Compose digests.** Whether Dependabot bumps the digests in `deploy/compose.yaml` wasn't verified (spec §4.1). Check after its first weekly run. If it doesn't, bump them by hand every quarter. Check `deploy/compose.dev.yaml` either way: its name isn't a standard compose file name, so Dependabot may skip it. To bump a digest, take the top `Digest:` line (the multi-platform index) from
 
 ```bash

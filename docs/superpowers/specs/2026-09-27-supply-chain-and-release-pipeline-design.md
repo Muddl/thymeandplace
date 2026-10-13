@@ -167,7 +167,7 @@ We don't build zero-downtime deploys now. `deploy.sh` records the window on ever
 - **Release workflow:** the first `main` run after merge pushes four images. Check each in the GHCR UI, and run `docker buildx imagetools inspect ghcr.io/muddl/thymeandplace-app:<sha>` to show the platform and attestations.
 - **Compose overlay:** the CI `deploy` job adds `docker compose -f deploy/compose.yaml -f deploy/compose.release.yaml config -q` with `TP_IMAGE_TAG=0000000000000000000000000000000000000000`, and a negative check that it fails without `TP_IMAGE_TAG`.
 - **Deploy script:** `shellcheck`, plus one real run each on the VPS: a deploy, a rollback to the previous SHA, and a roll forward again. Record the three windows in `deploys.log`.
-- **Pinned images:** the existing e2e job builds from the pinned `Dockerfile`s and runs the whole Playwright suite, and `deploy/smoke.sh` still passes.
+- **Pinned images:** the e2e matrix builds from the pinned `Dockerfile`s and runs the Playwright suite (Chromium on every PR; Firefox and WebKit on `main` and on PRs that touch `views/`, `static/` or `e2e/`), and `deploy/smoke.sh` still passes. The suite still builds from source. A follow-up would run `GREP=@readonly` against `compose.release.yaml` images; see `e2e/README.md`, "TODO: full suite against release images".
 
 ## 7. Rollout, operations and rollback
 

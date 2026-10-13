@@ -651,7 +651,7 @@ A version change (from a catalog edit or a dataset swap) makes old keys unreacha
 
 ### 13.8 Web tests
 
-`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any browser console message about Content Security Policy. `/season` tests count result rows against the visible word Estimate and check that ≈ is absent from accessible names.
+`httptest` for every public route and every row of §11.6. Full-page versus partial rendering depends on `HX-Request`. Every response, including 404, 429, 500 and static files, carries the §10.4 security headers. Playwright fails a test on any browser console message about Content Security Policy. `/season` tests count result rows against the visible word Estimate and check that ≈ is absent from accessible names. Almanac kickoff checks cover one `h1` in `main` above `#results`, one `#announce` with `role="status"`, an axe scan, light and dark screenshot baselines, a header bounding box that does not move across a results swap, and an empty `watchCSP` list.
 
 ### 13.9 End-to-end (Playwright against Compose)
 

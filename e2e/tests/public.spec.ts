@@ -1,6 +1,7 @@
+import AxeBuilder from "@axe-core/playwright";
 import { compose, expect, test, waitReady, watchCSP } from "../helpers";
 
-test("1. search → select → results render", async ({ page }) => {
+test("1. search → select → results render", { tag: ["@readonly"] }, async ({ page }) => {
   await page.goto("/");
   // Type key by key: the search input triggers on keyup, which fill() doesn't fire.
   await page.getByLabel("Find your town").pressSequentially("lisb", { delay: 50 });
@@ -11,8 +12,10 @@ test("1. search → select → results render", async ({ page }) => {
   await expect(page).toHaveURL(/\/season\?lat=38\.7167&lng=-9\.1333&place=1/);
 });
 
-test("every season row shows Estimate and keeps ≈ out of accessible names", async ({ page }) => {
+test("every season row shows Estimate and keeps ≈ out of accessible names", { tag: ["@readonly"] }, async ({ page }) => {
+  const csp = watchCSP(page);
   await page.goto("/season?lat=38.7167&lng=-9.1333&place=1&date=2026-05-15");
+  expect(csp).toEqual([]);
   const items = page.locator("#results .item");
   await expect(items.first()).toBeVisible();
   const n = await items.count();
@@ -26,6 +29,34 @@ test("every season row shows Estimate and keeps ≈ out of accessible names", as
   await expect(page.getByRole("link", { name: /≈/ })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /how we estimate/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /how we estimate/i })).not.toHaveAccessibleName(/≈/);
+});
+
+test("season page meets Almanac kickoff checks", { tag: ["@readonly"] }, async ({ page }) => {
+  const csp = watchCSP(page);
+  const url = "/season?lat=38.7167&lng=-9.1333&place=1&date=2026-05-15";
+  await page.goto(url);
+  expect(csp).toEqual([]);
+  await expect(page.locator("main h1")).toBeVisible();
+  const resultsTop = await page.locator("#results").evaluate((el) => el.getBoundingClientRect().top);
+  const h1Top = await page.locator("main h1").evaluate((el) => el.getBoundingClientRect().top);
+  expect(h1Top).toBeLessThan(resultsTop);
+  await expect(page.locator("#announce")).toHaveCount(1);
+  await expect(page.locator("#announce")).toHaveAttribute("role", "status");
+  await expect(page.locator("[aria-live]")).toHaveCount(1);
+  const header = page.locator("header.site");
+  const before = await header.boundingBox();
+  const first = page.locator("#results .item a").first();
+  const name = (await first.innerText()).trim();
+  await first.click();
+  await expect(page.locator("#results h2")).toHaveText(name);
+  expect(await header.boundingBox()).toEqual(before);
+  const axe = await new AxeBuilder({ page }).analyze();
+  expect(axe.violations, JSON.stringify(axe.violations, null, 2)).toEqual([]);
+  await page.goto(url);
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("#results")).toHaveScreenshot("season-estimate-light.png");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator("#results")).toHaveScreenshot("season-estimate-dark.png");
 });
 
 test("a one-letter search asks for more", async ({ page }) => {

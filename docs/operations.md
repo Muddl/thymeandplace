@@ -77,6 +77,8 @@ The site launches with seafood off, because the MEOW terms aren't confirmed (`do
 
 Every `/season` result row shows the word Estimate. A decorative ≈ next to it is `aria-hidden` and is not painted with generated content, so it never enters an accessible name. The "Estimates from local climate: how we estimate" link under the place name stays free of ≈. Visual uppercase comes from CSS `text-transform` on `.item .badge`. The HTML source stays `Estimate` so a screen reader speaks the word.
 
+The public page keeps one live region, `#announce` with `role="status"`. `main` has one `h1` above `#results`. Dark mode follows `prefers-color-scheme` only.
+
 The admin UI is unchanged: seafood items can still be edited there, and they stay hidden until the flag is on.
 
 The catalog still needs one change: import checks every seafood region against the live ecoregions, so without ocean data `content/catalog/launch.json` is rejected. Import a derived file instead, which drops the seafood items and any pairing that points at one:

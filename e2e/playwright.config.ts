@@ -8,9 +8,11 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
-    baseURL: "https://localhost",
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || "https://localhost",
     ignoreHTTPSErrors: true, // Caddy's internal CA
     trace: "retain-on-failure",
   },
+  expect: { toHaveScreenshot: { animations: "disabled", maxDiffPixelRatio: 0.02 } },
+  snapshotPathTemplate: "tests/baselines/{arg}{ext}",
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }], // CDP WebAuthn is Chromium-only
 });

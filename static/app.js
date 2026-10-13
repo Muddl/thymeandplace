@@ -52,30 +52,102 @@
       ? "Search isn't available right now. Try again in a moment."
       : "Couldn't load seasonal picks right now. Try again in a moment.";
   }
-  function writeInline(t, msg) {
+  function requestPath(e) {
+    var d = e && e.detail || {};
+    var cfg = d.requestConfig || {};
+    var path = (d.pathInfo && (d.pathInfo.requestPath || d.pathInfo.path)) || cfg.path || "";
+    if (path && path.indexOf("?") >= 0) return path;
+    var params = cfg.parameters || {};
+    var keys = Object.keys(params);
+    if (!path || !keys.length) return path;
+    var qs = keys.map(function (k) {
+      return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]);
+    }).join("&");
+    return path + "?" + qs;
+  }
+  function writeInline(t, msg, href) {
     if (!t) return;
+    t.replaceChildren();
+    var host;
     if (t.id === "places") {
-      t.innerHTML = '<p class="hint" data-announce="' + msg + '">' + msg + "</p>";
+      host = document.createElement("p");
+      host.className = "hint";
+      host.setAttribute("data-announce", msg);
+      host.appendChild(document.createTextNode(msg));
+      t.appendChild(host);
     } else {
-      t.innerHTML = '<div class="panel warn" data-announce="' + msg + '"><p>' + msg + "</p></div>";
+      host = document.createElement("div");
+      host.className = "panel warn";
+      host.setAttribute("data-announce", msg);
+      var p = document.createElement("p");
+      p.appendChild(document.createTextNode(msg));
+      host.appendChild(p);
+      t.appendChild(host);
     }
+    if (!href) return;
+    var wrap = document.createElement("p");
+    var a = document.createElement("a");
+    a.setAttribute("href", href);
+    a.setAttribute("hx-get", href);
+    a.setAttribute("hx-target", t.id === "places" ? "#places" : "#results");
+    a.appendChild(document.createTextNode("Try again"));
+    wrap.appendChild(a);
+    host.appendChild(wrap);
+    htmx.process(t);
+  }
+  function focusHeading(t) {
+    var h = t && t.querySelector(".where h2, h2, h3");
+    if (!h) return;
+    if (!h.hasAttribute("tabindex")) h.setAttribute("tabindex", "-1");
+    h.focus();
+  }
+  function restoreFocus(t) {
+    if (!t) return;
+    var active = document.activeElement;
+    if (active && active !== document.body && !t.contains(active)) return;
+    if (t.id === "results") {
+      var place = document.querySelector("#places a");
+      if (place) {
+        place.focus();
+        return;
+      }
+      focusHeading(t);
+      return;
+    }
+    var link = t.querySelector("a");
+    if (link) {
+      link.focus();
+      return;
+    }
+    var q = searchBox();
+    if (q) q.focus();
   }
   function announceSwap(e) {
-    announceFrom(swapTarget(e.detail && e.detail.target));
+    var t = swapTarget(e.detail && e.detail.target);
+    announceFrom(t);
+    restoreFocus(t);
   }
   function onTransportError(e) {
     var t = swapTarget(e.detail && e.detail.target);
     setBusy(t, false);
-    writeInline(t, networkCopy(t));
+    writeInline(t, networkCopy(t), requestPath(e));
     announceFrom(t);
+    if (t && t.id === "places") {
+      var q = searchBox();
+      if (q) q.focus();
+    } else {
+      restoreFocus(t);
+    }
   }
   function onResponseError(e) {
     var t = swapTarget(e.detail && e.detail.target);
     setBusy(t, false);
     var xhr = e.detail && e.detail.xhr;
     var body = xhr && xhr.responseText;
-    if (!body || !String(body).replace(/\s/g, "")) writeInline(t, networkCopy(t));
-    announceFrom(t);
+    if (!body || !String(body).replace(/\s/g, "")) {
+      writeInline(t, networkCopy(t), requestPath(e));
+      announceFrom(t);
+    }
   }
   htmx.config.timeout = 8000;
   document.addEventListener("htmx:beforeRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), true); });

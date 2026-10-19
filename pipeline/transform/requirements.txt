@@ -1,5 +1,5 @@
-numpy==2.5.3
+numpy==2.5.4
 pandas==3.0.6
-xarray==2026.7.0
+xarray==2026.9.0
 dask[array]==2026.8.0
-netCDF4==1.7.4
+netCDF4==1.7.5

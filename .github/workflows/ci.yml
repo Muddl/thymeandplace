@@ -44,7 +44,7 @@ jobs:
       - run: pip install -r pipeline/transform/requirements-dev.txt
       - run: python -m pytest pipeline/tests -q
 
-  deploy:
+  deploy-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -229,7 +229,7 @@ jobs:
 
   backup:
     if: github.ref == 'refs/heads/main'
-    needs: [deploy]
+    needs: [deploy-checks]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

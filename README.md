@@ -35,7 +35,7 @@ Seafood (hand-curated months per marine ecoregion) is built but switched off unt
 | `static` | CSS, small JS, vendored htmx |
 | `deploy` | Compose files, Caddyfiles, env file templates, backup and restore |
 | `e2e` | Playwright tests against the Compose stack |
-| `docs` | Operations runbook, license register, design specs, plans, and ways of working |
+| `docs` | Operations runbook, license register, design specs, plans, ways of working, and team ownership |
 
 ## Local development
 
@@ -92,6 +92,7 @@ The app reads its settings from the environment. In production they live in `/et
 
 ## Deployment and operations
 
+- `docs/RACI.md`: the team RACI for product, code, review, operations, and launch.
 - `docs/WAYS-OF-WORKING.md`: vetoes, ready, done, sign-offs, and branch protection. Builds on `docs/RACI.md` (PR #77).
 - `docs/operations.md`: the runbook, covering first deploy, database roles, ingesting reference data, backups and restores, the pre-launch checklist, and turning seafood on.
 - `docs/hosting-hetzner.md`: the recommended low-cost Hetzner Cloud setup.

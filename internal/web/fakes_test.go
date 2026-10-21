@@ -169,18 +169,22 @@ func (f *fakePlaces) ByID(ctx context.Context, id int32) (places.Place, bool, er
 }
 
 type harness struct {
-	h       http.Handler
-	climate *fakeClimate
-	ocean   *fakeOcean
-	places  *fakePlaces
-	snap    *catalog.Snapshot
-	pingErr error
-	version string
-	now     time.Time // the server clock
+	h         http.Handler
+	climate   *fakeClimate
+	ocean     *fakeOcean
+	places    *fakePlaces
+	snap      *catalog.Snapshot
+	pingErr   error
+	schemaErr error
+	version   string
+	now       time.Time // the server clock
 
-	pings       atomic.Int32
-	pingHold    chan struct{} // when set, Ping waits until it is closed, ignoring its deadline
-	pingEntered chan struct{} // when set, receives once per Ping that starts waiting on pingHold
+	pings         atomic.Int32
+	schemas       atomic.Int32
+	pingHold      chan struct{} // when set, Ping waits until it is closed, ignoring its deadline
+	pingEntered   chan struct{} // when set, receives once per Ping that starts waiting on pingHold
+	schemaHold    chan struct{}
+	schemaEntered chan struct{}
 }
 
 // newHarness builds the public handler over fakes. The server clock defaults
@@ -198,6 +202,7 @@ func newHarness(t *testing.T, opts ...func(*Deps)) *harness {
 		Snapshot:    func() *catalog.Snapshot { return hs.snap },
 		DataVersion: func() string { return hs.version },
 		Ping:        hs.ping,
+		Schema:      hs.schema,
 		Now:         func() time.Time { return hs.now },
 		Log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		// Most tests cover the full site; seafoodOff gives the launch setup.
@@ -229,6 +234,23 @@ func (hs *harness) ping(ctx context.Context) error {
 		<-hs.pingHold
 	}
 	return hs.pingErr
+}
+
+func (hs *harness) schema(ctx context.Context) error {
+	hs.schemas.Add(1)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if hs.schemaHold != nil {
+		if hs.schemaEntered != nil {
+			select {
+			case hs.schemaEntered <- struct{}{}:
+			default:
+			}
+		}
+		<-hs.schemaHold
+	}
+	return hs.schemaErr
 }
 
 // seafoodOff turns the seafood feature off, as at launch (FEATURE_SEAFOOD unset).

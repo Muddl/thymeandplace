@@ -26,8 +26,8 @@ thymeand.place {
 	# it Caddy reads X-Forwarded-For left to right and {client_ip} is the entry
 	# the client controls (docs/operations.md, "Reverse proxy trust and
 	# logging").
-	# Route on liveness. The app itself refuses to listen until its catalog
-	# snapshot loads and shows its own retry panel during DB outages.
+	# Route on liveness, not /readyz. Compose and deploy.sh wait on /readyz.
+	# The app shows its own retry panel during DB outages.
 	reverse_proxy app:8080 {
 		health_uri /healthz
 		health_interval 10s

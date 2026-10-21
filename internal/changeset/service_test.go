@@ -13,7 +13,6 @@ import (
 	"thymeandplace/internal/catalog"
 	"thymeandplace/internal/catalog/catalogtest"
 	"thymeandplace/internal/dbtest"
-	"thymeandplace/internal/ocean"
 	"thymeandplace/internal/store"
 )
 
@@ -32,7 +31,7 @@ func newTestService(t *testing.T, seed bool) (*Service, *pgxpool.Pool) {
 		_ = tx.Commit(ctx)
 	}
 	cases := testCases(t)
-	svc := NewService(pool, ocean.NewService(pool), func(context.Context) ([]calibration.Case, error) { return cases, nil })
+	svc := NewService(pool, func(context.Context) ([]calibration.Case, error) { return cases, nil })
 	return svc, pool
 }
 
@@ -77,7 +76,7 @@ func TestReopenUsesStoredScoresForOverride(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx,
 		`update pending_changeset set score_before = $1, score_after = $2 where id = $3`,
-		1.0, 1.0-OverrideThreshold-0.1, pending.ID,
+		1.0, 1.0-calibration.OverrideThreshold-0.1, pending.ID,
 	); err != nil {
 		t.Fatal(err)
 	}

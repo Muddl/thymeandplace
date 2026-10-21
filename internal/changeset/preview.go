@@ -6,15 +6,6 @@ import (
 	"thymeandplace/internal/season"
 )
 
-// OverrideThreshold is the largest score drop allowed without an override.
-const OverrideThreshold = 0.02
-
-// NeedsOverride reports a drop of more than OverrideThreshold. The epsilon
-// keeps a drop of exactly 0.02 (in decimal) from tripping on float noise.
-func NeedsOverride(before, after float64) bool {
-	return before-after > OverrideThreshold+1e-9
-}
-
 type Bars struct {
 	Fixture             string
 	Before, After       [12]season.Status
@@ -42,7 +33,7 @@ func BuildPreview(cur, proposed *catalog.Snapshot, cases []calibration.Case) Pre
 	before, after := calibration.Score(cur, cases), calibration.Score(proposed, cases)
 	p := Preview{
 		Diff: d, Before: before, After: after,
-		Delta: after.Score - before.Score, NeedsOverride: NeedsOverride(before.Score, after.Score),
+		Delta: after.Score - before.Score, NeedsOverride: calibration.ScoreDropped(before.Score, after.Score),
 	}
 	for _, slug := range d.Slugs() {
 		b, hadB := cur.Get(slug)

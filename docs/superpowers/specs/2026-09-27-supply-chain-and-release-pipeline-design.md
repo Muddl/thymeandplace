@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Source:** Architectural audit, 2026-09-27 (findings F08, F22)
-- **Related issues:** [#8](https://github.com/Muddl/thymeandplace/issues/8) (F08), [#22](https://github.com/Muddl/thymeandplace/issues/22) (F22)
+- **Related issues:** [#8](https://github.com/Muddl/thymeandplace/issues/8) (F08), [#22](https://github.com/Muddl/thymeandplace/issues/22) (F22), [#98](https://github.com/Muddl/thymeandplace/issues/98) (shared staging)
 - **Amends:** core spec §4.1 (the scaling claim is qualified), §13.10 (CI adds vulnerability scanning, lint and the race detector; release images are built only after CI passes on `main`), §14 (images come from a registry and are deployed by commit SHA; base images are pinned)
 
 ---
@@ -150,6 +150,16 @@ Core spec §4.1 becomes: "Stateless apart from per-process caches. It can run as
 ### 4.6 Zero-downtime threshold
 
 We don't build zero-downtime deploys now. `deploy.sh` records the window on every deploy. If the median over the first 10 production deploys exceeds 30 s, a follow-up issue designs a blue/green deploy: two app services behind Caddy with health-gated switching.
+
+### 4.7 Shared staging deploy
+
+A second Hetzner CX23 runs the same GHCR images for UX review at `staging.thymeand.place`, behind basic auth, with fixture/dev-seed data only. Production compose, Caddy, and `release.yml` stay as they are.
+
+- **Trigger:** `.github/workflows/staging.yml` on `workflow_run` of `ci` (`conclusion == success` and `event == push` on `main`), plus `workflow_dispatch` with a 40-character SHA.
+- **Inert until armed:** `deploy/staging-gate.sh` checks `STAGING_SSH_KEY`, `STAGING_HOST`, `STAGING_SSH_HOST_KEY`, and `STAGING_BASIC_AUTH`. Any empty value writes `ready=false` and exits 0. The job stays green. Add those repository secrets only after the VM exists (`deploy/STAGING.md`).
+- **Permissions and pins:** `contents: read`. `actions/checkout` uses the same commit SHA as `ci.yml`. No write permission. Concurrency group `staging-deploy` with `cancel-in-progress: false`. SSH uses `StrictHostKeyChecking=yes` and the host key from `STAGING_SSH_HOST_KEY`. The deploy key is authorized on the staging VM only.
+- **Reuse:** `deploy/staging-remote.sh` waits for the four GHCR tags, then runs `deploy.sh` with `TP_COMPOSE_OVERLAY=compose.staging.yaml`. Unset, `deploy.sh` still writes `COMPOSE_FILE=compose.yaml:compose.release.yaml` and runs the same compose command as before.
+- **Overlay:** `compose.staging.yaml` sets Postgres `shared_buffers=512MB`, `DB_MAX_CONNS=10`, and mounts `Caddyfile.staging` plus a Wade-only `Caddyfile.basicauth` snippet. Heartbeat URLs stay unset or point at a separate Healthchecks project. `ADMIN_SECRET_KEY`, the B2 bucket, and the age keys are generated for staging and never copied from production.
 
 ## 5. Implementation outline
 

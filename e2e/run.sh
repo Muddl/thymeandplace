@@ -54,6 +54,7 @@ if start_stack; then
   # ever removes thymeandplace-e2e_* volumes, never production's thymeandplace_*.
   # --profile tools makes it remove the ingest_work volume the devseed run creates.
   trap '$C --profile tools down -v >/dev/null 2>&1 || true' EXIT
+  $C --profile tools down -v
   $C build
   $C up -d --wait db app caddy
   $C --profile tools run --rm --entrypoint /app/devseed ingest
@@ -72,3 +73,8 @@ elif [ -n "$GREP" ]; then
   args+=(--grep="$GREP")
 fi
 npx playwright "${args[@]}"
+
+if start_stack && [ "$BROWSER" = "chromium" ] && [ "$GREP" != "@readonly" ]; then
+  $C --profile tools run --rm --entrypoint /app/devseed ingest
+  npx playwright test --project="$BROWSER" --grep='5\. import'
+fi

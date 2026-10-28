@@ -130,6 +130,10 @@ What to check:
 - `ingest climate all --version N` runs load/validate/swap; validate compares interpolated values at twelve fixed reference cities (London, Moscow, Cairo, Singapore, …) against known climatology figures within a 4°C tolerance (`internal/ingest/climate.go`). If validate fails, do not swap it in by hand — check the download completed and the transform didn't silently truncate.
 - Watch disk and memory on the VPS during this step; the raw NetCDF files plus the transform's intermediate arrays are the heaviest thing this system ever does in one step.
 
+## Public appearance
+
+Public appearance tokens live in `static/app.css` on `:root`, and on a second `:root` inside `@media (prefers-color-scheme: dark)`. The site follows `prefers-color-scheme`. There is no theme toggle. A cook with a dark OS gets the dark tokens.
+
 ## Updating the app
 
 Production runs the images CI built and tested, by commit SHA. Wait for the commit's `release` run in GitHub Actions to go green (it runs only after `ci` passed on `main`, and its summary lists each image's digest), then, from `/opt/thymeandplace/deploy`:

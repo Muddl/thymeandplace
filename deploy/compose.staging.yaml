@@ -1,0 +1,22 @@
+# Staging overlay. Production never passes this file.
+#   TP_IMAGE_TAG=<sha> docker compose -f compose.yaml -f compose.release.yaml -f compose.staging.yaml
+services:
+  db:
+    command: ["postgres", "-c", "shared_buffers=512MB"]
+
+  app:
+    environment:
+      DB_MAX_CONNS: "10"
+
+  caddy:
+    volumes:
+      - ./Caddyfile.staging:/etc/caddy/Caddyfile:ro
+      - ./maintenance.html:/srv/maintenance.html:ro
+      - type: bind
+        source: ${TP_ENV_DIR:-/etc/thymeandplace}/Caddyfile.basicauth
+        target: /etc/caddy/basicauth
+        read_only: true
+        bind:
+          create_host_path: false
+      - caddy_data:/data
+      - caddy_config:/config

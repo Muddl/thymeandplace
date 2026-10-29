@@ -83,6 +83,31 @@ jobs:
             *TP_IMAGE_TAG*) ;;
             *) echo "compose.release.yaml failed for another reason: $err"; exit 1 ;;
           esac
+      - name: Staging overlay and inert deploy
+        run: |
+          ./deploy/staging-ci-check.sh
+          env_dir="$RUNNER_TEMP/env"
+          cp deploy/env/Caddyfile.basicauth.example "$env_dir/Caddyfile.basicauth"
+          sha=0000000000000000000000000000000000000000
+          cfg=$(TP_ENV_DIR="$env_dir" TP_IMAGE_TAG=$sha \
+            docker compose -f deploy/compose.yaml -f deploy/compose.release.yaml -f deploy/compose.staging.yaml --profile tools config --format json)
+          if echo "$cfg" | jq -e '[.services[] | has("build")] | any' >/dev/null; then
+            echo "staging overlay must keep the release images:"; exit 1
+          fi
+          cmd=$(echo "$cfg" | jq -c '.services.db.command')
+          [ "$cmd" = '["postgres","-c","shared_buffers=512MB"]' ] || { echo "db command is $cmd"; exit 1; }
+          got=$(echo "$cfg" | jq -r '.services.app.environment.DB_MAX_CONNS')
+          [ "$got" = 10 ] || { echo "DB_MAX_CONNS is $got"; exit 1; }
+          echo "$cfg" | jq -e '.services.caddy.volumes[] | select(.target=="/etc/caddy/Caddyfile") | .source | endswith("Caddyfile.staging")' >/dev/null \
+            || { echo "caddy must mount Caddyfile.staging"; exit 1; }
+          echo "$cfg" | jq -e '.services.caddy.volumes[] | select(.target=="/etc/caddy/basicauth")' >/dev/null \
+            || { echo "caddy must mount the basic-auth snippet"; exit 1; }
+          prod=$(TP_ENV_DIR="$env_dir" TP_IMAGE_TAG=$sha \
+            docker compose -f deploy/compose.yaml -f deploy/compose.release.yaml --profile tools config --format json)
+          [ "$(echo "$prod" | jq -c '.services.db.command')" = null ] || { echo "prod db command changed"; exit 1; }
+          [ "$(echo "$prod" | jq -r '.services.app.environment.DB_MAX_CONNS // empty')" = "" ] || { echo "prod gained DB_MAX_CONNS"; exit 1; }
+          echo "$prod" | jq -e '.services.caddy.volumes[] | select(.target=="/etc/caddy/Caddyfile") | .source | endswith("/Caddyfile")' >/dev/null \
+            || { echo "prod caddy must keep Caddyfile"; exit 1; }
       - name: deploy.sh refuses anything but a full SHA
         run: |
           for bad in "" main abc123 0000000000000000000000000000000000000000x; do

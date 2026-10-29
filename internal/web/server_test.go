@@ -46,6 +46,12 @@ func TestHealthAndReady(t *testing.T) {
 	}
 	hs.now = hs.now.Add(time.Second)
 	hs.pingErr = nil
+	hs.schemaErr = ErrSchemaNotCurrent
+	if code, body, _ := hs.get("/readyz", false); code != 503 || body != ErrSchemaNotCurrent.Error() {
+		t.Fatalf("readyz must fail when migrations are pending: %d %q", code, body)
+	}
+	hs.now = hs.now.Add(time.Second)
+	hs.schemaErr = nil
 	hs.snap = nil
 	if code, _, _ := hs.get("/readyz", false); code != 503 {
 		t.Fatal("readyz must fail without a snapshot")
@@ -232,12 +238,71 @@ func TestReadyzClockBackwards(t *testing.T) {
 	}
 }
 
-// With no snapshot the answer is immediate and there is no ping.
+// With no snapshot the answer is immediate and there is no ping or schema check.
 func TestReadyzNoSnapshotNoPing(t *testing.T) {
 	hs := newHarness(t)
 	hs.snap = nil
-	if code, body, _ := hs.get("/readyz", false); code != 503 || body != "catalog not loaded" || hs.pings.Load() != 0 {
-		t.Fatalf("%d %q pings=%d", code, body, hs.pings.Load())
+	if code, body, _ := hs.get("/readyz", false); code != 503 || body != "catalog not loaded" || hs.pings.Load() != 0 || hs.schemas.Load() != 0 {
+		t.Fatalf("%d %q pings=%d schemas=%d", code, body, hs.pings.Load(), hs.schemas.Load())
+	}
+}
+
+func TestReadyzPendingSchemaNoReuseUntilWindow(t *testing.T) {
+	hs := newHarness(t)
+	hs.schemaErr = ErrSchemaNotCurrent
+	if code, body, _ := hs.get("/readyz", false); code != 503 || body != ErrSchemaNotCurrent.Error() {
+		t.Fatalf("%d %q", code, body)
+	}
+	hs.schemaErr = nil
+	if code, _, _ := hs.get("/readyz", false); code != 503 {
+		t.Fatal("the schema failure must be reused within the window")
+	}
+	if n := hs.schemas.Load(); n != 1 {
+		t.Fatalf("schemas = %d, want 1", n)
+	}
+	hs.now = hs.now.Add(time.Second)
+	if code, body, _ := hs.get("/readyz", false); code != 200 || body != "ready" {
+		t.Fatalf("after the window: %d %q", code, body)
+	}
+}
+
+func TestReadyzSharesSchema(t *testing.T) {
+	hs := newHarness(t)
+	hs.schemaHold, hs.schemaEntered = make(chan struct{}), make(chan struct{}, 1)
+	const n = 50
+	codes := make([]int, n)
+	bodies := make([]string, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			codes[i], bodies[i], _ = hs.get("/readyz", false)
+		}()
+	}
+	select {
+	case <-hs.schemaEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no schema check started")
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(hs.schemaHold)
+	wg.Wait()
+	for i := range n {
+		if codes[i] != 200 || bodies[i] != "ready" {
+			t.Fatalf("request %d: %d %q", i, codes[i], bodies[i])
+		}
+	}
+	if p := hs.schemas.Load(); p != 1 {
+		t.Fatalf("schemas = %d, want 1", p)
+	}
+}
+
+func TestReadyzPingFailureSkipsSchema(t *testing.T) {
+	hs := newHarness(t)
+	hs.pingErr = errors.New("down")
+	if code, body, _ := hs.get("/readyz", false); code != 503 || body != "database unavailable" || hs.schemas.Load() != 0 {
+		t.Fatalf("%d %q schemas=%d", code, body, hs.schemas.Load())
 	}
 }
 
@@ -247,19 +312,26 @@ func TestCheckReady(t *testing.T) {
 	ok := func(context.Context) error { return nil }
 	down := func(context.Context) error { return errors.New("x") }
 	hang := func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
+	stale := func(context.Context) error { return ErrSchemaNotCurrent }
 	none := func() *catalog.Snapshot { return nil }
 	have := func() *catalog.Snapshot { return snap }
-	if err := CheckReady(ctx, none, ok); !errors.Is(err, ErrCatalogNotLoaded) {
+	if err := CheckReady(ctx, Ready{Snapshot: none, Ping: ok, Schema: ok}); !errors.Is(err, ErrCatalogNotLoaded) {
 		t.Fatalf("no snapshot: %v", err)
 	}
-	if err := CheckReady(ctx, have, down); !errors.Is(err, ErrDatabaseUnavailable) {
+	if err := CheckReady(ctx, Ready{Snapshot: have, Ping: down, Schema: ok}); !errors.Is(err, ErrDatabaseUnavailable) {
 		t.Fatalf("db down: %v", err)
 	}
 	start := time.Now()
-	if err := CheckReady(ctx, have, hang); !errors.Is(err, ErrDatabaseUnavailable) || time.Since(start) > time.Second {
+	if err := CheckReady(ctx, Ready{Snapshot: have, Ping: hang, Schema: ok}); !errors.Is(err, ErrDatabaseUnavailable) || time.Since(start) > time.Second {
 		t.Fatalf("hung ping: %v after %v", err, time.Since(start))
 	}
-	if err := CheckReady(ctx, have, ok); err != nil {
+	if err := CheckReady(ctx, Ready{Snapshot: have, Ping: ok, Schema: stale}); !errors.Is(err, ErrSchemaNotCurrent) {
+		t.Fatalf("stale schema: %v", err)
+	}
+	if err := CheckReady(ctx, Ready{Snapshot: have, Ping: ok, Schema: down}); !errors.Is(err, ErrDatabaseUnavailable) {
+		t.Fatalf("schema query down: %v", err)
+	}
+	if err := CheckReady(ctx, Ready{Snapshot: have, Ping: ok, Schema: ok}); err != nil {
 		t.Fatalf("ready: %v", err)
 	}
 }

@@ -12,7 +12,7 @@
 
 `GET /readyz` is public and has no rate limit. Caddy proxies every path to the app, and the public limiter only classifies `/places`, `/season` and `/ingredient/*` (`internal/web/middleware.go`, `PublicLimits`). Every request runs `s.d.Ping`, which is `pool.Ping` (`cmd/server/app.go`). `pool.Ping` acquires a pooled connection and sends an empty statement (pgx docs, checked via Context7). A client looping on `/readyz` therefore competes with real requests for connections, one acquisition and one round trip per request. During a database outage, every probe also tries to open a new connection to the recovering database.
 
-Nothing in the deploy needs a fresh ping on every request. Docker and Caddy probe `/healthz` (`deploy/compose.yaml`, `deploy/Caddyfile`). The callers of `/readyz` are:
+Nothing in the deploy needs a fresh ping on every request. Docker Compose and `deploy.sh` probe `/readyz` (`deploy/compose.yaml`, `deploy/deploy.sh`). Caddy still probes `/healthz` (`deploy/Caddyfile`). The callers of `/readyz` are:
 
 - the runbook (`docs/operations.md`, "Health and logs")
 - `deploy/smoke.sh`

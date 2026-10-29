@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver for goose
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 
@@ -95,6 +95,18 @@ func RequireMigrated(ctx context.Context, url string) error {
 		return err
 	}
 	defer sqldb.Close()
+	return checkMigrated(ctx, sqldb)
+}
+
+// SchemaCurrent is RequireMigrated against an open pool, so /readyz and the
+// watchdog can reuse the app's connections instead of opening another one.
+func SchemaCurrent(ctx context.Context, pool *pgxpool.Pool) error {
+	sqldb := stdlib.OpenDBFromPool(pool)
+	defer sqldb.Close()
+	return checkMigrated(ctx, sqldb)
+}
+
+func checkMigrated(ctx context.Context, sqldb *sql.DB) error {
 	p, err := goose.NewProvider(goose.DialectPostgres, sqldb, migrations.FS)
 	if err != nil {
 		return fmt.Errorf("goose provider: %w", err)
@@ -102,12 +114,20 @@ func RequireMigrated(ctx context.Context, url string) error {
 	defer p.Close()
 	pending, err := p.HasPending(ctx)
 	if err != nil {
+		if isMissingMigrations(err) {
+			return ErrPendingMigrations
+		}
 		return fmt.Errorf("check migrations: %w", err)
 	}
 	if pending {
 		return ErrPendingMigrations
 	}
 	return nil
+}
+
+// Goose reports out-of-order holes as this string. There is no sentinel.
+func isMissingMigrations(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "missing (out-of-order) migration")
 }
 
 // Migrate applies all pending migrations.

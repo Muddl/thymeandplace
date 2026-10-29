@@ -152,7 +152,7 @@ Down migration: revoke the grants, drop the prune function, and turn the two fun
 2. `migrations/000NN_privileges.sql` (§4.3).
 3. `internal/db/db.go`: `RequireMigrated`. `cmd/server/main.go` and `app.go`: the `-migrate-only` flag, and replace `db.Migrate` with `db.RequireMigrated` in `newApp`.
 4. `internal/dbtest/dbtest.go`: roles, owner-built template, `NewAs`.
-5. `deploy/compose.yaml`: per-service `env_file`, the `migrate` and `restore` services, and the `db` init mount. `deploy/compose.e2e.yaml` and `deploy/e2e/*.env`. Update `deploy/smoke.sh`, `e2e/run.sh` and the CI `deploy` job's dummy env files (`.github/workflows/ci.yml:49-61`).
+5. `deploy/compose.yaml`: per-service `env_file`, the `migrate` and `restore` services, and the `db` init mount. `deploy/compose.e2e.yaml` and `deploy/e2e/*.env`. Update `deploy/smoke.sh`, `e2e/run.sh` and the CI `deploy-checks` job's dummy env files (`.github/workflows/ci.yml:49-61`).
 6. `deploy/env/*.example` replaces `deploy/env.example`. Update `.gitignore` (`!deploy/env/*.example`, `!deploy/e2e/*.env`) and `.dockerignore`.
 7. `docs/operations.md`: first deploy, updating the app, the restore commands, and the adoption procedure (§7). Apply the core spec amendments.
 
@@ -178,7 +178,7 @@ Down migration: revoke the grants, drop the prune function, and turn the two fun
 - **Default privileges:** as `tp_owner`, create `place_v99` and repoint the `place` view, as `ingest` does. `tp_app` can then read the view without a new grant.
 - **Startup guard (`cmd/server/app_test.go`):** `newApp` against a database missing the newest migration fails with the pending-migrations error. `-migrate-only` exits 0 on a migrated database.
 - **Backup role:** the local backup recipe in `docs/operations.md` runs `pg_dump` as `tp_backup` and restores through `restore` as the superuser. `restore-test` prints `restore-test ok`.
-- **E2E:** `e2e/run.sh` and `deploy/smoke.sh` bring the stack up through `migrate`, and every existing scenario passes. The CI `deploy` job validates the compose files with the new per-service env files.
+- **E2E:** `e2e/run.sh` and `deploy/smoke.sh` bring the stack up through `migrate`, and every existing scenario passes. The CI `deploy-checks` job validates the compose files with the new per-service env files.
 - **Existing suites:** every current test passes. Most keep the superuser pool.
 
 ## 7. Rollout, operations and rollback

@@ -224,7 +224,7 @@ A future metrics endpoint must use its own port. Caddy must never proxy that por
    - `start` launches the watchdog.
 7. **`deploy/backup/`:** add `heartbeat.sh`, change `backup.sh` and `restore-test.sh`, and add `heartbeat.sh` to the `COPY` line in `Dockerfile`.
 8. **`deploy/compose.yaml`:** change `x-logging`. **Env templates:** add the five `HEARTBEAT_*` lines, commented out and marked as secrets. *(Amended in implementation:* env files are per service: the three app URLs in `deploy/env/app.env.example`, `HEARTBEAT_BACKUP_URL` in `backup.env.example`, `HEARTBEAT_RESTORE_TEST_URL` in `restore.env.example`.)
-9. **`.github/workflows/ci.yml`:** in the `deploy` job, add `sh -n deploy/backup/*.sh`.
+9. **`.github/workflows/ci.yml`:** in the `deploy-checks` job, add `sh -n deploy/backup/*.sh`.
 10. **Docs:**
     - `docs/operations.md` (§7).
     - Core spec §10.4: backup-login use and lockout alert the owner.

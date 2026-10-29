@@ -21,11 +21,13 @@ These keep their own licenses, and nothing above changes them.
 | htmx 2.0.4 | `static/htmx.min.js` | BSD 2-Clause, © Big Sky Software (see `static/README.md`) |
 | Go modules | `go.mod`, `go.sum`; compiled into the binaries | Each module's own license, shipped with its source |
 | Python packages | `pipeline/transform/requirements*.txt` | Each package's own license |
+| npm packages | `e2e/package.json` (dev, not shipped) | Each package's own license |
 | Container images | `deploy/Dockerfile.*`, `deploy/compose.yaml` (Postgres/PostGIS, Caddy, Go, Python and others) | Each image's own licenses |
 | TerraClimate climate normals | Downloaded by `cmd/ingest climate` | CC0 1.0, as recorded |
 | GeoNames place names | Downloaded by `cmd/ingest places` | CC BY 4.0: credited on every page and on the About page |
 | Natural Earth land polygons | Downloaded by `cmd/ingest ocean` | Public domain, as recorded |
 | Marine Ecoregions of the World | Downloaded by `cmd/ingest ocean` | **Unresolved**; not used while seafood is off |
 | pstack and cursor-team-kit agent skills | `.cursor/skills/`, `.cursor/agents/` (developer tooling, not shipped); see `.cursor/skills/PSTACK_VENDORED.md` | MIT, © 2026 Lauren Tan and © 2026 Cursor (notices in `.cursor/skills/PSTACK_LICENSE` and `.cursor/skills/CURSOR_TEAM_KIT_LICENSE`) |
+| axe-core and @axe-core/playwright | `e2e/` (developer tooling, not shipped) | MPL-2.0 |
 
 The terms, obligations and evidence for each dataset are recorded in `docs/reference-data-licenses.md`, which is the authority for reference data. If a dataset's terms change, that register changes first.

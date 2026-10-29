@@ -6,7 +6,7 @@ test.describe.configure({ mode: "serial" });
 const adminCSP =
   "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
-test("anonymous /admin redirects to sign-in and sends the admin CSP @readonly", async ({ page, request }) => {
+test("anonymous /admin redirects to sign-in and sends the admin CSP", { tag: "@readonly" }, async ({ page, request }) => {
   const res = await request.get("/admin");
   expect(res.status()).toBe(200);
   expect(res.url()).toMatch(/\/admin\/login$/);
@@ -17,7 +17,7 @@ test("anonymous /admin redirects to sign-in and sends the admin CSP @readonly", 
   await expect(page.getByRole("button", { name: "Sign in with a passkey" })).toBeVisible();
 });
 
-test("4. passkey login → edit → preview → apply → public page reflects change @mutating", async ({ page }) => {
+test("4. passkey login → edit → preview → apply → public page reflects change", { tag: "@mutating" }, async ({ page }) => {
   test.skip(!isLocalOrigin() || !process.env.TP_PUBLIC_TODAY, "Tomato season check needs a local origin and TP_PUBLIC_TODAY");
   const lisbonSeason = withDate(await findLisbonHref(page));
   await page.goto(lisbonSeason);
@@ -49,7 +49,7 @@ test("4. passkey login → edit → preview → apply → public page reflects c
 // swapped-in partial (GET /admin/kind-fields), not a full page reload.
 // This never previews or applies, so it can't disturb the catalog state
 // scenario 4 depends on (Tomato's default months_to_harvest).
-test("6. changing Kind swaps the season-rule fields @mutating", async ({ page }) => {
+test("6. changing Kind swaps the season-rule fields", { tag: "@mutating" }, async ({ page }) => {
   await enrollAndSignIn(page);
   await page.goto("/admin/ingredients/tomato");
   await expect(page.getByLabel("Minimum growing mean temperature (°C)")).toBeVisible();
@@ -63,7 +63,7 @@ test("6. changing Kind swaps the season-rule fields @mutating", async ({ page })
 // dead end — the form it came from should still be fillable and able to
 // preview again. Uses Basil (not Tomato) and never applies, so scenario 4/5
 // are unaffected regardless of test order.
-test("7. Back from the preview page returns to a usable, re-previewable form @mutating", async ({ page }) => {
+test("7. Back from the preview page returns to a usable, re-previewable form", { tag: "@mutating" }, async ({ page }) => {
   await enrollAndSignIn(page);
   await page.goto("/admin/ingredients/basil");
   await page.getByLabel("Months from planting to harvest").fill("1");
@@ -82,7 +82,7 @@ const chard = {
   storage_months: 0, tips: { choose: "Glossy leaves.", store: "Fridge, wrapped." }, pairings: ["kale"], note: "",
 };
 
-test("5. import → preview → apply → export matches @mutating", async ({ page }) => {
+test("5. import → preview → apply → export matches", { tag: "@mutating" }, async ({ page }) => {
   await enrollAndSignIn(page);
   await page.goto("/admin/import");
   await page.setInputFiles('input[name="file"]', {

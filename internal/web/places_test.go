@@ -12,7 +12,8 @@ func TestPlacesMatches(t *testing.T) {
 	hs := newHarness(t)
 	code, body, hdr := hs.get("/places?q=lis", true)
 	if code != 200 || strings.Contains(body, "<html") || !strings.Contains(body, "Lisbon, PT") ||
-		!strings.Contains(body, `/season?lat=38.7200&lng=-9.1400&place=1`) || !strings.Contains(hdr.Get("Vary"), "HX-Request") {
+		!strings.Contains(body, `/season?lat=38.7200&lng=-9.1400&place=1`) || !strings.Contains(hdr.Get("Vary"), "HX-Request") ||
+		!strings.Contains(body, `data-announce="1 place"`) {
 		t.Fatalf("%d %v\n%s", code, hdr, body)
 	}
 }

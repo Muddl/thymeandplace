@@ -26,11 +26,43 @@
       e.detail.parameters.date = localDate();
     }
   });
+  function searchBox() { return document.getElementById("q"); }
+  function focusSearch() {
+    var search = searchBox();
+    if (search && location.hash === "#q") search.focus();
+  }
+  function swapTarget(el) {
+    return el && (el.id === "places" || el.id === "results") ? el : null;
+  }
+  function setBusy(t, on) {
+    if (!t) return;
+    if (on) t.setAttribute("aria-busy", "true");
+    else t.removeAttribute("aria-busy");
+  }
+  function announceSwap(e) {
+    var announce = document.getElementById("announce");
+    var t = swapTarget(e.detail && e.detail.target);
+    if (!announce || !t) return;
+    var src = t.querySelector("[data-announce]");
+    var msg = src ? src.getAttribute("data-announce") || "" : "";
+    announce.textContent = "";
+    announce.textContent = msg;
+  }
+  document.addEventListener("htmx:beforeRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), true); });
+  document.addEventListener("htmx:afterRequest", function (e) { setBusy(swapTarget(e.detail && e.detail.target), false); });
+  document.addEventListener("htmx:afterSwap", announceSwap);
+  window.addEventListener("hashchange", focusSearch);
   document.addEventListener("click", function (e) {
+    var a = e.target.closest("a");
+    var href = a && a.getAttribute("href");
+    if (href === "/#q" || href === "#q") {
+      var jump = searchBox();
+      if (jump) jump.focus();
+    }
     var btn = e.target.closest("[data-geolocate]");
     if (!btn) return;
     var hint = document.getElementById("geo-hint");
-    var search = document.getElementById("q");
+    var search = searchBox();
     function fallback() { hint.hidden = false; search.focus(); }
     if (!navigator.geolocation) { fallback(); return; }
     navigator.geolocation.getCurrentPosition(function (pos) {
@@ -42,4 +74,5 @@
       });
     }, fallback, { timeout: 10000, maximumAge: 600000 });
   });
+  focusSearch();
 })();

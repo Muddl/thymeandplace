@@ -1,35 +1,116 @@
 import { execSync } from "node:child_process";
 import path from "node:path";
+import AxeBuilder from "@axe-core/playwright";
 import { APIRequestContext, Page, expect, test as base } from "@playwright/test";
 
 const deploy = path.resolve(__dirname, "..", "deploy");
 
-// watchCSP collects the page's browser console messages about Content
-// Security Policy. The site sends a strict CSP (internal/web/middleware.go),
-// so any such message means a page uses something the policy blocks.
-export function watchCSP(page: Page): string[] {
-  const seen: string[] = [];
+export type CSPEvent = {
+  directive: string;
+  blockedURI: string;
+  sourceFile: string;
+  sample: string;
+  lineNumber: number;
+};
+
+export type CSPWatch = {
+  console: string[];
+  events: CSPEvent[];
+  ignoreDuring<T>(fn: () => Promise<T>): Promise<T>;
+};
+
+const watches = new WeakMap<Page, CSPWatch>();
+
+// WebKit injects <style>body {}</style> on every screenshot, so wrap
+// toHaveScreenshot in ignoreDuring.
+export async function watchCSP(page: Page): Promise<CSPWatch> {
+  const existing = watches.get(page);
+  if (existing) return existing;
+  let recording = true;
+  const watch: CSPWatch = {
+    console: [],
+    events: [],
+    async ignoreDuring(fn) {
+      recording = false;
+      try {
+        return await fn();
+      } finally {
+        recording = true;
+      }
+    },
+  };
   page.on("console", (m) => {
-    if (m.text().includes("Content Security Policy")) seen.push(m.text());
+    if (!recording) return;
+    const t = m.text();
+    if (t.includes("Content-Security-Policy") || t.includes("Content Security Policy")) {
+      watch.console.push(t);
+    }
   });
-  return seen;
+  try {
+    await page.exposeFunction("__tpCspPush", (hit: CSPEvent) => {
+      if (recording) watch.events.push(hit);
+    });
+    await page.addInitScript(() => {
+      document.addEventListener("securitypolicyviolation", (e) => {
+        const w = window as unknown as { __tpCspPush?: (h: CSPEvent) => void };
+        w.__tpCspPush?.({
+          directive: e.effectiveDirective,
+          blockedURI: e.blockedURI,
+          sourceFile: e.sourceFile,
+          sample: e.sample,
+          lineNumber: e.lineNumber,
+        });
+      });
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/JavaScript is disabled|javaScriptEnabled/i.test(msg)) throw err;
+  }
+  watches.set(page, watch);
+  return watch;
 }
 
-// test is Playwright's test with a guard that fails any test whose page
-// logged a CSP message. Pages from a context a test makes itself need their
-// own watchCSP.
 export const test = base.extend<{ cspGuard: void }>({
   cspGuard: [
     async ({ page }, use) => {
-      const seen = watchCSP(page);
+      const seen = await watchCSP(page);
       await use();
-      expect(seen, "Content Security Policy messages in the browser console").toEqual([]);
+      expect(seen.events, "securitypolicyviolation events").toEqual([]);
     },
     { auto: true },
   ],
 });
 
 export { expect };
+
+function defaultLinkContrastOnly(v: { id: string; nodes: { html: string }[] }) {
+  // #48: unstyled <a> stays browser-default blue on the dark background.
+  if (v.id !== "color-contrast") return false;
+  return v.nodes.every((n) => /<a\b/i.test(n.html) && !/\bclass=/.test(n.html));
+}
+
+const schemeBg = { light: "#fbfaf6", dark: "#141814" } as const;
+
+// emulateMedia alone can silently stay on light (Firefox). Fail if the
+// scheme or --bg token did not apply. Same check as #104.
+export async function emulateColorScheme(page: Page, scheme: "light" | "dark") {
+  await page.emulateMedia({ colorScheme: scheme });
+  const applied = await page.evaluate((want) => {
+    return {
+      media: matchMedia(`(prefers-color-scheme: ${want})`).matches,
+      bg: getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(),
+    };
+  }, scheme);
+  expect(applied.media, `prefers-color-scheme: ${scheme}`).toBe(true);
+  expect(applied.bg, "--bg").toBe(schemeBg[scheme]);
+}
+
+export async function axeOk(page: Page, scheme: "light" | "dark") {
+  await emulateColorScheme(page, scheme);
+  const results = await new AxeBuilder({ page }).analyze();
+  const leftover = results.violations.filter((v) => !(scheme === "dark" && defaultLinkContrastOnly(v)));
+  expect(leftover, `${scheme} axe: ${JSON.stringify(leftover, null, 2)}`).toEqual([]);
+}
 
 export function todayUTC(): string {
   return new Date().toISOString().slice(0, 10);

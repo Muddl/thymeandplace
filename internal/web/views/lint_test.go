@@ -129,13 +129,74 @@ func TestNoSafeURLInPublicViews(t *testing.T) {
 	}
 }
 
+var (
+	generatedApprox = regexp.MustCompile(`content:\s*["'][^"']*(\\2248|≈)`)
+	clippedBadge    = regexp.MustCompile(`\.item\s+\.badge\s*\{[^}]*clip-path`)
+	itemGenerated   = regexp.MustCompile(`\.item::(before|after)\s*\{[^}]*content:`)
+	whenGenerated   = regexp.MustCompile(`\.when(?:\s+a)?::(before|after)\s*\{[^}]*content:`)
+)
+
+func estimateVisibilityProblems(css string) []string {
+	var out []string
+	if generatedApprox.MatchString(css) {
+		out = append(out, "paints ≈ with generated content")
+	}
+	if clippedBadge.MatchString(css) {
+		out = append(out, "clips .item .badge")
+	}
+	if itemGenerated.MatchString(css) {
+		out = append(out, "uses ::before/::after on .item")
+	}
+	if whenGenerated.MatchString(css) {
+		out = append(out, "uses ::before/::after on .when")
+	}
+	return out
+}
+
+func TestStaticCSSKeepsEstimateVisible(t *testing.T) {
+	err := filepath.Walk(filepath.Join("..", "..", "..", "static"), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".css") {
+			return nil
+		}
+		b, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		for _, problem := range estimateVisibilityProblems(string(b)) {
+			t.Errorf("%s %s", path, problem)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEstimateVisibilityReportsEveryMatch(t *testing.T) {
+	css := `.item::after{content:"≈"} .item .badge{clip-path:inset(50%)} .when a::before{content:"≈"}`
+	got := estimateVisibilityProblems(css)
+	if len(got) < 3 {
+		t.Fatalf("want every match, got %v", got)
+	}
+}
+
 // The retry link is sanitized: a script URL renders as templ's placeholder.
 func TestLoadErrorSanitizesRetryURL(t *testing.T) {
 	var buf bytes.Buffer
 	if err := LoadError("", "javascript:alert(1)").Render(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), `href="about:invalid#TemplFailedSanitizationURL"`) {
-		t.Fatalf("retry href not sanitized:\n%s", buf.String())
+	html := buf.String()
+	if !strings.Contains(html, `href="about:invalid#TemplFailedSanitizationURL"`) {
+		t.Fatalf("retry href not sanitized:\n%s", html)
+	}
+	if !strings.Contains(html, `data-announce="`) || !strings.Contains(html, "seasonal picks") {
+		t.Fatalf("LoadError must use data-announce:\n%s", html)
+	}
+	if strings.Contains(html, `role="alert"`) {
+		t.Fatal("LoadError must not also be role=alert")
 	}
 }

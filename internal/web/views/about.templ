@@ -4,7 +4,7 @@ package views
 // the marine regions and the coastline data used to trim them) appears only
 // with the seafood feature on.
 templ About(seafood bool) {
-	<article class="about">
+	<article class="about" data-announce={ CopyAboutAnnounce }>
 		<h2>About the data</h2>
 		<h3 id="estimates">How estimates work</h3>
 		<p>{ estimatesIntro(seafood) }</p>

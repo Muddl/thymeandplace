@@ -1,7 +1,7 @@
 package views
 
 templ Ingredient(vm IngredientVM) {
-	<article class="ingredient">
+	<article class="ingredient" data-announce={ vm.Name }>
 		<p><a href={ templ.URL(vm.BackURL) } hx-get={ vm.BackURL } hx-target="#results" hx-push-url="true">Back to the list</a></p>
 		<h2>{ vm.Name }</h2>
 		<p class="category">{ vm.Category }</p>

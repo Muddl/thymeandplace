@@ -7,7 +7,7 @@
 name: thymeandplace-dev
 services:
   db:
-    image: postgis/postgis:17-3.5@sha256:01a6a70e41e6c4467c8f55f6063555ed72db2d6662cd0d571040d42eadaeb6f6
+    image: postgis/postgis:18-3.6@sha256:4a43e3c3e5d55b9208240fc71db543b79c638766280c625a425bd0a2390989c4
     environment:
       POSTGRES_USER: tp
       POSTGRES_PASSWORD: tp
